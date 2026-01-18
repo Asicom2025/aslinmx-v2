@@ -6,7 +6,7 @@ import { swalSuccess } from "@/lib/swal";
 import { useUser } from "@/context/UserContext";
 import type { EmpresaSummary } from "@/context/UserContext";
 import { FaSpinner } from "react-icons/fa";
-import { FiBell } from "react-icons/fi";
+import { FiBell, FiMenu, FiSearch, FiChevronDown } from "react-icons/fi";
 import apiService from "@/lib/apiService";
 import { Notificacion } from "@/types/notificaciones";
 
@@ -89,20 +89,7 @@ export default function Navbar() {
             onClick={() => {}}
             data-sidebar-toggle
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-              className="w-6 h-6"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
-              />
-            </svg>
+            <FiMenu className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-2">
             {empresasDisponibles.length > 1 ? (
@@ -140,20 +127,7 @@ export default function Navbar() {
               className="w-full rounded-md bg-white/15 placeholder-white/70 text-white pl-10 pr-4 py-2 outline-none ring-1 ring-white/20 focus:ring-2 focus:ring-white/40"
             />
             <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-white/80">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1.5}
-                stroke="currentColor"
-                className="w-5 h-5"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 105.25 5.25a7.5 7.5 0 0011.4 11.4z"
-                />
-              </svg>
+              <FiSearch className="w-5 h-5" />
             </span>
           </div>
         </div>
@@ -250,19 +224,9 @@ export default function Navbar() {
               <span className="hidden sm:inline line-clamp-1 truncate max-w-[200px]">
                 {user?.full_name || user?.email || <FaSpinner className="animate-spin w-4 h-4" />}
               </span>
-              <svg
-                className={`w-4 h-4 transition-transform ${
-                  profileOpen ? "rotate-180" : "rotate-0"
-                }`}
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <FiChevronDown className={`w-4 h-4 transition-transform ${
+                profileOpen ? "rotate-180" : "rotate-0"
+              }`} />
             </button>
 
             {profileOpen && (

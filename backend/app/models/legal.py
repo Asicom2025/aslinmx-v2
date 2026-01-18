@@ -57,6 +57,38 @@ class CalificacionSiniestro(Base):
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
 
 
+class Entidad(Base):
+    """Entidades unificadas (pueden ser institución, autoridad, órgano o múltiples roles)"""
+    __tablename__ = "entidades"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    empresa_id = Column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
+    nombre = Column(String(200), nullable=False)
+    codigo = Column(String(50))
+    email = Column(String(100))
+    telefono = Column(String(20))
+    direccion = Column(Text)
+    contacto_principal = Column(String(200))  # Nombre del contacto principal
+    observaciones = Column(Text)
+    
+    # Flags de roles (una entidad puede tener múltiples roles)
+    es_institucion = Column(Boolean, nullable=False, default=False)
+    es_autoridad = Column(Boolean, nullable=False, default=False)
+    es_organo = Column(Boolean, nullable=False, default=False)
+    
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(es_institucion = TRUE OR es_autoridad = TRUE OR es_organo = TRUE)",
+            name="check_entidad_al_menos_un_rol"
+        ),
+    )
+
+
 class Institucion(Base):
     """Instituciones externas"""
     __tablename__ = "instituciones"
@@ -111,19 +143,62 @@ class TipoDocumento(Base):
     __tablename__ = "tipos_documento"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    empresa_id = Column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
     nombre = Column(String(100), nullable=False)
     descripcion = Column(Text)
-    area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="SET NULL"), nullable=True)
-    plantilla = Column(Text)  # JSON con estructura de la plantilla
+    plantilla = Column(Text)  # Contenido de la plantilla
     campos_obligatorios = Column(JSONB)
+    formato = Column(String(50))  # Ej: 'A4', 'oficio', 'carta', etc.
+    tipo = Column(String(20), server_default=text("'editor'"))  # 'pdf', 'editor', 'imagen'
     activo = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
 
-    # Relación con área
-    area = relationship("Area", foreign_keys=[area_id])
+    # Relaciones
+    categorias = relationship("CategoriaDocumento", back_populates="tipo_documento", lazy="selectin", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint("tipo IN ('pdf', 'editor', 'imagen')", name="check_tipo_documento_tipo"),
+    )
+
+
+class CategoriaDocumento(Base):
+    """Categorías dentro de tipos de documentos"""
+    __tablename__ = "categorias_documento"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    tipo_documento_id = Column(UUID(as_uuid=True), ForeignKey("tipos_documento.id", ondelete="CASCADE"), nullable=False)
+    nombre = Column(String(100), nullable=False)
+    descripcion = Column(Text)
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+    # Relaciones
+    tipo_documento = relationship("TipoDocumento", back_populates="categorias")
+    plantillas = relationship("PlantillaDocumento", back_populates="categoria", lazy="selectin", cascade="all, delete-orphan")
+
+
+class PlantillaDocumento(Base):
+    """Plantillas de documentos (pueden estar bajo tipo o categoría)"""
+    __tablename__ = "plantillas_documento"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    tipo_documento_id = Column(UUID(as_uuid=True), ForeignKey("tipos_documento.id", ondelete="CASCADE"), nullable=False)
+    categoria_id = Column(UUID(as_uuid=True), ForeignKey("categorias_documento.id", ondelete="CASCADE"), nullable=True)  # Opcional
+    nombre = Column(String(200), nullable=False)
+    descripcion = Column(Text)
+    contenido = Column(Text)  # Contenido HTML de la plantilla
+    formato = Column(String(50))  # Ej: 'A4', 'oficio', 'carta', etc.
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+    # Relaciones
+    tipo_documento = relationship("TipoDocumento")
+    categoria = relationship("CategoriaDocumento", back_populates="plantillas")
 
 
 class Siniestro(Base):
@@ -201,8 +276,13 @@ class Documento(Base):
     siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)
     tipo_documento_id = Column(UUID(as_uuid=True), ForeignKey("tipos_documento.id", ondelete="RESTRICT"), nullable=True)
     etapa_flujo_id = Column(UUID(as_uuid=True), ForeignKey("etapas_flujo.id", ondelete="SET NULL"), nullable=True)
+    plantilla_documento_id = Column(UUID(as_uuid=True), ForeignKey("plantillas_documento.id", ondelete="SET NULL"), nullable=True)
+    # Campos para organización por área y flujo
+    area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="SET NULL"), nullable=True)
+    flujo_trabajo_id = Column(UUID(as_uuid=True), ForeignKey("flujos_trabajo.id", ondelete="SET NULL"), nullable=True)
     nombre_archivo = Column(String(255), nullable=False)
     ruta_archivo = Column(String(500), nullable=False)
+    contenido = Column(Text, nullable=True)  # Contenido HTML del documento editado
     tamaño_archivo = Column(Integer)  # BIGINT -> Integer
     tipo_mime = Column(String(100))
     usuario_subio = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=True)
@@ -216,6 +296,11 @@ class Documento(Base):
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
+    
+    # Relaciones
+    plantilla_origen = relationship("PlantillaDocumento", foreign_keys=[plantilla_documento_id], lazy="joined")
+    area = relationship("Area", foreign_keys=[area_id], lazy="select")
+    flujo_trabajo = relationship("FlujoTrabajo", foreign_keys=[flujo_trabajo_id], lazy="select")
 
 
 class BitacoraActividad(Base):
@@ -231,11 +316,18 @@ class BitacoraActividad(Base):
     fecha_actividad = Column(DateTime(timezone=True), nullable=False)
     documento_adjunto = Column(String(255), nullable=True)
     comentarios = Column(Text, nullable=True)
+    # Campos para organización por área y flujo
+    area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="SET NULL"), nullable=True)
+    flujo_trabajo_id = Column(UUID(as_uuid=True), ForeignKey("flujos_trabajo.id", ondelete="SET NULL"), nullable=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         CheckConstraint("tipo_actividad IN ('documento', 'llamada', 'reunion', 'inspeccion', 'otro')", name="check_tipo_actividad"),
     )
+    
+    # Relaciones
+    area = relationship("Area", foreign_keys=[area_id], lazy="select")
+    flujo_trabajo = relationship("FlujoTrabajo", foreign_keys=[flujo_trabajo_id], lazy="select")
 
 
 class Notificacion(Base):

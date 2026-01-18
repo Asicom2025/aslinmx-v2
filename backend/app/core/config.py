@@ -4,7 +4,7 @@ Maneja variables de entorno y configuraciones globales
 """
 
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # 2FA
     TOTP_ISSUER: str = "Aslin 2.0"
     
+    # reCAPTCHA Enterprise v3
+    GOOGLE_CLOUD_PROJECT_ID: Optional[str] = None
+    RECAPTCHA_KEY: Optional[str] = None  # Clave del sitio reCAPTCHA Enterprise
+    RECAPTCHA_SITE_KEY: Optional[str] = None  # Mantener para compatibilidad con frontend
+    
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
@@ -31,6 +36,7 @@ class Settings(BaseSettings):
     # Configuración del servidor
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
+    DEBUG: bool = False
     
     class Config:
         env_file = ".env"

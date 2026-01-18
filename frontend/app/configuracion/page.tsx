@@ -14,11 +14,48 @@ import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
 import Modal from "@/components/ui/Modal";
 import DataTable from "@/components/ui/DataTable";
+import TiptapEditor from "@/components/ui/TiptapEditor";
+import PDFGenerator from "@/components/pdf/PDFGenerator";
+import PDFPreviewModal from "./components/PDFPreviewModal";
+import CategoriasModal from "./components/CategoriasModal";
+import PlantillasSinCategoriaModal from "./components/PlantillasSinCategoriaModal";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
+import { FiFolder, FiFileText, FiEye } from "react-icons/fi";
 
 type ConfigTab = "general" | "flujos" | "areas" | "documentos" | "tipos_documento";
+
+// Wrapper para FlujosTrabajoPage que maneja mejor el estado de carga
+function FlujosTrabajoPageWrapper() {
+  const { user, loading: userLoading, activeEmpresa } = useUser();
+  
+  if (userLoading) {
+    return (
+      <div className="p-6 text-center">
+        <p className="text-gray-500">Cargando...</p>
+      </div>
+    );
+  }
+  
+  if (!user) {
+    return (
+      <div className="p-6 text-center">
+        <p className="text-gray-500">No hay usuario autenticado</p>
+      </div>
+    );
+  }
+  
+  if (!activeEmpresa && (!user.empresa?.id && (!user.empresas || user.empresas.length === 0))) {
+    return (
+      <div className="p-6 text-center">
+        <p className="text-gray-500">No tienes una empresa activa asignada. Por favor, selecciona una empresa para gestionar flujos de trabajo.</p>
+      </div>
+    );
+  }
+  
+  return <FlujosTrabajoPage />;
+}
 
 export default function ConfiguracionPage() {
   const router = useRouter();
@@ -66,7 +103,7 @@ export default function ConfiguracionPage() {
 
         {activeTab === "flujos" && (
           <div className="bg-white rounded-lg shadow p-2">
-            <FlujosTrabajoPage />
+            <FlujosTrabajoPageWrapper />
           </div>
         )}
 
@@ -74,7 +111,7 @@ export default function ConfiguracionPage() {
 
         {activeTab === "documentos" && <DocumentosTab />}
 
-        {activeTab === "tipos_documento" && <TiposDocumentoTab />}
+        {activeTab === "tipos_documento" && <PlantillasTab />}
       </div>
     </div>
   );
@@ -98,6 +135,7 @@ function GeneralTab() {
 
   useEffect(() => {
     if (!activeEmpresa) {
+      console.log("GeneralTab: No hay activeEmpresa, limpiando formulario");
       setForm({
         nombre: "",
         alias: "",
@@ -112,10 +150,18 @@ function GeneralTab() {
       return;
     }
 
+    if (!activeEmpresa.id) {
+      console.error("GeneralTab: activeEmpresa no tiene ID válido", activeEmpresa);
+      setLoading(false);
+      return;
+    }
+
     const loadEmpresa = async () => {
       try {
         setLoading(true);
-        const data = await apiService.empresa.getEmpresaById(activeEmpresa.id);
+        console.log("GeneralTab: Cargando empresa con ID:", activeEmpresa.id);
+        const data = await apiService.getEmpresaById(activeEmpresa.id);
+        console.log("GeneralTab: Datos de empresa recibidos:", data);
         setForm({
           nombre: data.nombre || "",
           alias: data.alias || "",
@@ -128,7 +174,9 @@ function GeneralTab() {
         });
         setLogoPreview(data.logo_url || "");
       } catch (e: any) {
-        swalError(e.response?.data?.detail || "Error al cargar la empresa");
+        console.error("GeneralTab: Error al cargar empresa:", e);
+        const errorMsg = e.response?.data?.detail || e.message || "Error al cargar la empresa";
+        swalError(errorMsg);
       } finally {
         setLoading(false);
       }
@@ -191,7 +239,7 @@ function GeneralTab() {
     if (!activeEmpresa) return;
     try {
       setSaving(true);
-      await apiService.empresa.updateEmpresa(activeEmpresa.id, form);
+      await apiService.updateEmpresa(activeEmpresa.id, form);
       await swalSuccess("Empresa actualizada correctamente");
       await refresh();
     } catch (error: any) {
@@ -752,7 +800,14 @@ function DocumentosTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row
     {
       header: "Descripción",
       accessorKey: "descripcion",
-      cell: (info) => <span className="text-sm text-gray-600 line-clamp-2">{(info.getValue() as string) || "-"}</span>,
+      cell: (info) => {
+        const descripcion = (info.getValue() as string) || "-";
+        return (
+          <span className="text-sm text-gray-600" title={descripcion !== "-" ? descripcion : undefined}>
+            {descripcion.length > 300 ? descripcion.substring(0, 300) + "..." : descripcion}
+          </span>
+        );
+      },
     },
     {
       header: "Versión",
@@ -784,24 +839,32 @@ function DocumentosTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row
   return <DataTable columns={columns} data={data} emptyText="No hay documentos disponibles" />;
 }
 
-function TiposDocumentoTab() {
+function PlantillasTab() {
   const { user } = useUser();
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [categoriasModalOpen, setCategoriasModalOpen] = useState(false);
+  const [plantillasSinCategoriaModalOpen, setPlantillasSinCategoriaModalOpen] = useState(false);
+  const [tipoDocumentoSeleccionado, setTipoDocumentoSeleccionado] = useState<any | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewPlantilla, setPreviewPlantilla] = useState<any | null>(null);
   const [form, setForm] = useState({
     nombre: "",
     descripcion: "",
     area_id: "",
+    formato: "",
+    tipo: "editor",
+    plantilla: "",
     activo: true,
   });
 
   const loadItems = async () => {
     try {
       setLoading(true);
-      const data = await apiService.getTiposDocumento();
+      const data = await apiService.getPlantillas();
       setItems(data);
     } catch (e: any) {
       if (e.response?.status === 401) {
@@ -822,7 +885,7 @@ function TiposDocumentoTab() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ nombre: "", descripcion: "", area_id: "", activo: true });
+    setForm({ nombre: "", descripcion: "", area_id: "", formato: "", tipo: "editor", plantilla: "", activo: true });
     setModalOpen(true);
   };
 
@@ -832,6 +895,9 @@ function TiposDocumentoTab() {
       nombre: item.nombre || "",
       descripcion: item.descripcion || "",
       area_id: item.area_id || "",
+      formato: item.formato || "",
+      tipo: item.tipo || "editor",
+      plantilla: item.plantilla || "",
       activo: !!item.activo,
     });
     setModalOpen(true);
@@ -845,11 +911,17 @@ function TiposDocumentoTab() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      // Convertir cadenas vacías a null para campos UUID opcionales
+      const formData = {
+        ...form,
+        area_id: form.area_id && form.area_id.trim() !== "" ? form.area_id : null,
+      };
+      
       if (editing) {
-        await apiService.updateTipoDocumento(editing.id, form);
+        await apiService.updatePlantilla(editing.id, formData);
         await swalSuccess("Tipo de documento actualizado");
       } else {
-        await apiService.createTipoDocumento(form);
+        await apiService.createPlantilla(formData);
         await swalSuccess("Tipo de documento creado");
       }
       setModalOpen(false);
@@ -863,12 +935,12 @@ function TiposDocumentoTab() {
     }
   };
 
-  const deleteTipoDocumento = async (id: string) => {
-    const confirmed = await swalConfirmDelete("¿Eliminar tipo de documento? Esta acción no se puede deshacer.");
+  const deletePlantilla = async (id: string) => {
+    const confirmed = await swalConfirmDelete("¿Eliminar plantilla? Esta acción no se puede deshacer.");
     if (!confirmed) return;
     try {
-      await apiService.deleteTipoDocumento(id);
-      await swalSuccess("Tipo de documento eliminado");
+      await apiService.deletePlantilla(id);
+      await swalSuccess("Plantilla eliminada");
       loadItems();
     } catch (e: any) {
       if (e.response?.status === 401) {
@@ -879,23 +951,47 @@ function TiposDocumentoTab() {
     }
   };
 
+  const openPreview = (plantilla: any) => {
+    setPreviewPlantilla(plantilla);
+    setPreviewModalOpen(true);
+  };
+
   return (
     <div className="bg-white rounded-lg shadow p-6 space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-xl font-semibold text-gray-900">Tipos de documento</h2>
-          <p className="text-sm text-gray-500">Define los tipos de documentos disponibles para los siniestros.</p>
+          <p className="text-sm text-gray-500">Define los tipos de documentos disponibles para generar documentos de siniestros.</p>
         </div>
-        <Button variant="primary" onClick={openCreate}>Nuevo tipo</Button>
+        <Button variant="primary" onClick={openCreate}>Nuevo tipo de documento</Button>
       </div>
 
       {loading ? (
         <p className="text-gray-500">Cargando tipos de documento...</p>
       ) : (
-        <TiposDocumentoTable data={items} onEdit={openEdit} onDelete={deleteTipoDocumento} />
+        <PlantillasTable 
+          data={items} 
+          onEdit={openEdit} 
+          onDelete={deletePlantilla} 
+          onPreview={openPreview}
+          onVerCategorias={(tipo) => {
+            setTipoDocumentoSeleccionado(tipo);
+            setCategoriasModalOpen(true);
+          }}
+          onVerPlantillasSinCategoria={(tipo) => {
+            setTipoDocumentoSeleccionado(tipo);
+            setPlantillasSinCategoriaModalOpen(true);
+          }}
+        />
       )}
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Editar tipo de documento" : "Nuevo tipo de documento"}>
+      <Modal 
+        open={modalOpen} 
+        onClose={() => setModalOpen(false)} 
+        title={editing ? "Editar tipo de documento" : "Nuevo tipo de documento"}
+        maxWidthClass="max-w-4xl"
+        maxHeightClass="max-h-[95vh]"
+      >
         <form onSubmit={submit} className="space-y-4">
           <Input label="Nombre" name="nombre" value={form.nombre} onChange={changeForm} required />
           <div>
@@ -908,6 +1004,31 @@ function TiposDocumentoTab() {
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de plantilla</label>
+              <select
+                name="tipo"
+                value={form.tipo}
+                onChange={changeForm}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                required
+              >
+                <option value="editor">Editor (contenido editable)</option>
+                <option value="pdf">PDF</option>
+                <option value="imagen">Imagen</option>
+              </select>
+            </div>
+            <div>
+              <Input
+                label="Formato (opcional)"
+                name="formato"
+                value={form.formato || ""}
+                onChange={changeForm}
+                placeholder="Ej. A4, oficio, carta"
+              />
+            </div>
+          </div>          
           <Switch
             label="Activo"
             checked={!!form.activo}
@@ -919,11 +1040,73 @@ function TiposDocumentoTab() {
           </div>
         </form>
       </Modal>
+
+      {/* Modal de previsualización de PDF */}
+      <Modal
+        open={previewModalOpen}
+        onClose={() => {
+          setPreviewModalOpen(false);
+          setPreviewPlantilla(null);
+        }}
+        title={`Previsualizar PDF - ${previewPlantilla?.nombre || ""}`}
+        maxWidthClass="max-w-6xl"
+        maxHeightClass="max-h-[95vh]"
+      >
+        {previewPlantilla && (
+          <PDFPreviewModal
+            plantillaId={previewPlantilla.id}
+            plantillaNombre={previewPlantilla.nombre}
+            onClose={() => {
+              setPreviewModalOpen(false);
+              setPreviewPlantilla(null);
+            }}
+          />
+        )}
+      </Modal>
+
+      {/* Modal de categorías */}
+      {tipoDocumentoSeleccionado && (
+        <CategoriasModal
+          open={categoriasModalOpen}
+          onClose={() => {
+            setCategoriasModalOpen(false);
+            setTipoDocumentoSeleccionado(null);
+          }}
+          tipoDocumento={tipoDocumentoSeleccionado}
+        />
+      )}
+
+      {/* Modal de plantillas sin categoría */}
+      {tipoDocumentoSeleccionado && (
+        <PlantillasSinCategoriaModal
+          open={plantillasSinCategoriaModalOpen}
+          onClose={() => {
+            setPlantillasSinCategoriaModalOpen(false);
+            setTipoDocumentoSeleccionado(null);
+          }}
+          tipoDocumento={tipoDocumentoSeleccionado}
+          onSuccess={loadItems}
+        />
+      )}
     </div>
   );
 }
 
-function TiposDocumentoTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: any) => void; onDelete: (id: string) => void }) {
+function PlantillasTable({ 
+  data, 
+  onEdit, 
+  onDelete, 
+  onPreview,
+  onVerCategorias,
+  onVerPlantillasSinCategoria
+}: { 
+  data: any[]; 
+  onEdit: (row: any) => void; 
+  onDelete: (id: string) => void;
+  onPreview: (row: any) => void;
+  onVerCategorias: (row: any) => void;
+  onVerPlantillasSinCategoria: (row: any) => void;
+}) {
   const columns: ColumnDef<any>[] = [
     {
       header: "Nombre",
@@ -933,6 +1116,27 @@ function TiposDocumentoTable({ data, onEdit, onDelete }: { data: any[]; onEdit: 
     {
       header: "Descripción",
       accessorKey: "descripcion",
+      cell: (info) => {
+        const descripcion = (info.getValue() as string) || "-";
+        return (
+          <span className="text-sm text-gray-600" title={descripcion !== "-" ? descripcion : undefined}>
+            {descripcion.length > 300 ? descripcion.substring(0, 300) + "..." : descripcion}
+          </span>
+        );
+      },
+    },
+    {
+      header: "Tipo",
+      accessorKey: "tipo",
+      cell: (info) => {
+        const value = info.getValue() as string | undefined;
+        const label = value === "pdf" ? "PDF" : value === "imagen" ? "Imagen" : "Editor";
+        return <span className="text-sm text-gray-600">{label}</span>;
+      },
+    },
+    {
+      header: "Formato",
+      accessorKey: "formato",
       cell: (info) => <span className="text-sm text-gray-600">{(info.getValue() as string) || "-"}</span>,
     },
     {
@@ -943,14 +1147,48 @@ function TiposDocumentoTable({ data, onEdit, onDelete }: { data: any[]; onEdit: 
     {
       id: "acciones",
       header: "",
-      cell: ({ row }) => (
-        <div className="flex gap-2 justify-end">
-          <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>Editar</Button>
-          <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>Eliminar</Button>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const tipo = row.original;
+        const canPreview = tipo.tipo === "editor" && tipo.plantilla;
+        
+        return (
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => onVerCategorias(tipo)}
+              title="Ver categorías de este tipo de documento"
+            >
+              <FiFolder className="w-4 h-4 mr-1" />
+              Categorías
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onVerPlantillasSinCategoria(tipo)}
+              title="Ver plantillas sin categoría"
+            >
+              <FiFileText className="w-4 h-4 mr-1" />
+              Plantillas
+            </Button>
+            {canPreview && (
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                onClick={() => onPreview(tipo)}
+                title="Previsualizar PDF"
+              >
+                <FiEye className="w-4 h-4 mr-1" />
+                Vista Previa
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => onEdit(tipo)}>Editar</Button>
+            <Button variant="danger" size="sm" onClick={() => onDelete(tipo.id)}>Eliminar</Button>
+          </div>
+        );
+      },
     },
   ];
 
-  return <DataTable columns={columns} data={data} emptyText="No hay tipos de documento registrados" />;
+  return <DataTable columns={columns} data={data} emptyText="No hay plantillas registradas" />;
 }

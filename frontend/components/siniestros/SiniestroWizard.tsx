@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FiPlus, FiSearch, FiTrash2, FiUser } from "react-icons/fi";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
-import RichTextEditor from "@/components/ui/RichTextEditor";
+import TiptapEditor from "@/components/ui/TiptapEditor";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
+import apiService from "@/lib/apiService";
 
 declare global {
   interface Window {
@@ -13,6 +14,7 @@ declare global {
 }
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
 let googlePlacesPromise: Promise<void> | null = null;
 
 function loadGooglePlaces(): Promise<void> {
@@ -192,6 +194,7 @@ export default function SiniestroWizard({
   const [currentStep, setCurrentStep] = useState(0);
   const [validationError, setValidationError] = useState<string | null>(null);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const isTransitioningRef = useRef(false); // Rastrear si estamos en transición de paso
 
   // Debug: Ver qué datos están llegando
   useEffect(() => {
@@ -208,6 +211,18 @@ export default function SiniestroWizard({
       setValidationError(null);
     }
   }, [open]);
+
+  // Limpiar error cuando se cambia de paso (especialmente al avanzar al paso 2)
+  // useLayoutEffect se ejecuta de forma síncrona ANTES del render, evitando que se muestre el error
+  useLayoutEffect(() => {
+    // Cuando se avanza al paso 2, limpiar CUALQUIER error de validación ANTES del render
+    // El error del paso 2 solo debe mostrarse cuando se hace clic en "Crear"
+    if (currentStep === 2) {
+      // Limpiar cualquier error que pueda haber quedado de validaciones previas
+      // Esto se ejecuta ANTES del render, por lo que el error nunca se mostrará
+      setValidationError(null);
+    }
+  }, [currentStep]);
 
   useEffect(() => {
     if (!open) return;
@@ -285,15 +300,18 @@ export default function SiniestroWizard({
     }));
   };
 
-  const filteredAsegurados = useMemo(() => {
-    const term = extendedForm.asegurado.busqueda.toLowerCase().trim();
-    if (!term) return asegurados;
-    return asegurados.filter((item) => {
-      const fullName = `${item.nombre || ""} ${item.apellido_paterno || ""} ${item.apellido_materno || ""}`.toLowerCase();
-      const email = (item.email || "").toLowerCase();
-      return fullName.includes(term) || email.includes(term);
+  // Convertir asegurados a opciones para el selector
+  const aseguradoOptions = useMemo(() => {
+    return asegurados.map((item) => {
+      const fullName = `${item.nombre || ""} ${item.apellido_paterno || ""} ${item.apellido_materno || ""}`.trim();
+      const label = fullName || item.email || "Sin nombre";
+      const sublabel = item.email ? ` - ${item.email}` : "";
+      return {
+        value: item.id,
+        label: `${label}${sublabel}`,
+      };
     });
-  }, [asegurados, extendedForm.asegurado.busqueda]);
+  }, [asegurados]);
 
   const provenienteOptions = useMemo(() => {
     return provenientes.map((p) => ({
@@ -309,14 +327,107 @@ export default function SiniestroWizard({
     }));
   }, [abogados]);
 
-  const handleSelectAsegurado = (id: string) => {
-    setExtendedForm((prev) => ({
-      ...prev,
-      asegurado: {
-        ...prev.asegurado,
-        seleccionadoId: id,
-      },
-    }));
+  const handleSelectAsegurado = async (id: string) => {
+    if (!id) {
+      // Si se limpia la selección, limpiar los campos
+      setExtendedForm((prev) => ({
+        ...prev,
+        asegurado: {
+          ...prev.asegurado,
+          seleccionadoId: null,
+          nuevo: {
+            nombre: "",
+            apellido_paterno: "",
+            apellido_materno: "",
+            celular: "",
+            telefono_casa: "",
+            telefono_oficina: "",
+            estado: "",
+            ciudad: "",
+            email: "",
+            direccion: "",
+            colonia: "",
+            municipio: "",
+            codigo_postal: "",
+            pais: "",
+          },
+        },
+      }));
+      return;
+    }
+
+    try {
+      // Obtener datos completos del usuario/asegurado
+      const usuarioCompleto = await apiService.getUserById(id);
+      
+      // Extraer datos del perfil, contactos y dirección
+      const perfil = usuarioCompleto?.perfil || usuarioCompleto?.profile || {};
+      const contactos = usuarioCompleto?.contactos || usuarioCompleto?.contacto || null;
+      const direccion = usuarioCompleto?.direccion || usuarioCompleto?.direcciones || null;
+
+      // Función helper para extraer valores de contactos
+      const getContacto = (campo: string) => {
+        if (!contactos) return "";
+        if (Array.isArray(contactos)) {
+          const contacto = contactos.find((c: any) => c.tipo === campo);
+          return contacto?.valor || "";
+        }
+        return contactos[campo] || contactos[`${campo}_contacto`] || "";
+      };
+
+      // Actualizar el formulario con los datos del asegurado seleccionado
+      setExtendedForm((prev) => ({
+        ...prev,
+        asegurado: {
+          ...prev.asegurado,
+          seleccionadoId: id,
+          nuevo: {
+            nombre: perfil.nombre || usuarioCompleto.nombre || "",
+            apellido_paterno: perfil.apellido_paterno || "",
+            apellido_materno: perfil.apellido_materno || "",
+            celular: getContacto("celular") || "",
+            telefono_casa: getContacto("telefono_casa") || "",
+            telefono_oficina: getContacto("telefono_oficina") || "",
+            estado: direccion?.estado || "",
+            ciudad: direccion?.ciudad || "",
+            email: usuarioCompleto.email || "",
+            direccion: direccion?.calle || direccion?.direccion_completa || "",
+            colonia: direccion?.colonia || "",
+            municipio: direccion?.municipio || direccion?.delegacion || "",
+            codigo_postal: direccion?.codigo_postal || "",
+            pais: direccion?.pais || "México",
+          },
+        },
+      }));
+
+      // También actualizar la ubicación en el formulario principal si hay dirección
+      if (direccion?.calle || direccion?.direccion_completa) {
+        const direccionCompleta = [
+          direccion.calle || direccion.direccion_completa,
+          direccion.colonia,
+          direccion.municipio || direccion.delegacion,
+          direccion.estado,
+          direccion.codigo_postal,
+        ]
+          .filter(Boolean)
+          .join(", ");
+        
+        setForm((prev) => ({
+          ...prev,
+          ubicacion: direccionCompleta,
+        }));
+      }
+    } catch (error: any) {
+      console.error("Error al obtener datos del asegurado:", error);
+      // Si hay error, al menos establecer el ID seleccionado
+      setExtendedForm((prev) => ({
+        ...prev,
+        asegurado: {
+          ...prev.asegurado,
+          seleccionadoId: id,
+        },
+      }));
+    }
   };
 
   const handleNuevoAseguradoChange = (field: keyof ExtendedSiniestroFormState["asegurado"]["nuevo"], value: string) => {
@@ -470,6 +581,12 @@ export default function SiniestroWizard({
       if (!form.estado_id) {
         return "Selecciona un status para el siniestro.";
       }
+      if (!form.institucion_id || form.institucion_id.trim() === "") {
+        return "Selecciona una institución.";
+      }
+      if (!form.autoridad_id || form.autoridad_id.trim() === "") {
+        return "Selecciona una autoridad.";
+      }
       return null;
     }
     if (step === 2) {
@@ -482,13 +599,34 @@ export default function SiniestroWizard({
   };
 
   const goNext = () => {
-    const error = validateStep(currentStep);
-    if (error) {
-      setValidationError(error);
-      return;
+    // Solo validar pasos 0 y 1 al avanzar, NO validar paso 2
+    // La validación del paso 2 se hará solo al hacer clic en "Crear"
+    if (currentStep < 2) {
+      const error = validateStep(currentStep);
+      if (error) {
+        setValidationError(error);
+        return;
+      }
     }
+    
+    // Calcular el siguiente paso
+    const nextStep = Math.min(currentStep + 1, 2);
+    
+    // Marcar que estamos en transición para evitar validaciones prematuras
+    isTransitioningRef.current = true;
+    
+    // SIEMPRE limpiar el error al avanzar, especialmente cuando se avanza al paso 2
+    // El error del paso 2 solo debe mostrarse cuando se hace clic en "Crear"
     setValidationError(null);
-    setCurrentStep((prev) => Math.min(prev + 1, 2));
+    
+    // Cambiar el paso después de limpiar el error
+    setCurrentStep(nextStep);
+    
+    // Limpiar la bandera de transición después de un breve delay
+    // Esto evita que handleSubmit valide el paso 2 durante la transición
+    setTimeout(() => {
+      isTransitioningRef.current = false;
+    }, 100);
   };
 
   const goPrev = () => {
@@ -497,9 +635,27 @@ export default function SiniestroWizard({
   };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    const error = validateStep(currentStep);
+    event.preventDefault(); // Siempre prevenir el envío por defecto
+    event.stopPropagation(); // Prevenir propagación del evento
+    
+    // Si estamos en transición, no hacer nada (evitar validaciones prematuras)
+    if (isTransitioningRef.current) {
+      return;
+    }
+    
+    // Solo permitir envío en el último paso (paso 2, índice 2)
+    if (currentStep !== 2) {
+      // Si no es el último paso, solo avanzar sin validar
+      // IMPORTANTE: No validar el paso 2 aquí, solo avanzar
+      goNext();
+      return;
+    }
+    
+    // Solo validar el paso 2 cuando se hace clic explícitamente en "Crear" en el paso 2
+    // Esta es la única validación del paso 2 que se ejecuta
+    // IMPORTANTE: Solo validar si estamos realmente en el paso 2 y el usuario hizo clic en "Crear"
+    const error = validateStep(2);
     if (error) {
-      event.preventDefault();
       setValidationError(error);
       return;
     }
@@ -594,7 +750,17 @@ export default function SiniestroWizard({
           </nav>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form 
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            // Prevenir que Enter envíe el formulario cuando no estamos en el último paso
+            if (e.key === "Enter" && currentStep !== 2) {
+              e.preventDefault();
+              e.stopPropagation();
+              // No hacer nada, solo prevenir el submit
+            }
+          }}
+        >
           <div className="px-6 pb-6 space-y-6 max-h-[70vh] overflow-y-auto pr-2">
             {validationError && (
               <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -605,58 +771,23 @@ export default function SiniestroWizard({
             {currentStep === 0 && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Buscar asegurado</h3>
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center">
-                    <div className="relative flex-1">
-                      <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        className="w-full rounded-lg border border-gray-300 px-10 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                        placeholder="Buscar por nombre o correo"
-                        value={extendedForm.asegurado.busqueda}
-                        onChange={(event) =>
-                          setExtendedForm((prev) => ({
-                            ...prev,
-                            asegurado: { ...prev.asegurado, busqueda: event.target.value },
-                          }))
-                        }
-                      />
-                    </div>
-                    <span className="text-xs text-gray-500">
-                      Resultados: {filteredAsegurados.length}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  {filteredAsegurados.map((item) => {
-                    const fullName = `${item.nombre || ""} ${item.apellido_paterno || ""} ${item.apellido_materno || ""}`.trim();
-                    const selected = extendedForm.asegurado.seleccionadoId === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => handleSelectAsegurado(item.id)}
-                        className={`flex w-full flex-col items-start gap-2 rounded-lg border px-4 py-3 text-left shadow-sm transition-colors ${
-                          selected ? "border-primary-500 bg-primary-50" : "border-gray-200 bg-white hover:border-primary-400"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <FiUser className={`text-lg ${selected ? "text-primary-600" : "text-gray-400"}`} />
-                          <span className="text-sm font-semibold text-gray-900">{fullName || item.email || "Sin nombre"}</span>
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {item.email || "Sin correo"}
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          {[item.telefono, item.estado, item.ciudad].filter(Boolean).join(" • ") || "Sin datos adicionales"}
-                        </div>
-                      </button>
-                    );
-                  })}
-                  {filteredAsegurados.length === 0 && (
-                    <div className="col-span-full rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-500">
-                      No se encontraron asegurados con ese término.
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Seleccionar asegurado</h3>
+                  <CustomSelect
+                    label="Buscar y seleccionar asegurado"
+                    name="asegurado_selector"
+                    value={extendedForm.asegurado.seleccionadoId || ""}
+                    onChange={(value) => handleSelectAsegurado(value as string)}
+                    options={aseguradoOptions}
+                    placeholder="Escribe para buscar por nombre o correo..."
+                    isSearchable={true}
+                    isClearable={true}
+                    required={false}
+                  />
+                  {extendedForm.asegurado.seleccionadoId && (
+                    <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-green-800">
+                        ✓ Asegurado seleccionado. Los campos se han rellenado automáticamente.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -1124,11 +1255,12 @@ export default function SiniestroWizard({
                   placeholder="EXP-2025-0001"
                 />
 
-                <RichTextEditor
+                <TiptapEditor
                   label="Descripción de los hechos *"
                   value={extendedForm.especificos.descripcion_html}
                   onChange={(value) => setEspecificosValue("descripcion_html", value)}
                   placeholder="Describe con detalle lo ocurrido"
+                  height={400}
                 />
 
                 <div>
@@ -1156,9 +1288,20 @@ export default function SiniestroWizard({
                   Anterior
                 </Button>
               )}
-              <Button type={isLastStep ? "submit" : "button"} onClick={isLastStep ? undefined : goNext}>
-                {isLastStep ? (editing ? "Actualizar" : "Crear") : "Siguiente"}
-              </Button>
+              {isLastStep ? (
+                <Button type="submit">
+                  {editing ? "Actualizar" : "Crear"}
+                </Button>
+              ) : (
+                <Button 
+                  type="button" 
+                  onClick={() => {
+                    goNext();
+                  }}
+                >
+                  Siguiente
+                </Button>
+              )}
             </div>
           </div>
         </form>

@@ -22,17 +22,21 @@ def list_bitacora_siniestro(
     siniestro_id: UUID,
     usuario_id: Optional[UUID] = Query(None, description="Filtrar por usuario"),
     tipo_actividad: Optional[str] = Query(None, description="Filtrar por tipo de actividad"),
+    area_id: Optional[UUID] = Query(None, description="Filtrar por área"),
+    flujo_trabajo_id: Optional[UUID] = Query(None, description="Filtrar por flujo de trabajo"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Lista actividades de bitácora de un siniestro"""
+    """Lista actividades de bitácora de un siniestro, opcionalmente filtradas por área y flujo"""
     return BitacoraActividadService.list(
         db=db,
         siniestro_id=siniestro_id,
         usuario_id=usuario_id,
         tipo_actividad=tipo_actividad,
+        area_id=area_id,
+        flujo_trabajo_id=flujo_trabajo_id,
         skip=skip,
         limit=limit
     )

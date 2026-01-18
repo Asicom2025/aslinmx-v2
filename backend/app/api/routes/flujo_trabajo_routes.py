@@ -22,6 +22,7 @@ from app.schemas.flujo_trabajo_schema import (
     CompletarEtapaRequest,
     AvanzarEtapaRequest,
     InicializarEtapasRequest,
+    ReordenarEtapasRequest,
 )
 from app.services.flujo_trabajo_service import (
     FlujoTrabajoService,
@@ -34,7 +35,7 @@ router = APIRouter()
 
 @router.get("", response_model=List[FlujoTrabajoResponse])
 def listar_flujos(
-    area_id: Optional[UUID] = Query(None, description="Filtrar por área (NULL para flujos generales)"),
+    area_id: Optional[str] = Query(None, description="Filtrar por área (NULL o 'null' para flujos generales)"),
     activo: Optional[bool] = Query(True, description="Filtrar por estado activo"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -46,10 +47,30 @@ def listar_flujos(
             detail="Usuario no tiene empresa asignada"
         )
 
+    # Manejar area_id cuando viene como string "null" o None
+    # "null" significa filtrar solo flujos generales (area_id IS NULL)
+    # None significa traer todos los flujos
+    # Un UUID significa filtrar por esa área específica
+    area_id_uuid: Optional[UUID] = None
+    solo_generales: bool = False
+    
+    if area_id:
+        if area_id.lower() == "null":
+            solo_generales = True
+        else:
+            try:
+                area_id_uuid = UUID(area_id)
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="area_id debe ser un UUID válido o 'null'"
+                )
+
     flujos = FlujoTrabajoService.get_flujos_by_empresa(
         db=db,
         empresa_id=current_user.empresa_id,
-        area_id=area_id,
+        area_id=area_id_uuid,
+        solo_generales=solo_generales,
         activo=activo
     )
 
@@ -287,6 +308,26 @@ def eliminar_etapa(
         )
 
     return None
+
+
+@router.post("/{flujo_id}/etapas/reordenar", status_code=status.HTTP_200_OK)
+def reordenar_etapas(
+    flujo_id: UUID,
+    request: ReordenarEtapasRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Reordena las etapas de un flujo"""
+    flujo = FlujoTrabajoService.get_flujo_by_id(db, flujo_id)
+
+    if not flujo or flujo.empresa_id != current_user.empresa_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Flujo de trabajo no encontrado"
+        )
+
+    EtapaFlujoService.reordenar_etapas(db, flujo_id, request.ordenes)
+    return {"success": True, "detail": "Etapas reordenadas correctamente"}
 
 
 @router.post("/siniestros/{siniestro_id}/inicializar", status_code=status.HTTP_201_CREATED)

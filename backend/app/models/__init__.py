@@ -21,6 +21,9 @@ from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa
 from app.models.legal import (
     Area,
     TipoDocumento,
+    CategoriaDocumento,
+    PlantillaDocumento,
+    Entidad,
     Siniestro,
     Documento,
     Institucion,
@@ -33,6 +36,17 @@ from app.models.legal import (
     EvidenciaFotografica,
     SiniestroUsuario,
     SiniestroArea,
+)
+from app.models.config import (
+    ConfiguracionSMTP,
+    PlantillaCorreo,
+    Auditoria,
+    ConfiguracionReporte,
+    HistorialCorreo,
+)
+from app.models.backup import (
+    Backup,
+    ConfiguracionBackup,
 )
 
 __all__ = [
@@ -52,6 +66,9 @@ __all__ = [
     "SiniestroEtapa",
     "Area",
     "TipoDocumento",
+    "CategoriaDocumento",
+    "PlantillaDocumento",
+    "Entidad",
     "Siniestro",
     "Documento",
     "Institucion",
@@ -64,5 +81,12 @@ __all__ = [
     "EvidenciaFotografica",
     "SiniestroUsuario",
     "SiniestroArea",
+    "ConfiguracionSMTP",
+    "PlantillaCorreo",
+    "Auditoria",
+    "ConfiguracionReporte",
+    "HistorialCorreo",
+    "Backup",
+    "ConfiguracionBackup",
 ]
 

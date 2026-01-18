@@ -12,10 +12,13 @@ from app.models.legal import (
     Area,
     EstadoSiniestro,
     CalificacionSiniestro,
+    Entidad,
     Institucion,
     Autoridad,
     Proveniente,
     TipoDocumento,
+    CategoriaDocumento,
+    PlantillaDocumento,
     Siniestro,
     BitacoraActividad,
     Documento,
@@ -32,14 +35,20 @@ from app.schemas.legal_schema import (
     EstadoSiniestroUpdate,
     CalificacionSiniestroCreate,
     CalificacionSiniestroUpdate,
+    EntidadCreate,
+    EntidadUpdate,
     InstitucionCreate,
     InstitucionUpdate,
     AutoridadCreate,
     AutoridadUpdate,
     ProvenienteCreate,
     ProvenienteUpdate,
-    TipoDocumentoCreate,
-    TipoDocumentoUpdate,
+    TiposDocumentoCreate,
+    TiposDocumentoUpdate,
+    CategoriaDocumentoCreate,
+    CategoriaDocumentoUpdate,
+    PlantillaDocumentoCreate,
+    PlantillaDocumentoUpdate,
     SiniestroCreate,
     SiniestroUpdate,
     BitacoraActividadCreate,
@@ -174,6 +183,84 @@ class CalificacionSiniestroService:
         return True
 
 
+class EntidadService:
+    @staticmethod
+    def list(
+        db: Session,
+        empresa_id: UUID,
+        activo: Optional[bool] = None,
+        es_institucion: Optional[bool] = None,
+        es_autoridad: Optional[bool] = None,
+        es_organo: Optional[bool] = None,
+    ) -> List[Entidad]:
+        q = db.query(Entidad).filter(Entidad.empresa_id == empresa_id)
+        if activo is not None:
+            q = q.filter(Entidad.activo == activo)
+        if es_institucion is not None:
+            q = q.filter(Entidad.es_institucion == es_institucion)
+        if es_autoridad is not None:
+            q = q.filter(Entidad.es_autoridad == es_autoridad)
+        if es_organo is not None:
+            q = q.filter(Entidad.es_organo == es_organo)
+        q = q.filter(Entidad.eliminado_en.is_(None))
+        return q.order_by(Entidad.nombre).all()
+
+    @staticmethod
+    def create(db: Session, empresa_id: UUID, payload: EntidadCreate) -> Entidad:
+        # Validar que al menos un rol esté activo
+        if not (payload.es_institucion or payload.es_autoridad or payload.es_organo):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La entidad debe tener al menos un rol (institución, autoridad u órgano)"
+            )
+        entidad = Entidad(empresa_id=empresa_id, **payload.model_dump())
+        db.add(entidad)
+        db.commit()
+        db.refresh(entidad)
+        return entidad
+
+    @staticmethod
+    def update(db: Session, entidad_id: UUID, payload: EntidadUpdate) -> Optional[Entidad]:
+        entidad = db.query(Entidad).filter(Entidad.id == entidad_id).first()
+        if not entidad:
+            return None
+        
+        update_data = payload.model_dump(exclude_unset=True)
+        
+        # Validar que al menos un rol esté activo después de la actualización
+        es_institucion = update_data.get("es_institucion", entidad.es_institucion)
+        es_autoridad = update_data.get("es_autoridad", entidad.es_autoridad)
+        es_organo = update_data.get("es_organo", entidad.es_organo)
+        
+        if not (es_institucion or es_autoridad or es_organo):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La entidad debe tener al menos un rol (institución, autoridad u órgano)"
+            )
+        
+        for k, v in update_data.items():
+            setattr(entidad, k, v)
+        db.commit()
+        db.refresh(entidad)
+        return entidad
+
+    @staticmethod
+    def get_by_id(db: Session, entidad_id: UUID) -> Optional[Entidad]:
+        return db.query(Entidad).filter(
+            Entidad.id == entidad_id,
+            Entidad.eliminado_en.is_(None)
+        ).first()
+
+    @staticmethod
+    def delete(db: Session, entidad_id: UUID) -> bool:
+        entidad = db.query(Entidad).filter(Entidad.id == entidad_id).first()
+        if not entidad:
+            return False
+        entidad.eliminado_en = func.now()
+        db.commit()
+        return True
+
+
 class InstitucionService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Institucion]:
@@ -285,27 +372,26 @@ class ProvenienteService:
         return True
 
 
-class TipoDocumentoService:
+class TiposDocumentoService:
     @staticmethod
-    def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None, area_id: Optional[UUID] = None) -> List[TipoDocumento]:
-        q = db.query(TipoDocumento).options(joinedload("area")).filter(TipoDocumento.empresa_id == empresa_id)
+    def list(db: Session, activo: Optional[bool] = None, area_id: Optional[UUID] = None) -> List[TipoDocumento]:
+        q = db.query(TipoDocumento)
         if activo is not None:
             q = q.filter(TipoDocumento.activo == activo)
-        if area_id is not None:
-            q = q.filter(TipoDocumento.area_id == area_id)
+        # area_id no existe en la tabla, se ignora
         return q.order_by(TipoDocumento.nombre).all()
 
     @staticmethod
-    def create(db: Session, empresa_id: UUID, payload: TipoDocumentoCreate) -> TipoDocumento:
-        td = TipoDocumento(empresa_id=empresa_id, **payload.model_dump())
+    def create(db: Session, payload: TiposDocumentoCreate) -> TipoDocumento:
+        td = TipoDocumento(**payload.model_dump())
         db.add(td)
         db.commit()
         db.refresh(td)
         return td
 
     @staticmethod
-    def update(db: Session, tipo_id: UUID, payload: TipoDocumentoUpdate) -> Optional[TipoDocumento]:
-        td = db.query(TipoDocumento).filter(TipoDocumento.id == tipo_id).first()
+    def update(db: Session, tipo_documento_id: UUID, payload: TiposDocumentoUpdate) -> Optional[TipoDocumento]:
+        td = db.query(TipoDocumento).filter(TipoDocumento.id == tipo_documento_id).first()
         if not td:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -315,11 +401,147 @@ class TipoDocumentoService:
         return td
 
     @staticmethod
-    def delete(db: Session, tipo_id: UUID) -> bool:
-        td = db.query(TipoDocumento).filter(TipoDocumento.id == tipo_id).first()
+    def get_by_id(db: Session, tipo_documento_id: UUID) -> Optional[TipoDocumento]:
+        return db.query(TipoDocumento).filter(
+            TipoDocumento.id == tipo_documento_id,
+        ).first()
+
+    @staticmethod
+    def delete(db: Session, tipo_documento_id: UUID) -> bool:
+        td = db.query(TipoDocumento).filter(TipoDocumento.id == tipo_documento_id).first()
         if not td:
             return False
         td.eliminado_en = func.now()
+        db.commit()
+        return True
+
+
+class CategoriaDocumentoService:
+    @staticmethod
+    def list(db: Session, tipo_documento_id: Optional[UUID] = None, activo: Optional[bool] = None) -> List[CategoriaDocumento]:
+        q = db.query(CategoriaDocumento)
+        if tipo_documento_id:
+            q = q.filter(CategoriaDocumento.tipo_documento_id == tipo_documento_id)
+        if activo is not None:
+            q = q.filter(CategoriaDocumento.activo == activo)
+        q = q.filter(CategoriaDocumento.eliminado_en.is_(None))
+        return q.order_by(CategoriaDocumento.nombre).all()
+
+    @staticmethod
+    def create(db: Session, payload: CategoriaDocumentoCreate) -> CategoriaDocumento:
+        # Verificar que el tipo de documento existe
+        tipo_doc = db.query(TipoDocumento).filter(TipoDocumento.id == payload.tipo_documento_id).first()
+        if not tipo_doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de documento no encontrado")
+        
+        categoria = CategoriaDocumento(**payload.model_dump())
+        db.add(categoria)
+        db.commit()
+        db.refresh(categoria)
+        return categoria
+
+    @staticmethod
+    def update(db: Session, categoria_id: UUID, payload: CategoriaDocumentoUpdate) -> Optional[CategoriaDocumento]:
+        categoria = db.query(CategoriaDocumento).filter(CategoriaDocumento.id == categoria_id).first()
+        if not categoria:
+            return None
+        for k, v in payload.model_dump(exclude_unset=True).items():
+            setattr(categoria, k, v)
+        db.commit()
+        db.refresh(categoria)
+        return categoria
+
+    @staticmethod
+    def get_by_id(db: Session, categoria_id: UUID) -> Optional[CategoriaDocumento]:
+        return db.query(CategoriaDocumento).filter(
+            CategoriaDocumento.id == categoria_id,
+            CategoriaDocumento.eliminado_en.is_(None)
+        ).first()
+
+    @staticmethod
+    def delete(db: Session, categoria_id: UUID) -> bool:
+        categoria = db.query(CategoriaDocumento).filter(CategoriaDocumento.id == categoria_id).first()
+        if not categoria:
+            return False
+        categoria.eliminado_en = func.now()
+        db.commit()
+        return True
+
+
+class PlantillaDocumentoService:
+    @staticmethod
+    def list(
+        db: Session, 
+        tipo_documento_id: Optional[UUID] = None,
+        categoria_id: Optional[UUID] = None,
+        activo: Optional[bool] = None
+    ) -> List[PlantillaDocumento]:
+        q = db.query(PlantillaDocumento)
+        if tipo_documento_id:
+            q = q.filter(PlantillaDocumento.tipo_documento_id == tipo_documento_id)
+        if categoria_id:
+            q = q.filter(PlantillaDocumento.categoria_id == categoria_id)
+        if activo is not None:
+            q = q.filter(PlantillaDocumento.activo == activo)
+        q = q.filter(PlantillaDocumento.eliminado_en.is_(None))
+        return q.order_by(PlantillaDocumento.nombre).all()
+
+    @staticmethod
+    def create(db: Session, payload: PlantillaDocumentoCreate) -> PlantillaDocumento:
+        # Verificar que el tipo de documento existe
+        tipo_doc = db.query(TipoDocumento).filter(TipoDocumento.id == payload.tipo_documento_id).first()
+        if not tipo_doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tipo de documento no encontrado")
+        
+        # Si hay categoría, verificar que existe
+        if payload.categoria_id:
+            categoria = db.query(CategoriaDocumento).filter(CategoriaDocumento.id == payload.categoria_id).first()
+            if not categoria:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada")
+            # Verificar que la categoría pertenece al tipo de documento
+            if categoria.tipo_documento_id != payload.tipo_documento_id:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La categoría no pertenece al tipo de documento")
+        
+        plantilla = PlantillaDocumento(**payload.model_dump())
+        db.add(plantilla)
+        db.commit()
+        db.refresh(plantilla)
+        return plantilla
+
+    @staticmethod
+    def update(db: Session, plantilla_id: UUID, payload: PlantillaDocumentoUpdate) -> Optional[PlantillaDocumento]:
+        plantilla = db.query(PlantillaDocumento).filter(PlantillaDocumento.id == plantilla_id).first()
+        if not plantilla:
+            return None
+        
+        # Si se actualiza la categoría, validar
+        if payload.categoria_id is not None:
+            if payload.categoria_id:
+                categoria = db.query(CategoriaDocumento).filter(CategoriaDocumento.id == payload.categoria_id).first()
+                if not categoria:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Categoría no encontrada")
+                if categoria.tipo_documento_id != plantilla.tipo_documento_id:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La categoría no pertenece al tipo de documento")
+        
+        for k, v in payload.model_dump(exclude_unset=True).items():
+            setattr(plantilla, k, v)
+        db.commit()
+        db.refresh(plantilla)
+        return plantilla
+
+    @staticmethod
+    def get_by_id(db: Session, plantilla_id: UUID) -> Optional[PlantillaDocumento]:
+        return db.query(PlantillaDocumento).filter(
+            PlantillaDocumento.id == plantilla_id,
+            PlantillaDocumento.eliminado_en.is_(None)
+        ).first()
+
+    @staticmethod
+    def delete(db: Session, plantilla_id: UUID) -> bool:
+        plantilla = db.query(PlantillaDocumento).filter(PlantillaDocumento.id == plantilla_id).first()
+        if not plantilla:
+            return False
+        plantilla.eliminado_en = func.now()
         db.commit()
         return True
 
@@ -404,57 +626,66 @@ class SiniestroService:
     @staticmethod
     def _generar_codigo(db: Session, proveniente_id: UUID, fecha_siniestro: datetime) -> str:
         """
-        Genera código único para siniestro con formato: {proveniente_codigo}-{consecutivo}-{año}
-        Ejemplo: 102-001-25 donde 102 es el código del proveniente, 001 es consecutivo, 25 es año
-        Usa el campo codigo de la tabla provenientes
+        Genera código único para siniestro con formato: {consecutivo}
+        Ejemplo: 001, 002, 003, etc.
+        El código es único globalmente en la tabla siniestros.
         """
         if not proveniente_id:
             return None
         
-        # Obtener el proveniente para acceder a su código
-        proveniente = db.query(Proveniente).filter(Proveniente.id == proveniente_id).first()
-        if not proveniente:
-            return None
-        
-        # Obtener el código del proveniente, si no tiene código usar un número derivado del UUID
-        proveniente_codigo = proveniente.codigo
-        if not proveniente_codigo:
-            # Fallback: usar últimos 3 dígitos del UUID si no tiene código
-            proveniente_codigo = str(int(str(proveniente_id).replace('-', ''), 16) % 1000)
-        
-        # Obtener año de la fecha del siniestro
-        año = fecha_siniestro.year % 100  # Últimos 2 dígitos del año
-        
-        # Buscar el último consecutivo para este proveniente en el año actual
+        # Buscar el último código usado globalmente (no eliminados)
         ultimo_siniestro = db.query(Siniestro).filter(
-            Siniestro.proveniente_id == proveniente_id,
-            extract('year', Siniestro.fecha_siniestro) == fecha_siniestro.year,
-            Siniestro.eliminado == False
-        ).order_by(Siniestro.codigo.desc()).first()
+            Siniestro.eliminado == False,
+            Siniestro.codigo.isnot(None),
+            Siniestro.codigo != ''
+        ).order_by(
+            # Ordenar numéricamente si es posible, sino alfabéticamente
+            Siniestro.codigo.desc()
+        ).first()
         
         # Si existe un código previo, extraer el consecutivo y sumar 1
         if ultimo_siniestro and ultimo_siniestro.codigo:
             try:
-                # Formato esperado: {proveniente_codigo}-{consecutivo}-{año}
-                partes = ultimo_siniestro.codigo.split('-')
-                if len(partes) == 3 and partes[0] == str(proveniente_codigo) and partes[2] == str(año).zfill(2):
-                    consecutivo = int(partes[1]) + 1
-                else:
-                    consecutivo = 1
-            except (ValueError, IndexError):
-                consecutivo = 1
+                # Intentar convertir el código a número
+                consecutivo = int(ultimo_siniestro.codigo) + 1
+            except (ValueError, TypeError):
+                # Si no es numérico, buscar el máximo numérico
+                todos_codigos = db.query(Siniestro.codigo).filter(
+                    Siniestro.eliminado == False,
+                    Siniestro.codigo.isnot(None),
+                    Siniestro.codigo != ''
+                ).all()
+                
+                numeros = []
+                for cod in todos_codigos:
+                    try:
+                        numeros.append(int(cod[0]))
+                    except (ValueError, TypeError):
+                        continue
+                
+                consecutivo = max(numeros) + 1 if numeros else 1
         else:
             consecutivo = 1
         
-        # Formatear código: {proveniente_codigo}-{consecutivo}-{año}
-        codigo = f"{proveniente_codigo}-{str(consecutivo).zfill(3)}-{str(año).zfill(2)}"
+        # Formatear código con 3 dígitos: {consecutivo}
+        codigo = f"{str(consecutivo).zfill(3)}"
         
-        # Verificar que no exista (por si acaso)
-        existe = db.query(Siniestro).filter(Siniestro.codigo == codigo).first()
-        if existe:
-            # Si existe, incrementar consecutivo
+        # Verificar que no exista y si existe, incrementar hasta encontrar uno disponible
+        max_intentos = 1000  # Límite de seguridad
+        intentos = 0
+        while db.query(Siniestro).filter(
+            Siniestro.codigo == codigo,
+            Siniestro.eliminado == False
+        ).first() and intentos < max_intentos:
             consecutivo += 1
-            codigo = f"{proveniente_codigo}-{str(consecutivo).zfill(3)}-{str(año).zfill(2)}"
+            codigo = f"{str(consecutivo).zfill(3)}"
+            intentos += 1
+        
+        if intentos >= max_intentos:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="No se pudo generar un código único para el siniestro"
+            )
         
         return codigo
     
@@ -616,6 +847,8 @@ class BitacoraActividadService:
         siniestro_id: UUID,
         usuario_id: Optional[UUID] = None,
         tipo_actividad: Optional[str] = None,
+        area_id: Optional[UUID] = None,
+        flujo_trabajo_id: Optional[UUID] = None,
         skip: int = 0,
         limit: int = 100
     ) -> List[BitacoraActividad]:
@@ -626,6 +859,10 @@ class BitacoraActividadService:
             q = q.filter(BitacoraActividad.usuario_id == usuario_id)
         if tipo_actividad is not None:
             q = q.filter(BitacoraActividad.tipo_actividad == tipo_actividad)
+        if area_id is not None:
+            q = q.filter(BitacoraActividad.area_id == area_id)
+        if flujo_trabajo_id is not None:
+            q = q.filter(BitacoraActividad.flujo_trabajo_id == flujo_trabajo_id)
         
         return q.order_by(BitacoraActividad.fecha_actividad.desc()).offset(skip).limit(limit).all()
     
@@ -679,6 +916,8 @@ class DocumentoService:
         siniestro_id: UUID,
         tipo_documento_id: Optional[UUID] = None,
         activo: Optional[bool] = None,
+        area_id: Optional[UUID] = None,
+        flujo_trabajo_id: Optional[UUID] = None,
         skip: int = 0,
         limit: int = 100
     ) -> List[Documento]:
@@ -692,6 +931,10 @@ class DocumentoService:
             q = q.filter(Documento.tipo_documento_id == tipo_documento_id)
         if activo is not None:
             q = q.filter(Documento.activo == activo)
+        if area_id is not None:
+            q = q.filter(Documento.area_id == area_id)
+        if flujo_trabajo_id is not None:
+            q = q.filter(Documento.flujo_trabajo_id == flujo_trabajo_id)
         
         return q.order_by(Documento.creado_en.desc()).offset(skip).limit(limit).all()
     
@@ -992,7 +1235,30 @@ class SiniestroAreaService:
     @staticmethod
     def create(db: Session, payload: SiniestroAreaCreate) -> SiniestroArea:
         """Agrega un área a un siniestro"""
-        # Verificar que no exista ya la misma área
+        # Validar que el siniestro existe
+        from app.models.legal import Siniestro
+        siniestro = db.query(Siniestro).filter(
+            Siniestro.id == payload.siniestro_id,
+            Siniestro.eliminado == False
+        ).first()
+        if not siniestro:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El siniestro no existe o ha sido eliminado"
+            )
+        
+        # Validar que el área existe
+        area = db.query(Area).filter(
+            Area.id == payload.area_id,
+            Area.eliminado_en.is_(None)
+        ).first()
+        if not area:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El área no existe o ha sido eliminada"
+            )
+        
+        # Verificar que no exista ya la misma área activa
         existing = db.query(SiniestroArea).filter(
             SiniestroArea.siniestro_id == payload.siniestro_id,
             SiniestroArea.area_id == payload.area_id,
@@ -1000,16 +1266,27 @@ class SiniestroAreaService:
         ).first()
         
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Ya existe esta área asignada al siniestro"
-            )
+            # Si ya existe y está activa, retornar la existente en lugar de lanzar error
+            # Esto evita errores si se intenta agregar la misma área dos veces
+            return existing
         
-        relacion = SiniestroArea(**payload.model_dump())
-        db.add(relacion)
-        db.commit()
-        db.refresh(relacion)
-        return relacion
+        # Crear nueva relación
+        try:
+            relacion = SiniestroArea(**payload.model_dump())
+            db.add(relacion)
+            db.commit()
+            db.refresh(relacion)
+            return relacion
+        except Exception as e:
+            db.rollback()
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error al crear relación siniestro-área: {str(e)}")
+            logger.error(f"Payload: {payload.model_dump()}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error al crear la relación: {str(e)}"
+            )
     
     @staticmethod
     def update(db: Session, relacion_id: UUID, payload: SiniestroAreaUpdate) -> Optional[SiniestroArea]:

@@ -14,6 +14,8 @@ export interface BitacoraActividad {
   fecha_actividad: string;
   documento_adjunto?: string;
   comentarios?: string;
+  area_id?: string;
+  flujo_trabajo_id?: string;
   creado_en: string;
 }
 
@@ -26,6 +28,8 @@ export interface BitacoraActividadCreate {
   fecha_actividad: string;
   documento_adjunto?: string;
   comentarios?: string;
+  area_id?: string;
+  flujo_trabajo_id?: string;
 }
 
 export interface BitacoraActividadUpdate {
@@ -35,5 +39,7 @@ export interface BitacoraActividadUpdate {
   fecha_actividad?: string;
   documento_adjunto?: string;
   comentarios?: string;
+  area_id?: string;
+  flujo_trabajo_id?: string;
 }
 

@@ -26,18 +26,26 @@ class FlujoTrabajoService:
         db: Session,
         empresa_id: UUID,
         area_id: Optional[UUID] = None,
+        solo_generales: bool = False,
         activo: Optional[bool] = True
     ) -> List[FlujoTrabajo]:
         """Obtiene flujos de trabajo por empresa y opcionalmente por área"""
+        from sqlalchemy.orm import joinedload
+        
         query = db.query(FlujoTrabajo).options(
-            joinedload("etapas")
+            joinedload(FlujoTrabajo.etapas)
         ).filter(
             FlujoTrabajo.empresa_id == empresa_id,
             FlujoTrabajo.eliminado_en.is_(None)
         )
 
-        if area_id is not None:
+        if solo_generales:
+            # Filtrar solo flujos generales (area_id IS NULL)
+            query = query.filter(FlujoTrabajo.area_id.is_(None))
+        elif area_id is not None:
+            # Filtrar por área específica
             query = query.filter(FlujoTrabajo.area_id == area_id)
+        # Si area_id es None y solo_generales es False, traer todos los flujos
         
         if activo is not None:
             query = query.filter(FlujoTrabajo.activo == activo)
@@ -53,7 +61,7 @@ class FlujoTrabajoService:
         )
         
         if include_etapas:
-            query = query.options(joinedload("etapas"))
+            query = query.options(joinedload(FlujoTrabajo.etapas))
         
         return query.first()
 
@@ -67,7 +75,7 @@ class FlujoTrabajoService:
         # Primero intentar área específica
         if area_id:
             flujo = db.query(FlujoTrabajo).options(
-                joinedload("etapas")
+                joinedload(FlujoTrabajo.etapas)
             ).filter(
                 FlujoTrabajo.empresa_id == empresa_id,
                 FlujoTrabajo.area_id == area_id,
@@ -81,7 +89,7 @@ class FlujoTrabajoService:
 
         # Fallback a flujo general
         return db.query(FlujoTrabajo).options(
-            joinedload("etapas")
+            joinedload(FlujoTrabajo.etapas)
         ).filter(
             FlujoTrabajo.empresa_id == empresa_id,
             FlujoTrabajo.area_id.is_(None),
@@ -181,9 +189,7 @@ class EtapaFlujoService:
         activo: Optional[bool] = True
     ) -> List[EtapaFlujo]:
         """Obtiene etapas de un flujo ordenadas por orden con eager loading"""
-        query = db.query(EtapaFlujo).options(
-            joinedload("tipo_documento_principal")
-        ).filter(
+        query = db.query(EtapaFlujo).filter(
             EtapaFlujo.flujo_trabajo_id == flujo_id,
             EtapaFlujo.eliminado_en.is_(None)
         )
@@ -214,6 +220,20 @@ class EtapaFlujoService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="El flujo de trabajo no existe"
             )
+
+        # Validar que el tipo de documento existe si se proporciona
+        if etapa.tipo_documento_principal_id:
+            # Usar text() para evitar problemas de importación circular
+            from sqlalchemy import text
+            tipo_doc = db.execute(
+                text("SELECT id FROM tipos_documento WHERE id = :id AND empresa_id = :empresa_id AND eliminado_en IS NULL"),
+                {"id": str(etapa.tipo_documento_principal_id), "empresa_id": str(flujo.empresa_id)}
+            ).first()
+            if not tipo_doc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"El tipo de documento con ID {etapa.tipo_documento_principal_id} no existe o no pertenece a la empresa"
+                )
 
         db_etapa = EtapaFlujo(
             flujo_trabajo_id=etapa.flujo_trabajo_id,
@@ -257,15 +277,49 @@ class EtapaFlujoService:
     @staticmethod
     def delete_etapa(db: Session, etapa_id: UUID) -> bool:
         """Elimina (soft delete) una etapa"""
-        db_etapa = EtapaFlujoService.get_etapa_by_id(db, etapa_id)
+        # Buscar la etapa sin filtrar por eliminado para poder eliminarla
+        db_etapa = db.query(EtapaFlujo).filter(
+            EtapaFlujo.id == etapa_id
+        ).first()
 
         if not db_etapa:
             return False
+        
+        # Si ya está eliminada, retornar True (ya está eliminada)
+        if db_etapa.eliminado_en is not None:
+            return True
 
         db_etapa.eliminado_en = func.now()
         db.commit()
 
         return True
+
+    @staticmethod
+    def reordenar_etapas(
+        db: Session,
+        flujo_id: UUID,
+        ordenes: List[dict]
+    ) -> None:
+        """Reordena las etapas de un flujo"""
+        for item in ordenes:
+            # Manejar tanto dict como objetos con atributos
+            if isinstance(item, dict):
+                etapa_id_str = item.get("etapa_id") or item.get("etapaId")
+                nuevo_orden = item.get("orden")
+            else:
+                etapa_id_str = getattr(item, "etapa_id", None) or getattr(item, "etapaId", None)
+                nuevo_orden = getattr(item, "orden", None)
+            
+            if not etapa_id_str or nuevo_orden is None:
+                continue
+                
+            etapa_id = UUID(str(etapa_id_str)) if not isinstance(etapa_id_str, UUID) else etapa_id_str
+            
+            etapa = EtapaFlujoService.get_etapa_by_id(db, etapa_id)
+            if etapa and etapa.flujo_trabajo_id == flujo_id:
+                etapa.orden = nuevo_orden
+        
+        db.commit()
 
 
 class SiniestroEtapaService:
@@ -305,10 +359,10 @@ class SiniestroEtapaService:
         siniestro_id: UUID
     ) -> List[SiniestroEtapa]:
         """Obtiene todas las etapas de un siniestro con eager loading"""
-        # Usar strings para evitar problemas de importación circular
+        # Usar atributos de clase directamente (SQLAlchemy 2.0+)
         return db.query(SiniestroEtapa).options(
-            joinedload("etapa_flujo").joinedload("tipo_documento_principal"),
-            joinedload("documento_principal")
+            joinedload(SiniestroEtapa.etapa_flujo).joinedload(EtapaFlujo.tipo_documento_principal),
+            joinedload(SiniestroEtapa.documento_principal)
         ).filter(
             SiniestroEtapa.siniestro_id == siniestro_id
         ).order_by(SiniestroEtapa.fecha_inicio).all()

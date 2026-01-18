@@ -22,8 +22,31 @@ pyotp==2.9.0
 python-dotenv==1.0.0
 email-validator==2.1.0
 
+# Generación de PDFs
+weasyprint>=62.0
+pillow==10.2.0
+
 # Testing
 pytest==7.4.4
 pytest-asyncio==0.23.3
 httpx==0.26.0
+
+# Google Cloud reCAPTCHA Enterprise
+google-cloud-recaptcha-enterprise==1.17.1
+
+# Exportación a Excel
+openpyxl==3.1.2
+xlsxwriter==3.1.9
+
+# Email y SMTP
+aiosmtplib==3.0.1
+jinja2==3.1.2
+
+# Tareas en background
+celery==5.3.4
+redis==5.0.1
+
+# Utilidades adicionales
+python-dateutil==2.8.2
+pytz==2024.1
 

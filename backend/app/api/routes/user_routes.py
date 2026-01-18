@@ -4,7 +4,7 @@ Endpoints para operaciones CRUD de usuarios y autenticación
 """
 
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -23,6 +23,7 @@ from app.schemas.user_schema import (
     UserEmpresaSwitch,
 )
 from app.services.user_service import UserService
+from app.services.recaptcha_service import RecaptchaService
 from app.core.security import get_current_active_user
 from app.models.user import User
 from sqlalchemy.orm import Session
@@ -42,15 +43,35 @@ def register_user(
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(
+async def login(
     credentials: UserLogin,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
-    Login paso 1: valida credenciales.
+    Login paso 1: valida credenciales y reCAPTCHA v3.
     - Si 2FA activado: retorna temp_token y requires_2fa=True
     - Si no: retorna access_token y requires_2fa=False
     """
+    # Validar reCAPTCHA Enterprise si está configurado
+    if credentials.recaptcha_token:
+        client_ip = request.client.host if request.client else None
+        recaptcha_result = await RecaptchaService.verify_token(
+            credentials.recaptcha_token,
+            remote_ip=client_ip,
+            recaptcha_action="login"
+        )
+        
+        if not RecaptchaService.is_valid(recaptcha_result, min_score=0.5):
+            reasons = recaptcha_result.get("reasons", [])
+            detail_msg = "Verificación de reCAPTCHA fallida. Por favor, intenta nuevamente."
+            if reasons:
+                detail_msg += f" Razones: {', '.join(reasons)}"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=detail_msg
+            )
+    
     result = UserService.start_login(db, credentials.username, credentials.password)
 
     user = result.get("user") if result else None

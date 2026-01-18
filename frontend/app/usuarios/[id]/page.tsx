@@ -93,7 +93,7 @@ export default function EditarUsuarioPage() {
 
   const loadRoles = async () => {
     try {
-      const data = await apiService.rol.getRoles(true); // Solo activos
+      const data = await apiService.getRoles(true); // Solo activos
       setRoles(data);
     } catch (e: any) {
       console.error("Error al cargar roles:", e);

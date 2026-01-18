@@ -11,7 +11,7 @@ from app.core.security import get_current_active_user
 from app.models.user import User
 from app.schemas.legal_schema import (
     SiniestroUsuarioCreate, SiniestroUsuarioUpdate, SiniestroUsuarioResponse,
-    SiniestroAreaCreate, SiniestroAreaUpdate, SiniestroAreaResponse,
+    SiniestroAreaCreate, SiniestroAreaCreateBody, SiniestroAreaUpdate, SiniestroAreaResponse,
 )
 from app.services.legal_service import SiniestroUsuarioService, SiniestroAreaService
 
@@ -93,15 +93,20 @@ def list_areas_adicionales(
 @router.post("/{siniestro_id}/areas-adicionales", response_model=SiniestroAreaResponse, status_code=status.HTTP_201_CREATED)
 def add_area_adicional(
     siniestro_id: UUID,
-    payload: SiniestroAreaCreate,
+    payload: SiniestroAreaCreateBody,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Agrega un área adicional a un siniestro"""
-    # Asegurar que el siniestro_id coincida con la URL
-    payload.siniestro_id = siniestro_id
+    # Crear un nuevo payload con el siniestro_id de la URL
+    # El siniestro_id viene en la URL, no en el body
+    from app.schemas.legal_schema import SiniestroAreaCreate
+    payload_dict = payload.model_dump()
+    payload_dict['siniestro_id'] = siniestro_id  # Asignar el siniestro_id de la URL
+    payload_with_siniestro = SiniestroAreaCreate(**payload_dict)
+    
     try:
-        return SiniestroAreaService.create(db, payload)
+        return SiniestroAreaService.create(db, payload_with_siniestro)
     except HTTPException:
         raise
     except Exception as e:

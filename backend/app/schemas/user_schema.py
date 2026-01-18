@@ -92,6 +92,7 @@ class UserLogin(BaseModel):
     """Schema para login"""
     username: str
     password: str
+    recaptcha_token: Optional[str] = None  # Token de reCAPTCHA v3
 
 
 class LoginResponse(BaseModel):

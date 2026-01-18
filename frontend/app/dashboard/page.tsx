@@ -5,14 +5,17 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import apiService from "@/lib/apiService";
-import { FiAlertTriangle, FiCheckCircle, FiClock, FiBarChart2, FiTrendingUp, FiUsers, FiFileText, FiBell } from "react-icons/fi";
+import { FiAlertTriangle, FiCheckCircle, FiClock, FiBarChart2, FiTrendingUp, FiUsers, FiFileText, FiBell, FiMap } from "react-icons/fi";
 import { FaFileContract } from "react-icons/fa";
 import Highcharts from "highcharts";
 import HighchartsReact from "highcharts-react-official";
+
+// Variable para rastrear si el módulo de mapas está cargado
+let mapModuleLoaded = false;
 
 interface DashboardStats {
   total_siniestros: number;
@@ -43,6 +46,27 @@ export default function DashboardPage() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [areas, setAreas] = useState<any[]>([]);
   const [estados, setEstados] = useState<any[]>([]);
+  const [mexicoMapData, setMexicoMapData] = useState<any>(null);
+  const [mapModuleReady, setMapModuleReady] = useState(false);
+
+  // Inicializar módulo de mapas
+  useEffect(() => {
+    if (typeof window !== "undefined" && !mapModuleLoaded) {
+      import("highcharts/modules/map")
+        .then((HighchartsMapModule) => {
+          // El módulo puede exportarse de diferentes formas
+          const mapModule = HighchartsMapModule.default || HighchartsMapModule;
+          if (typeof mapModule === "function") {
+            mapModule(Highcharts);
+          }
+          mapModuleLoaded = true;
+          setMapModuleReady(true);
+        })
+        .catch((error) => {
+          console.error("Error al cargar el módulo de mapas de Highcharts:", error);
+        });
+    }
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -52,7 +76,63 @@ export default function DashboardPage() {
       return;
     }
     loadDashboardData();
+    loadMexicoMap();
   }, [user, loading, router]);
+
+  // Función para cargar el mapa de México desde el repositorio de Highcharts Maps
+  const loadMexicoMap = async () => {
+    try {
+      // Cargar el mapa de México desde el repositorio oficial de Highcharts Maps
+      const response = await fetch(
+        "https://code.highcharts.com/mapdata/countries/mx/mx-all.topo.json"
+      );
+      if (response.ok) {
+        const mapData = await response.json();
+        setMexicoMapData(mapData);
+      } else {
+        console.error("Error al cargar el mapa de México");
+      }
+    } catch (error) {
+      console.error("Error al cargar el mapa de México:", error);
+    }
+  };
+
+  // Mapeo de nombres de estados mexicanos a códigos ISO o nombres del mapa
+  // Este mapeo ayuda a relacionar los nombres de estados con los códigos del mapa
+  const estadoMap: Record<string, string> = {
+    "Aguascalientes": "mx-ag",
+    "Baja California": "mx-bc",
+    "Baja California Sur": "mx-bs",
+    "Campeche": "mx-cm",
+    "Chiapas": "mx-cp",
+    "Chihuahua": "mx-ch",
+    "Ciudad de México": "mx-df",
+    "Coahuila": "mx-co",
+    "Colima": "mx-cl",
+    "Durango": "mx-dg",
+    "Estado de México": "mx-mx",
+    "Guanajuato": "mx-gj",
+    "Guerrero": "mx-gr",
+    "Hidalgo": "mx-hg",
+    "Jalisco": "mx-ja",
+    "Michoacán": "mx-mi",
+    "Morelos": "mx-mo",
+    "Nayarit": "mx-na",
+    "Nuevo León": "mx-nl",
+    "Oaxaca": "mx-oa",
+    "Puebla": "mx-pu",
+    "Querétaro": "mx-qe",
+    "Quintana Roo": "mx-qr",
+    "San Luis Potosí": "mx-sl",
+    "Sinaloa": "mx-si",
+    "Sonora": "mx-so",
+    "Tabasco": "mx-tb",
+    "Tamaulipas": "mx-tm",
+    "Tlaxcala": "mx-tl",
+    "Veracruz": "mx-ve",
+    "Yucatán": "mx-yu",
+    "Zacatecas": "mx-za",
+  };
 
   const loadDashboardData = async () => {
     try {
@@ -97,6 +177,15 @@ export default function DashboardPage() {
     if (!estadoId) return "Sin estado";
     const estado = estados.find((e) => e.id === estadoId);
     return estado?.nombre || "N/A";
+  };
+
+  // Función para normalizar nombres de estados (quitar acentos, convertir a minúsculas)
+  const normalizeEstado = (nombre: string): string => {
+    return nombre
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]/g, "-");
   };
 
   // Configuración del gráfico de barras para Estados
@@ -282,6 +371,135 @@ export default function DashboardPage() {
     },
   };
 
+  // Configuración del mapa de México con siniestros por estado
+  const mexicoMapChartOptions = useMemo((): Highcharts.Options => {
+    if (!mexicoMapData || !stats?.siniestros_por_estado) {
+      return {
+        chart: {
+          type: "map",
+          height: 500,
+        },
+        title: {
+          text: "Cargando mapa...",
+        },
+      };
+    }
+
+    // Crear un mapa de normalización para los datos de siniestros
+    const siniestrosMap = new Map<string, number>();
+    stats.siniestros_por_estado.forEach((item) => {
+      siniestrosMap.set(normalizeEstado(item.nombre), item.cantidad);
+      siniestrosMap.set(item.nombre, item.cantidad); // También mantener el nombre original
+    });
+
+    // Extraer los datos del mapa topoJSON y mapearlos con los siniestros
+    const mapFeatures = (mexicoMapData as any).features || [];
+    const mapData = mapFeatures.map((feature: any) => {
+      const properties = feature.properties || {};
+      const nombreEstado = properties.name || properties.NAME || properties.NAME_1 || properties.admin || "";
+      const codigoMapa = properties["hc-key"] || properties.HASC_1 || properties.ISO || properties.postal || normalizeEstado(nombreEstado);
+      
+      // Buscar el valor de siniestros
+      let cantidad = 0;
+      const nombreNormalizado = normalizeEstado(nombreEstado);
+      
+      // Intentar varias formas de mapear
+      if (siniestrosMap.has(nombreEstado)) {
+        cantidad = siniestrosMap.get(nombreEstado)!;
+      } else if (siniestrosMap.has(nombreNormalizado)) {
+        cantidad = siniestrosMap.get(nombreNormalizado)!;
+      } else {
+        // Buscar en los datos de siniestros por coincidencia
+        for (const item of stats.siniestros_por_estado) {
+          const itemNormalizado = normalizeEstado(item.nombre);
+          if (itemNormalizado === nombreNormalizado || 
+              nombreNormalizado.includes(itemNormalizado) ||
+              itemNormalizado.includes(nombreNormalizado)) {
+            cantidad = item.cantidad;
+            break;
+          }
+        }
+      }
+
+      return {
+        "hc-key": codigoMapa,
+        name: nombreEstado || codigoMapa,
+        value: cantidad,
+      };
+    });
+
+    // Mostrar todos los estados, incluso si no tienen siniestros (aparecerán en color claro)
+    const dataToShow = mapData;
+
+    return {
+      chart: {
+        type: "map",
+        map: mexicoMapData,
+        height: 500,
+      },
+      title: {
+        text: undefined,
+      },
+      mapNavigation: {
+        enabled: true,
+        buttonOptions: {
+          verticalAlign: "bottom",
+        },
+      },
+      colorAxis: {
+        min: 0,
+        minColor: "#E0F2FE", // Azul muy claro
+        maxColor: "#0C4A6E", // Azul oscuro
+        stops: [
+          [0, "#E0F2FE"],
+          [0.25, "#7DD3FC"],
+          [0.5, "#0EA5E9"],
+          [0.75, "#0284C7"],
+          [1, "#0C4A6E"],
+        ],
+      },
+      legend: {
+        layout: "vertical",
+        align: "right",
+        verticalAlign: "middle",
+        title: {
+          text: "Siniestros",
+        },
+      },
+      tooltip: {
+        formatter: function (this: Highcharts.TooltipFormatterContextObject) {
+          const point = this.point as any;
+          return `<b>${point.name || this.key}</b><br/>Siniestros: <b>${point.value || 0}</b>`;
+        },
+      },
+      series: [
+        {
+          name: "Siniestros",
+          type: "map",
+          states: {
+            hover: {
+              brightness: 0.2,
+            },
+          },
+          dataLabels: {
+            enabled: true,
+            format: "{point.name}<br/>{point.value}",
+            style: {
+              fontWeight: "bold",
+              fontSize: "9px",
+              textOutline: "1px contrast",
+              color: "#1F2937",
+            },
+          },
+          data: dataToShow.length > 0 ? dataToShow : mapData,
+        },
+      ],
+      credits: {
+        enabled: false,
+      },
+    };
+  }, [mexicoMapData, stats?.siniestros_por_estado]);
+
   if (loading || loadingStats || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -347,13 +565,33 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Mapa de México - Siniestros por Estado */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <FiMap className="w-5 h-5" />
+          Siniestros por Estado en México
+        </h3>
+        {mapModuleReady && mexicoMapData && stats?.siniestros_por_estado.length > 0 ? (
+          <HighchartsReact highcharts={Highcharts} options={mexicoMapChartOptions} />
+        ) : mapModuleReady && mexicoMapData ? (
+          <p className="text-gray-500 text-sm">No hay datos de siniestros por estado disponibles</p>
+        ) : (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-2"></div>
+              <p className="text-gray-500 text-sm">Cargando mapa de México...</p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Gráficos principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros por Estado - Gráfico de Barras */}
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiBarChart2 className="w-5 h-5" />
-            Siniestros por Estado
+            Siniestros por Estado (Gráfico de Barras)
           </h3>
           {stats.siniestros_por_estado.length > 0 ? (
             <HighchartsReact highcharts={Highcharts} options={estadosChartOptions} />

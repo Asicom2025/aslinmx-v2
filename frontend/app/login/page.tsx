@@ -5,10 +5,11 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { swalSuccess, swalError, swalInfo } from "@/lib/swal";
 import apiService from "@/lib/apiService";
+import { getRecaptchaToken, isRecaptchaAvailable, diagnoseRecaptcha } from "@/lib/recaptcha";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { useUser } from "@/context/UserContext";
@@ -25,6 +26,17 @@ export default function LoginPage() {
   const [tempToken, setTempToken] = useState<string | null>(null);
   const [code, setCode] = useState("");
 
+  // Diagnóstico de reCAPTCHA en desarrollo
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      // Esperar un momento para que el script se cargue
+      const timer = setTimeout(() => {
+        diagnoseRecaptcha();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
@@ -38,7 +50,7 @@ export default function LoginPage() {
 
     try {
       if (requires2FA && tempToken) {
-        // Paso 2: verificar 2FA
+        // Paso 2: verificar 2FA (no requiere reCAPTCHA)
         const resp2 = await apiService.verify2FA(tempToken, code);
         localStorage.setItem("token", resp2.access_token);
         await refresh();
@@ -47,10 +59,22 @@ export default function LoginPage() {
         return;
       }
 
+      // Paso 1: login - Obtener token de reCAPTCHA
+      let recaptchaToken: string | null = null;
+      if (isRecaptchaAvailable()) {
+        recaptchaToken = await getRecaptchaToken("login");
+        if (!recaptchaToken) {
+          swalError("Error al verificar reCAPTCHA. Por favor, recarga la página e intenta nuevamente.");
+          setLoading(false);
+          return;
+        }
+      }
+
       // Paso 1: login
       const response = await apiService.login(
         formData.username,
-        formData.password
+        formData.password,
+        recaptchaToken || undefined
       );
 
       if (response.requires_2fa) {

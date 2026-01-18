@@ -25,12 +25,22 @@ export interface EtapaFlujo {
   es_obligatoria: boolean;
   permite_omision: boolean;
   tipo_documento_principal_id?: string | null;
+  categoria_documento_id?: string | null;
+  plantilla_documento_id?: string | null;
   inhabilita_siguiente: boolean;
   activo: boolean;
   creado_en: string;
   actualizado_en: string;
   eliminado_en?: string | null;
   tipo_documento_principal?: {
+    id: string;
+    nombre: string;
+  } | null;
+  categoria_documento?: {
+    id: string;
+    nombre: string;
+  } | null;
+  plantilla_documento?: {
     id: string;
     nombre: string;
   } | null;

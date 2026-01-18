@@ -22,17 +22,21 @@ def list_documentos_siniestro(
     siniestro_id: UUID,
     tipo_documento_id: Optional[UUID] = Query(None, description="Filtrar por tipo de documento"),
     activo: Optional[bool] = Query(None, description="Filtrar por estado activo"),
+    area_id: Optional[UUID] = Query(None, description="Filtrar por área"),
+    flujo_trabajo_id: Optional[UUID] = Query(None, description="Filtrar por flujo de trabajo"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Lista documentos de un siniestro"""
+    """Lista documentos de un siniestro, opcionalmente filtrados por área y flujo"""
     return DocumentoService.list(
         db=db,
         siniestro_id=siniestro_id,
         tipo_documento_id=tipo_documento_id,
         activo=activo,
+        area_id=area_id,
+        flujo_trabajo_id=flujo_trabajo_id,
         skip=skip,
         limit=limit
     )

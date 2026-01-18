@@ -3,7 +3,7 @@ Schemas para catálogos legales
 Define los modelos Pydantic para validación y serialización
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Literal
 from datetime import datetime, date
 from uuid import UUID
@@ -107,6 +107,54 @@ class CalificacionSiniestroUpdate(BaseModel):
 
 class CalificacionSiniestroResponse(CalificacionSiniestroBase):
     """Schema de respuesta de calificación de siniestro"""
+    id: UUID
+    empresa_id: UUID
+    creado_en: datetime
+    actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ===== ENTIDADES =====
+class EntidadBase(BaseModel):
+    """Schema base de entidad"""
+    nombre: str = Field(..., min_length=1, max_length=200)
+    codigo: Optional[str] = Field(None, max_length=50)
+    email: Optional[str] = Field(None, max_length=100)
+    telefono: Optional[str] = Field(None, max_length=20)
+    direccion: Optional[str] = None
+    contacto_principal: Optional[str] = Field(None, max_length=200)
+    observaciones: Optional[str] = None
+    es_institucion: bool = False
+    es_autoridad: bool = False
+    es_organo: bool = False
+    activo: bool = True
+
+
+class EntidadCreate(EntidadBase):
+    """Schema para crear entidad"""
+    pass
+
+
+class EntidadUpdate(BaseModel):
+    """Schema para actualizar entidad"""
+    nombre: Optional[str] = Field(None, min_length=1, max_length=200)
+    codigo: Optional[str] = Field(None, max_length=50)
+    email: Optional[str] = Field(None, max_length=100)
+    telefono: Optional[str] = Field(None, max_length=20)
+    direccion: Optional[str] = None
+    contacto_principal: Optional[str] = Field(None, max_length=200)
+    observaciones: Optional[str] = None
+    es_institucion: Optional[bool] = None
+    es_autoridad: Optional[bool] = None
+    es_organo: Optional[bool] = None
+    activo: Optional[bool] = None
+
+
+class EntidadResponse(EntidadBase):
+    """Schema de respuesta de entidad"""
     id: UUID
     empresa_id: UUID
     creado_en: datetime
@@ -228,36 +276,108 @@ class ProvenienteResponse(ProvenienteBase):
 
 
 # ===== TIPOS DE DOCUMENTO =====
-class TipoDocumentoBase(BaseModel):
+class TiposDocumentoBase(BaseModel):
     """Schema base de tipo de documento"""
     nombre: str = Field(..., min_length=1, max_length=100)
     descripcion: Optional[str] = None
-    area_id: Optional[UUID] = None
+    plantilla: Optional[str] = None
+    formato: Optional[str] = Field(None, max_length=50)
+    tipo: Literal["pdf", "editor", "imagen"] = "editor"
     activo: bool = True
 
 
-class TipoDocumentoCreate(TipoDocumentoBase):
+class TiposDocumentoCreate(TiposDocumentoBase):
     """Schema para crear tipo de documento"""
     pass
 
 
-class TipoDocumentoUpdate(BaseModel):
+class TiposDocumentoUpdate(BaseModel):
     """Schema para actualizar tipo de documento"""
     nombre: Optional[str] = Field(None, min_length=1, max_length=100)
     descripcion: Optional[str] = None
-    area_id: Optional[UUID] = None
+    plantilla: Optional[str] = None
+    formato: Optional[str] = Field(None, max_length=50)
+    tipo: Optional[Literal["pdf", "editor", "imagen"]] = None
     activo: Optional[bool] = None
 
 
-class TipoDocumentoResponse(TipoDocumentoBase):
+class TiposDocumentoResponse(TiposDocumentoBase):
     """Schema de respuesta de tipo de documento"""
     id: UUID
-    empresa_id: UUID
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
-    # Relación opcional con área
-    area: Optional[AreaResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ===== CATEGORÍAS DE DOCUMENTO =====
+class CategoriaDocumentoBase(BaseModel):
+    """Schema base de categoría de documento"""
+    nombre: str = Field(..., min_length=1, max_length=100)
+    descripcion: Optional[str] = None
+    activo: bool = True
+
+
+class CategoriaDocumentoCreate(CategoriaDocumentoBase):
+    """Schema para crear categoría de documento"""
+    tipo_documento_id: UUID
+
+
+class CategoriaDocumentoUpdate(BaseModel):
+    """Schema para actualizar categoría de documento"""
+    nombre: Optional[str] = Field(None, min_length=1, max_length=100)
+    descripcion: Optional[str] = None
+    activo: Optional[bool] = None
+
+
+class CategoriaDocumentoResponse(CategoriaDocumentoBase):
+    """Schema de respuesta de categoría de documento"""
+    id: UUID
+    tipo_documento_id: UUID
+    creado_en: datetime
+    actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ===== PLANTILLAS DE DOCUMENTO =====
+class PlantillaDocumentoBase(BaseModel):
+    """Schema base de plantilla de documento"""
+    nombre: str = Field(..., min_length=1, max_length=200)
+    descripcion: Optional[str] = None
+    contenido: Optional[str] = None  # Contenido HTML de la plantilla
+    formato: Optional[str] = Field(None, max_length=50)
+    activo: bool = True
+
+
+class PlantillaDocumentoCreate(PlantillaDocumentoBase):
+    """Schema para crear plantilla de documento"""
+    tipo_documento_id: UUID
+    categoria_id: Optional[UUID] = None  # Opcional
+
+
+class PlantillaDocumentoUpdate(BaseModel):
+    """Schema para actualizar plantilla de documento"""
+    nombre: Optional[str] = Field(None, min_length=1, max_length=200)
+    descripcion: Optional[str] = None
+    contenido: Optional[str] = None
+    formato: Optional[str] = Field(None, max_length=50)
+    categoria_id: Optional[UUID] = None
+    activo: Optional[bool] = None
+
+
+class PlantillaDocumentoResponse(PlantillaDocumentoBase):
+    """Schema de respuesta de plantilla de documento"""
+    id: UUID
+    tipo_documento_id: UUID
+    categoria_id: Optional[UUID] = None
+    creado_en: datetime
+    actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -284,9 +404,9 @@ class SiniestroBase(BaseModel):
     # Estado del siniestro
     estado_id: Optional[UUID] = None
     
-    # Instituciones involucradas
-    institucion_id: Optional[UUID] = None
-    autoridad_id: Optional[UUID] = None
+    # Instituciones involucradas (OBLIGATORIAS)
+    institucion_id: UUID = Field(..., description="ID de la institución involucrada")
+    autoridad_id: UUID = Field(..., description="ID de la autoridad involucrada")
     
     # Proveniente y código
     proveniente_id: Optional[UUID] = None
@@ -302,6 +422,22 @@ class SiniestroBase(BaseModel):
     prioridad: Literal["baja", "media", "alta", "critica"] = "media"
     observaciones: Optional[str] = None
     activo: bool = True
+    
+    @field_validator('proveniente_id', 'asegurado_id', 'estado_id', 'calificacion_id', mode='before')
+    @classmethod
+    def convert_empty_string_to_none(cls, v):
+        """Convierte strings vacíos a None para campos UUID opcionales"""
+        if v == "" or v == "null" or v == "undefined":
+            return None
+        return v
+    
+    @field_validator('institucion_id', 'autoridad_id', mode='before')
+    @classmethod
+    def validate_required_uuids(cls, v):
+        """Valida que institucion_id y autoridad_id no sean vacíos (son obligatorios)"""
+        if v == "" or v == "null" or v == "undefined" or v is None:
+            raise ValueError("institucion_id y autoridad_id son obligatorios")
+        return v
 
 
 class SiniestroCreate(SiniestroBase):
@@ -347,6 +483,14 @@ class SiniestroUpdate(BaseModel):
     prioridad: Optional[Literal["baja", "media", "alta", "critica"]] = None
     observaciones: Optional[str] = None
     activo: Optional[bool] = None
+    
+    @field_validator('institucion_id', 'autoridad_id', 'proveniente_id', 'asegurado_id', 'estado_id', 'calificacion_id', mode='before')
+    @classmethod
+    def convert_empty_string_to_none(cls, v):
+        """Convierte strings vacíos a None para campos UUID opcionales"""
+        if v == "" or v == "null" or v == "undefined":
+            return None
+        return v
 
 
 class SiniestroResponse(SiniestroBase):
@@ -381,6 +525,8 @@ class BitacoraActividadCreate(BitacoraActividadBase):
     """Schema para crear actividad en bitácora"""
     siniestro_id: UUID
     usuario_id: Optional[UUID] = None  # Se toma del usuario actual si no se especifica
+    area_id: Optional[UUID] = None  # Área específica de la actividad
+    flujo_trabajo_id: Optional[UUID] = None  # Flujo de trabajo específico de la actividad
 
 
 class BitacoraActividadUpdate(BaseModel):
@@ -391,6 +537,8 @@ class BitacoraActividadUpdate(BaseModel):
     fecha_actividad: Optional[datetime] = None
     documento_adjunto: Optional[str] = Field(None, max_length=255)
     comentarios: Optional[str] = None
+    area_id: Optional[UUID] = None
+    flujo_trabajo_id: Optional[UUID] = None
 
 
 class BitacoraActividadResponse(BitacoraActividadBase):
@@ -398,6 +546,8 @@ class BitacoraActividadResponse(BitacoraActividadBase):
     id: UUID
     siniestro_id: UUID
     usuario_id: UUID
+    area_id: Optional[UUID] = None
+    flujo_trabajo_id: Optional[UUID] = None
     creado_en: datetime
 
     class Config:
@@ -409,6 +559,7 @@ class DocumentoBase(BaseModel):
     """Schema base de documento"""
     nombre_archivo: str = Field(..., min_length=1, max_length=255)
     ruta_archivo: str = Field(..., min_length=1, max_length=500)
+    contenido: Optional[str] = None  # Contenido HTML del documento editado
     tamaño_archivo: Optional[int] = None
     tipo_mime: Optional[str] = Field(None, max_length=100)
     descripcion: Optional[str] = None
@@ -423,6 +574,9 @@ class DocumentoCreate(DocumentoBase):
     siniestro_id: UUID
     tipo_documento_id: Optional[UUID] = None
     etapa_flujo_id: Optional[UUID] = None
+    plantilla_documento_id: Optional[UUID] = None
+    area_id: Optional[UUID] = None  # Área específica del documento
+    flujo_trabajo_id: Optional[UUID] = None  # Flujo de trabajo específico del documento
     usuario_subio: Optional[UUID] = None
     version: int = 1
 
@@ -430,12 +584,16 @@ class DocumentoCreate(DocumentoBase):
 class DocumentoUpdate(BaseModel):
     """Schema para actualizar documento"""
     nombre_archivo: Optional[str] = Field(None, min_length=1, max_length=255)
+    contenido: Optional[str] = None
     descripcion: Optional[str] = None
     fecha_documento: Optional[date] = None
     es_principal: Optional[bool] = None
     es_adicional: Optional[bool] = None
     tipo_documento_id: Optional[UUID] = None
     etapa_flujo_id: Optional[UUID] = None
+    plantilla_documento_id: Optional[UUID] = None
+    area_id: Optional[UUID] = None
+    flujo_trabajo_id: Optional[UUID] = None
     activo: Optional[bool] = None
 
 
@@ -445,6 +603,9 @@ class DocumentoResponse(DocumentoBase):
     siniestro_id: UUID
     tipo_documento_id: Optional[UUID] = None
     etapa_flujo_id: Optional[UUID] = None
+    plantilla_documento_id: Optional[UUID] = None
+    area_id: Optional[UUID] = None
+    flujo_trabajo_id: Optional[UUID] = None
     usuario_subio: Optional[UUID] = None
     version: int
     eliminado: bool
@@ -576,8 +737,14 @@ class SiniestroAreaBase(BaseModel):
     activo: bool = True
 
 
+class SiniestroAreaCreateBody(SiniestroAreaBase):
+    """Schema para el body de la petición (sin siniestro_id, viene en la URL)"""
+    area_id: UUID
+    usuario_responsable: Optional[UUID] = None
+
+
 class SiniestroAreaCreate(SiniestroAreaBase):
-    """Schema para crear relación siniestro-área"""
+    """Schema para crear relación siniestro-área (completo, con siniestro_id)"""
     siniestro_id: UUID
     area_id: UUID
     usuario_responsable: Optional[UUID] = None

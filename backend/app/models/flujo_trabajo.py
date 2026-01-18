@@ -41,6 +41,8 @@ class EtapaFlujo(Base):
     es_obligatoria = Column(Boolean, nullable=False, default=True)
     permite_omision = Column(Boolean, nullable=False, default=False)
     tipo_documento_principal_id = Column(UUID(as_uuid=True), ForeignKey("tipos_documento.id", ondelete="SET NULL"), nullable=True)
+    categoria_documento_id = Column(UUID(as_uuid=True), ForeignKey("categorias_documento.id", ondelete="SET NULL"), nullable=True)
+    plantilla_documento_id = Column(UUID(as_uuid=True), ForeignKey("plantillas_documento.id", ondelete="SET NULL"), nullable=True)
     inhabilita_siguiente = Column(Boolean, nullable=False, default=False)
     activo = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -49,7 +51,9 @@ class EtapaFlujo(Base):
 
     # Relaciones
     flujo_trabajo = relationship("FlujoTrabajo", back_populates="etapas")
-    tipo_documento_principal = relationship("TipoDocumento", foreign_keys=[tipo_documento_principal_id])
+    tipo_documento_principal = relationship("TipoDocumento", foreign_keys=[tipo_documento_principal_id], lazy="joined")
+    categoria_documento = relationship("CategoriaDocumento", foreign_keys=[categoria_documento_id], lazy="joined")
+    plantilla_documento = relationship("PlantillaDocumento", foreign_keys=[plantilla_documento_id], lazy="joined")
 
 
 class SiniestroEtapa(Base):

@@ -35,14 +35,31 @@ class FlujoTrabajoUpdate(BaseModel):
     es_predeterminado: Optional[bool] = None
 
 
+class DocumentoRelacionado(BaseModel):
+    """Información básica de documento relacionado"""
+    id: UUID
+    nombre: str
+
+    class Config:
+        from_attributes = True
+
+
 class EtapaFlujoSimple(BaseModel):
     """Etapa simple para respuesta"""
     id: UUID
     nombre: str
+    descripcion: Optional[str] = None
     orden: int
     es_obligatoria: bool
+    permite_omision: bool = False
     inhabilita_siguiente: bool
     activo: bool
+    tipo_documento_principal_id: Optional[UUID] = None
+    categoria_documento_id: Optional[UUID] = None
+    plantilla_documento_id: Optional[UUID] = None
+    tipo_documento_principal: Optional[DocumentoRelacionado] = None
+    categoria_documento: Optional[DocumentoRelacionado] = None
+    plantilla_documento: Optional[DocumentoRelacionado] = None
 
     class Config:
         from_attributes = True
@@ -73,13 +90,15 @@ class EtapaFlujoBase(BaseModel):
     es_obligatoria: bool = Field(True, description="Si la etapa es obligatoria")
     permite_omision: bool = Field(False, description="Si se puede omitir la etapa")
     tipo_documento_principal_id: Optional[UUID] = Field(None, description="ID del tipo de documento principal requerido")
+    categoria_documento_id: Optional[UUID] = Field(None, description="ID de la categoría de documento específica")
+    plantilla_documento_id: Optional[UUID] = Field(None, description="ID de la plantilla de documento específica")
     inhabilita_siguiente: bool = Field(False, description="Si bloquea la siguiente etapa si no está completa")
     activo: bool = Field(True)
 
 
 class EtapaFlujoCreate(EtapaFlujoBase):
     """Schema para crear una etapa"""
-    flujo_trabajo_id: UUID = Field(..., description="ID del flujo al que pertenece")
+    flujo_trabajo_id: Optional[UUID] = Field(None, description="ID del flujo al que pertenece (se asigna desde la ruta)")
 
 
 class EtapaFlujoUpdate(BaseModel):
@@ -90,6 +109,8 @@ class EtapaFlujoUpdate(BaseModel):
     es_obligatoria: Optional[bool] = None
     permite_omision: Optional[bool] = None
     tipo_documento_principal_id: Optional[UUID] = None
+    categoria_documento_id: Optional[UUID] = None
+    plantilla_documento_id: Optional[UUID] = None
     inhabilita_siguiente: Optional[bool] = None
     activo: Optional[bool] = None
 
@@ -101,6 +122,9 @@ class EtapaFlujoResponse(EtapaFlujoBase):
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
+    tipo_documento_principal: Optional[DocumentoRelacionado] = None
+    categoria_documento: Optional[DocumentoRelacionado] = None
+    plantilla_documento: Optional[DocumentoRelacionado] = None
 
     class Config:
         from_attributes = True
@@ -143,6 +167,17 @@ class CompletarEtapaRequest(BaseModel):
 class AvanzarEtapaRequest(BaseModel):
     """Request para avanzar a la siguiente etapa"""
     pass
+
+
+class OrdenEtapa(BaseModel):
+    """Orden de una etapa"""
+    etapa_id: UUID
+    orden: int
+
+
+class ReordenarEtapasRequest(BaseModel):
+    """Request para reordenar etapas"""
+    ordenes: List[OrdenEtapa] = Field(..., description="Lista de etapas con su nuevo orden")
 
 
 # ==========================================================

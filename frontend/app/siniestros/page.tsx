@@ -18,12 +18,19 @@ import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
 import { Siniestro } from "@/types/siniestros";
 import { FiEdit2, FiTrash2, FiEye } from "react-icons/fi";
-import SiniestroWizard, {
-  SiniestroFormState,
-  ExtendedSiniestroFormState,
+import {
   PersonaLigera,
   CatalogOption,
 } from "@/components/siniestros/SiniestroWizard";
+import {
+  obtenerCatalogosColores,
+  obtenerColorEstado,
+  obtenerColorCalificacion,
+  obtenerNombreEstado,
+  obtenerNombreCalificacion,
+  generarEstilosBadge,
+  CatalogosColores,
+} from "@/lib/siniestrosUtils";
 
 const CALIFICACIONES_DEFAULT = ["Excelente", "Bueno", "Regular", "Malo"];
 
@@ -143,32 +150,11 @@ export default function SiniestrosPage() {
     area_id: "",
     usuario_asignado: "",
     prioridad: "" as "" | "baja" | "media" | "alta" | "critica",
+    calificacion_id: "",
   });
 
-  // Wizard
-  const [wizardOpen, setWizardOpen] = useState(false);
+  // Estado para edición (si se necesita en el futuro)
   const [editing, setEditing] = useState<Siniestro | null>(null);
-  const getInitialForm = (): SiniestroFormState => ({
-    numero_siniestro: "",
-    fecha_siniestro: new Date().toISOString().split("T")[0],
-    ubicacion: "",
-    descripcion_hechos: "",
-    numero_poliza: "",
-    deducible: 0,
-    reserva: 0,
-    coaseguro: 0,
-    suma_asegurada: 0,
-    estado_id: "",
-    institucion_id: "",
-    autoridad_id: "",
-    prioridad: "media",
-    observaciones: "",
-    activo: true,
-  });
-  const [form, setForm] = useState<SiniestroFormState>(() => getInitialForm());
-  const [extendedForm, setExtendedForm] = useState<ExtendedSiniestroFormState>(
-    () => buildInitialExtendedForm()
-  );
   const [roles, setRoles] = useState<any[]>([]);
   const [institucionesCatalogo, setInstitucionesCatalogo] = useState<
     CatalogOption[]
@@ -183,6 +169,12 @@ export default function SiniestrosPage() {
   const [calificacionesCatalogo, setCalificacionesCatalogo] = useState<any[]>(
     []
   );
+  const [catalogosColores, setCatalogosColores] = useState<CatalogosColores>({
+    estados: new Map(),
+    calificaciones: new Map(),
+    estadosArray: [],
+    calificacionesArray: [],
+  });
 
   // Función helper para obtener el ID de calificación desde el nombre
   const getCalificacionIdFromNombre = (nombre?: string): string | null => {
@@ -226,7 +218,17 @@ export default function SiniestrosPage() {
     loadAutoridades();
     loadProvenientes();
     loadCalificaciones();
+    loadCatalogosColores();
   }, [user]);
+
+  const loadCatalogosColores = async () => {
+    try {
+      const catalogos = await obtenerCatalogosColores(true);
+      setCatalogosColores(catalogos);
+    } catch (e: any) {
+      console.error("Error al cargar catálogos de colores:", e);
+    }
+  };
 
   const loadSiniestros = async () => {
     try {
@@ -237,6 +239,7 @@ export default function SiniestrosPage() {
       if (filtros.usuario_asignado)
         params.usuario_asignado = filtros.usuario_asignado;
       if (filtros.prioridad) params.prioridad = filtros.prioridad;
+      if (filtros.calificacion_id) params.calificacion_id = filtros.calificacion_id;
 
       const data = await apiService.getSiniestros(params);
       // Debug: verificar si el código está presente en los datos
@@ -351,29 +354,6 @@ export default function SiniestrosPage() {
     }
   };
 
-  const closeWizard = () => {
-    setWizardOpen(false);
-    setEditing(null);
-    setExtendedForm(buildInitialExtendedForm());
-  };
-
-  // Form handlers
-  const openCreate = () => {
-    setEditing(null);
-    const initialForm = getInitialForm();
-    setForm(initialForm);
-    const initialExtended = buildInitialExtendedForm();
-    initialExtended.generales.polizas[0] = {
-      tempId: initialExtended.generales.polizas[0].tempId,
-      numero_poliza: initialForm.numero_poliza,
-      deducible: initialForm.deducible,
-      reserva: initialForm.reserva,
-      coaseguro: initialForm.coaseguro,
-      suma_asegurada: initialForm.suma_asegurada,
-    };
-    setExtendedForm(initialExtended);
-    setWizardOpen(true);
-  };
 
   const openEdit = async (siniestro: Siniestro) => {
     setEditing(siniestro);
@@ -458,8 +438,8 @@ export default function SiniestrosPage() {
       ...initialExtended.especificos,
       descripcion_html: siniestro.descripcion_hechos || "",
     };
-    setExtendedForm(initialExtended);
-    setWizardOpen(true);
+    // Navegar a la página de edición cuando esté disponible
+    router.push(`/siniestros/${siniestro.id}`);
   };
 
   const handleFormChange = (
@@ -525,6 +505,9 @@ export default function SiniestrosPage() {
         descripcion_hechos:
           extendedForm.especificos.descripcion_html || form.descripcion_hechos,
         asegurado_id: aseguradoId,
+        // Convertir strings vacíos a null para campos UUID opcionales
+        institucion_id: form.institucion_id && form.institucion_id.trim() !== "" ? form.institucion_id : null,
+        autoridad_id: form.autoridad_id && form.autoridad_id.trim() !== "" ? form.autoridad_id : null,
         // Nuevos campos
         proveniente_id: extendedForm.generales.proveniente_id || null,
         numero_reporte: extendedForm.generales.numero_reporte || null,
@@ -583,16 +566,82 @@ export default function SiniestrosPage() {
           }
         }
 
-        // Agregar nuevas áreas
-        for (const areaId of areasParaAgregar) {
-          try {
-            await apiService.addAreaAdicional(siniestroId, {
-              area_id: areaId,
-              activo: true,
-            });
-          } catch (error: any) {
-            console.error(`Error al agregar área ${areaId}:`, error);
+        // Agregar nuevas áreas - Asegurar que todas se guarden
+        console.log("Áreas para agregar:", areasParaAgregar);
+        if (areasParaAgregar && areasParaAgregar.length > 0) {
+          const areasErrors: string[] = [];
+          const areasGuardadas: string[] = [];
+          for (const areaId of areasParaAgregar) {
+            if (!areaId) {
+              console.warn("Área ID vacío, omitiendo...");
+              continue;
+            }
+            try {
+              console.log(`Agregando área ${areaId} al siniestro ${siniestroId}`);
+              const resultado = await apiService.addAreaAdicional(siniestroId, {
+                area_id: areaId,
+                activo: true,
+              });
+              console.log(`Área ${areaId} agregada correctamente:`, resultado);
+              areasGuardadas.push(areaId);
+            } catch (error: any) {
+              let errorMsg = `Error desconocido al agregar área ${areaId}`;
+              
+              // Intentar extraer el mensaje de error de diferentes formas
+              try {
+                if (error.response?.data) {
+                  const data = error.response.data;
+                  if (data.detail) {
+                    if (typeof data.detail === 'string') {
+                      errorMsg = data.detail;
+                    } else if (typeof data.detail === 'object') {
+                      // Si es un objeto, intentar extraer el mensaje
+                      errorMsg = data.detail.message || data.detail.error || JSON.stringify(data.detail);
+                    }
+                  } else if (data.message) {
+                    errorMsg = data.message;
+                  } else if (data.error) {
+                    errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+                  } else {
+                    errorMsg = JSON.stringify(data);
+                  }
+                } else if (error.message) {
+                  errorMsg = error.message;
+                } else if (typeof error === 'string') {
+                  errorMsg = error;
+                } else {
+                  // Como último recurso, convertir a string
+                  try {
+                    errorMsg = JSON.stringify(error, null, 2);
+                  } catch {
+                    errorMsg = String(error);
+                  }
+                }
+              } catch (parseError) {
+                console.error('Error al parsear el error:', parseError);
+                errorMsg = `Error al procesar el error: ${String(error)}`;
+              }
+              
+              console.error(`Error completo al agregar área ${areaId}:`, error);
+              console.error(`Mensaje de error extraído:`, errorMsg);
+              areasErrors.push(`Área ${areaId}: ${errorMsg}`);
+            }
           }
+          
+          // Verificar que todas las áreas se guardaron
+          if (areasErrors.length > 0) {
+            await swalError(
+              `${areasErrors.length} de ${areasParaAgregar.length} áreas no se pudieron guardar:\n${areasErrors.join('\n')}`
+            );
+          } else if (areasGuardadas.length !== areasParaAgregar.length) {
+            await swalError(
+              `No se pudieron guardar todas las áreas. Esperadas: ${areasParaAgregar.length}, Guardadas: ${areasGuardadas.length}`
+            );
+          } else {
+            console.log(`✅ Todas las áreas nuevas se guardaron correctamente: ${areasGuardadas.length} áreas`);
+          }
+        } else {
+          console.log("No hay áreas nuevas para agregar");
         }
 
         // Usuarios: sincronizar TODOS los usuarios seleccionados en siniestros_usuarios
@@ -672,18 +721,83 @@ export default function SiniestrosPage() {
         });
         await swalSuccess("Siniestro creado correctamente");
 
-        // Crear relaciones de áreas (TODAS)
-        if (areasIds.length > 0) {
+        // Crear relaciones de áreas (TODAS) - Asegurar que todas se guarden
+        console.log("Áreas a guardar:", areasIds);
+        if (areasIds && areasIds.length > 0) {
+          const areasErrors: string[] = [];
+          const areasGuardadas: string[] = [];
+          
+          // Intentar guardar todas las áreas
           for (const areaId of areasIds) {
+            if (!areaId) {
+              console.warn("Área ID vacío, omitiendo...");
+              continue;
+            }
             try {
-              await apiService.addAreaAdicional(siniestroId, {
+              console.log(`Agregando área ${areaId} al siniestro ${siniestroId}`);
+              const resultado = await apiService.addAreaAdicional(siniestroId, {
                 area_id: areaId,
                 activo: true,
               });
+              console.log(`Área ${areaId} agregada correctamente:`, resultado);
+              areasGuardadas.push(areaId);
             } catch (error: any) {
-              console.error(`Error al agregar área ${areaId}:`, error);
+              let errorMsg = `Error desconocido al agregar área ${areaId}`;
+              
+              // Intentar extraer el mensaje de error de diferentes formas
+              try {
+                if (error.response?.data) {
+                  const data = error.response.data;
+                  if (data.detail) {
+                    if (typeof data.detail === 'string') {
+                      errorMsg = data.detail;
+                    } else if (typeof data.detail === 'object') {
+                      // Si es un objeto, intentar extraer el mensaje
+                      errorMsg = data.detail.message || data.detail.error || JSON.stringify(data.detail);
+                    }
+                  } else if (data.message) {
+                    errorMsg = data.message;
+                  } else if (data.error) {
+                    errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+                  } else {
+                    errorMsg = JSON.stringify(data);
+                  }
+                } else if (error.message) {
+                  errorMsg = error.message;
+                } else if (typeof error === 'string') {
+                  errorMsg = error;
+                } else {
+                  // Como último recurso, convertir a string
+                  try {
+                    errorMsg = JSON.stringify(error, null, 2);
+                  } catch {
+                    errorMsg = String(error);
+                  }
+                }
+              } catch (parseError) {
+                console.error('Error al parsear el error:', parseError);
+                errorMsg = `Error al procesar el error: ${String(error)}`;
+              }
+              
+              console.error(`Error completo al agregar área ${areaId}:`, error);
+              console.error(`Mensaje de error extraído:`, errorMsg);
+              areasErrors.push(`Área ${areaId}: ${errorMsg}`);
             }
           }
+          // Verificar que todas las áreas se guardaron
+          if (areasErrors.length > 0) {
+            await swalError(
+              `${areasErrors.length} de ${areasIds.length} áreas no se pudieron guardar:\n${areasErrors.join('\n')}`
+            );
+          } else if (areasGuardadas.length !== areasIds.length) {
+            await swalError(
+              `No se pudieron guardar todas las áreas. Esperadas: ${areasIds.length}, Guardadas: ${areasGuardadas.length}`
+            );
+          } else {
+            console.log(`✅ Todas las áreas se guardaron correctamente: ${areasGuardadas.length} áreas`);
+          }
+        } else {
+          console.log("No hay áreas para guardar o areasIds está vacío");
         }
 
         // Crear relaciones de usuarios en siniestros_usuarios (TODOS, incluyendo el primero)
@@ -706,9 +820,8 @@ export default function SiniestrosPage() {
         }
       }
 
-      setForm(getInitialForm());
-      closeWizard();
       loadSiniestros();
+      router.push("/siniestros");
     } catch (e: any) {
       if (e.response?.status === 401) {
         router.push("/login");
@@ -839,17 +952,11 @@ export default function SiniestrosPage() {
   };
 
   const getEstadoNombre = (estadoId?: string) => {
-    if (!estadoId) return "-";
-    const estado = estados.find((e) => e.id === estadoId);
-    return estado?.nombre || "-";
+    return obtenerNombreEstado(estadoId, catalogosColores);
   };
 
   const getCalificacionNombre = (calificacionId?: string) => {
-    if (!calificacionId) return "-";
-    const calificacion = calificacionesCatalogo.find(
-      (c: any) => c?.id === calificacionId
-    );
-    return calificacion?.nombre || "-";
+    return obtenerNombreCalificacion(calificacionId, catalogosColores);
   };
 
   const getFormaContactoLabel = (forma?: string) => {
@@ -898,9 +1005,15 @@ export default function SiniestrosPage() {
       header: "Status",
       cell: ({ row }) => {
         const estadoNombre = getEstadoNombre(row.original.estado_id);
+        const estadoColor = obtenerColorEstado(
+          row.original.estado_id,
+          catalogosColores
+        );
+        const estilos = generarEstilosBadge(estadoColor);
         return (
           <span
-            className="text-sm truncate block max-w-[120px]"
+            style={estilos}
+            className="text-sm truncate inline-block max-w-[120px] rounded-md"
             title={estadoNombre}
           >
             {estadoNombre}
@@ -915,9 +1028,15 @@ export default function SiniestrosPage() {
         const calificacionNombre = getCalificacionNombre(
           row.original.calificacion_id
         );
+        const calificacionColor = obtenerColorCalificacion(
+          row.original.calificacion_id,
+          catalogosColores
+        );
+        const estilos = generarEstilosBadge(calificacionColor);
         return (
           <span
-            className="text-sm truncate block max-w-[120px]"
+            style={estilos}
+            className="text-sm truncate inline-block max-w-[160px] rounded-md"
             title={calificacionNombre}
           >
             {calificacionNombre}
@@ -1093,15 +1212,15 @@ export default function SiniestrosPage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Siniestros</h1>
-          <Button onClick={openCreate}>Nuevo Siniestro</Button>
+          <Button onClick={() => router.push("/siniestros/nuevo")}>Nuevo Siniestro</Button>
         </div>
 
         {/* Filtros */}
         <div className="bg-white p-4 rounded-lg shadow mb-6">
           <h2 className="text-lg font-semibold mb-4">Filtros</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <CustomSelect
-              label="Estado"
+              label="Status"
               name="estado_id"
               value={filtros.estado_id}
               onChange={(value) =>
@@ -1145,6 +1264,22 @@ export default function SiniestrosPage() {
                 { value: "media", label: "Media" },
                 { value: "alta", label: "Alta" },
                 { value: "critica", label: "Crítica" },
+              ]}
+              placeholder="Todas"
+            />
+            <CustomSelect
+              label="Calificación"
+              name="calificacion_id"
+              value={filtros.calificacion_id}
+              onChange={(value) =>
+                setFiltros({ ...filtros, calificacion_id: value as string })
+              }
+              options={[
+                { value: "", label: "Todas" },
+                ...calificacionesCatalogo.map((calificacion) => ({
+                  value: calificacion.id,
+                  label: calificacion.nombre,
+                })),
               ]}
               placeholder="Todas"
             />
@@ -1193,27 +1328,8 @@ export default function SiniestrosPage() {
           )}
         </div>
 
-        <SiniestroWizard
-          open={wizardOpen}
-          editing={Boolean(editing)}
-          form={form}
-          setForm={setForm}
-          extendedForm={extendedForm}
-          setExtendedForm={setExtendedForm}
-          onClose={closeWizard}
-          onSubmit={submitForm}
-          onChange={handleFormChange}
-          asegurados={aseguradosCatalog}
-          provenientes={provenientesCatalog}
-          instituciones={institucionesCatalogo}
-          autoridades={autoridadesCatalogo}
-          estados={estados}
-          areas={areas}
-          abogados={abogadosCatalog}
-          calificaciones={calificaciones}
-          calificacionesCatalogo={calificacionesCatalogo}
-        />
       </div>
     </div>
   );
 }
+

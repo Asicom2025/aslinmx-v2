@@ -79,7 +79,19 @@ export default function UsuariosPage() {
   const loadRoles = async () => {
     try {
       setRolesLoading(true);
-      const data = await apiService.rol.getRoles();
+      // Verificar que apiService esté disponible
+      if (!apiService) {
+        console.error("apiService no está disponible");
+        swalError("Error: apiService no está disponible");
+        return;
+      }
+      // Usar método directo que sabemos que existe (compatibilidad)
+      if (typeof apiService.getRoles !== 'function') {
+        console.error("apiService.getRoles no es una función", apiService);
+        swalError("Error: getRoles no está disponible en apiService");
+        return;
+      }
+      const data = await apiService.getRoles();
       setRoles(data || []);
     } catch (e: any) {
       if (e.response?.status === 401) {
@@ -95,7 +107,7 @@ export default function UsuariosPage() {
 
   const loadEmpresas = async () => {
     try {
-      const data = await apiService.getEmpresas?.() || (await apiService.empresa.getEmpresas());
+      const data = await apiService.getEmpresas();
       setEmpresas(data || []);
     } catch (e: any) {
       console.error("Error al cargar empresas:", e);
@@ -265,10 +277,10 @@ export default function UsuariosPage() {
     e.preventDefault();
     try {
       if (editingRol) {
-        await apiService.rol.updateRol(editingRol.id, rolForm);
+        await apiService.updateRol(editingRol.id, rolForm);
         await swalSuccess("Rol actualizado correctamente");
       } else {
-        await apiService.rol.createRol(rolForm);
+        await apiService.createRol(rolForm);
         await swalSuccess("Rol creado correctamente");
       }
       setRolModalOpen(false);
@@ -286,7 +298,7 @@ export default function UsuariosPage() {
     const confirmed = await swalConfirmDelete("¿Está seguro de eliminar este rol?");
     if (!confirmed) return;
     try {
-      await apiService.rol.deleteRol(id);
+      await apiService.deleteRol(id);
       await swalSuccess("Rol eliminado");
       loadRoles();
     } catch (e: any) {

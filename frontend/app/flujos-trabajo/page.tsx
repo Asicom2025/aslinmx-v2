@@ -15,6 +15,7 @@ import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
+import { FiPlus } from "react-icons/fi";
 
 export default function FlujosTrabajoPage() {
   const router = useRouter();
@@ -22,6 +23,8 @@ export default function FlujosTrabajoPage() {
   const [flujos, setFlujos] = useState<FlujoTrabajo[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterArea, setFilterArea] = useState<string | null>(null);
+  const [areas, setAreas] = useState<SelectOption[]>([]);
+  const [plantillas, setPlantillas] = useState<SelectOption[]>([]);
 
   // Modal state
   const [openModal, setOpenModal] = useState(false);
@@ -42,18 +45,54 @@ export default function FlujosTrabajoPage() {
   }, [router, userLoading]);
 
   useEffect(() => {
-    if (!userLoading) {
+    if (!userLoading && user) {
+      // Verificar que el usuario tenga empresa asignada antes de cargar datos
+      if (!user.empresa?.id && (!user.empresas || user.empresas.length === 0)) {
+        console.warn("FlujosTrabajoPage: Usuario no tiene empresa asignada");
+        setLoading(false);
+        return;
+      }
       cargarFlujos();
+      cargarAreas();
+      cargarPlantillas();
     }
-  }, [userLoading, filterArea]);
+  }, [userLoading, user, filterArea]);
+
+  const cargarAreas = async () => {
+    try {
+      const data = await apiService.getAreas(true);
+      setAreas([
+        { value: "", label: "General (todas las áreas)" },
+        ...data.map((area: any) => ({ value: area.id, label: area.nombre }))
+      ]);
+    } catch (error) {
+      console.error("Error al cargar áreas:", error);
+    }
+  };
+
+  const cargarPlantillas = async () => {
+    try {
+      const data = await apiService.getPlantillas(true);
+      setPlantillas(data.map((plantilla: any) => ({ value: plantilla.id, label: plantilla.nombre })));
+    } catch (error) {
+      console.error("Error al cargar plantillas:", error);
+    }
+  };
 
   const cargarFlujos = async () => {
     try {
       setLoading(true);
-      const data = await apiService.getFlujos(filterArea || undefined, true);
-      setFlujos(data);
+      // Si filterArea es "null", enviar "null" como string, si es null enviar undefined
+      const areaParam = filterArea === "null" ? "null" : filterArea || undefined;
+      console.log("FlujosTrabajoPage: Cargando flujos con parámetros:", { areaParam, activo: true });
+      const data = await apiService.getFlujos(areaParam, true);
+      console.log("FlujosTrabajoPage: Flujos recibidos:", data);
+      setFlujos(data || []);
     } catch (error: any) {
-      swalError(error.response?.data?.detail || "Error al cargar flujos");
+      console.error("FlujosTrabajoPage: Error al cargar flujos:", error);
+      const errorMsg = error.response?.data?.detail || error.message || "Error al cargar flujos";
+      swalError(errorMsg);
+      setFlujos([]); // Asegurar que el estado se limpia en caso de error
     } finally {
       setLoading(false);
     }
@@ -129,7 +168,10 @@ export default function FlujosTrabajoPage() {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Flujos de Trabajo</h1>
-          <Button onClick={openCreate} variant="primary">+ Nuevo Flujo</Button>
+          <Button onClick={openCreate} variant="primary">
+            <FiPlus className="w-4 h-4 mr-1" />
+            Nuevo Flujo
+          </Button>
         </div>
 
         {/* Filtros */}
@@ -138,10 +180,19 @@ export default function FlujosTrabajoPage() {
             label="Filtrar por Área"
             name="filterArea"
             value={filterArea || ""}
-            onChange={(value) => setFilterArea(value as string || null)}
+            onChange={(value) => {
+              if (value === "null") {
+                setFilterArea("null");
+              } else if (value === "") {
+                setFilterArea(null);
+              } else {
+                setFilterArea(value as string);
+              }
+            }}
             options={[
               { value: "", label: "Todos los flujos" },
               { value: "null", label: "Flujos generales (sin área)" },
+              ...areas.filter(a => a.value !== "").map(a => ({ value: a.value, label: `Área: ${a.label}` }))
             ]}
             placeholder="Todos los flujos"
           />
@@ -235,9 +286,7 @@ export default function FlujosTrabajoPage() {
               } as React.ChangeEvent<HTMLSelectElement>;
               handleChange(fakeEvent);
             }}
-            options={[
-              { value: "", label: "General (todas las áreas)" },
-            ]}
+            options={areas}
             placeholder="General (todas las áreas)"
           />
           <div className="flex gap-6">

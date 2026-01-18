@@ -7,8 +7,12 @@ export interface Documento {
   siniestro_id: string;
   tipo_documento_id?: string;
   etapa_flujo_id?: string;
+  plantilla_documento_id?: string;
+  area_id?: string;
+  flujo_trabajo_id?: string;
   nombre_archivo: string;
   ruta_archivo: string;
+  contenido?: string;
   tamaño_archivo?: number;
   tipo_mime?: string;
   usuario_subio?: string;

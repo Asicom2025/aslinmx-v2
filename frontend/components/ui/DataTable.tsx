@@ -13,6 +13,49 @@ import {
 import { useState } from "react";
 import { FiChevronLeft, FiChevronRight, FiChevronsLeft, FiChevronsRight, FiArrowUp, FiArrowDown } from "react-icons/fi";
 
+/**
+ * Función helper para truncar texto a un número máximo de caracteres
+ * @param text - Texto a truncar
+ * @param maxLength - Longitud máxima (por defecto 50)
+ * @returns Texto truncado con "..." si excede el límite
+ */
+export function truncateText(text: string | number | null | undefined, maxLength: number = 50): string {
+  if (text === null || text === undefined) return "-";
+  const textStr = String(text);
+  if (textStr.length <= maxLength) return textStr;
+  return textStr.substring(0, maxLength) + "...";
+}
+
+/**
+ * Componente para renderizar texto truncado con tooltip
+ */
+export function TruncatedText({ 
+  text, 
+  maxLength = 50,
+  className = ""
+}: { 
+  text: string | number | null | undefined; 
+  maxLength?: number;
+  className?: string;
+}) {
+  const textStr = text === null || text === undefined ? "-" : String(text);
+  const truncated = truncateText(textStr, maxLength);
+  const isTruncated = textStr.length > maxLength;
+
+  if (!isTruncated) {
+    return <span className={className}>{textStr}</span>;
+  }
+
+  return (
+    <span 
+      className={`${className} cursor-help`}
+      title={textStr}
+    >
+      {truncated}
+    </span>
+  );
+}
+
 type DataTableProps<TData> = {
   columns: ColumnDef<TData, any>[];
   data: TData[];
@@ -24,6 +67,7 @@ type DataTableProps<TData> = {
   enableSorting?: boolean;
   pageSize?: number;
   size?: "default" | "compact";
+  maxTextLength?: number; // Longitud máxima de texto antes de truncar (por defecto 50)
 };
 
 export default function DataTable<TData>({ 
@@ -37,6 +81,7 @@ export default function DataTable<TData>({
   enableSorting = true,
   pageSize = 10,
   size = "default",
+  maxTextLength = 50,
 }: DataTableProps<TData>) {
   const [globalFilter, setGlobalFilter] = useState<string>("");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -162,11 +207,34 @@ export default function DataTable<TData>({
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="hover:bg-gray-50">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className={`${cellPadding} ${textSize} whitespace-nowrap`}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                  {row.getVisibleCells().map((cell) => {
+                    const cellValue = cell.getValue();
+                    const isStringValue = typeof cellValue === 'string' || typeof cellValue === 'number';
+                    const textLength = isStringValue ? String(cellValue).length : 0;
+                    const shouldTruncate = textLength > maxTextLength;
+                    
+                    return (
+                      <td 
+                        key={cell.id} 
+                        className={`${cellPadding} ${textSize} ${shouldTruncate ? '' : 'whitespace-nowrap'}`}
+                        title={shouldTruncate ? String(cellValue) : undefined}
+                      >
+                        <div 
+                          className={shouldTruncate ? 'truncate max-w-md' : ''}
+                          style={shouldTruncate ? { 
+                            maxWidth: '400px',
+                            display: 'inline-block',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            verticalAlign: 'middle'
+                          } : undefined}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             )}
