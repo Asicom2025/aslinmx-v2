@@ -27,11 +27,11 @@ import {
   clearGoogleToken,
 } from "@/lib/googleCalendar";
 
-// Tipos globales para Google Identity Services y gapi
+// Tipos globales para Google Identity Services y gapi (opcionales: se cargan en runtime)
 declare global {
   interface Window {
-    gapi: any;
-    google: any;
+    gapi?: any;
+    google?: any;
   }
 }
 
@@ -538,7 +538,7 @@ export default function AgendaPage() {
           setSelectedEvent(null);
         }}
         onConfirm={handleDeleteEvent}
-        eventTitle={selectedEvent?.title || ""}
+        eventTitle={String(selectedEvent?.title ?? "")}
       />
     </div>
   );

@@ -14,7 +14,7 @@ export interface SelectOption {
 }
 
 interface SelectProps {
-  label?: string;
+  label?: React.ReactNode;
   name: string;
   value: string | string[];
   onChange: (value: string | string[]) => void;

@@ -18,6 +18,7 @@ interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   className?: string;
+  title?: string;
 }
 
 /**

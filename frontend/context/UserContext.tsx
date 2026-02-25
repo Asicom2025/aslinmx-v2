@@ -37,6 +37,8 @@ export interface CurrentUser {
     apellido_materno?: string | null;
     titulo?: string | null;
     cedula_profesional?: string | null;
+    firma?: string | null;
+    firma_digital?: string | null;
   } | null;
   contactos?: {
     telefono?: string | null;
@@ -76,7 +78,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       setActiveEmpresaId((prev) => {
         if (prev) {
           const existsInList =
-            (data.empresas && data.empresas.some((empresa) => empresa.id === prev)) ||
+            (data.empresas && data.empresas.some((empresa: EmpresaSummary) => empresa.id === prev)) ||
             data.empresa?.id === prev;
           if (existsInList) {
             return prev;

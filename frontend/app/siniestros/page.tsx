@@ -21,6 +21,8 @@ import { FiEdit2, FiTrash2, FiEye } from "react-icons/fi";
 import {
   PersonaLigera,
   CatalogOption,
+  ExtendedSiniestroFormState,
+  SiniestroFormState,
 } from "@/components/siniestros/SiniestroWizard";
 import {
   obtenerCatalogosColores,
@@ -158,6 +160,24 @@ export default function SiniestrosPage() {
 
   // Estado para edición (si se necesita en el futuro)
   const [editing, setEditing] = useState<Siniestro | null>(null);
+  const [form, setForm] = useState<SiniestroFormState>({
+    numero_siniestro: "",
+    fecha_siniestro: new Date().toISOString().split("T")[0],
+    ubicacion: "",
+    descripcion_hechos: "",
+    numero_poliza: "",
+    deducible: 0,
+    reserva: 0,
+    coaseguro: 0,
+    suma_asegurada: 0,
+    estado_id: "",
+    institucion_id: "",
+    autoridad_id: "",
+    prioridad: "media",
+    observaciones: "",
+    activo: true,
+  });
+  const [extendedForm, setExtendedForm] = useState<ExtendedSiniestroFormState>(() => buildInitialExtendedForm());
   const [roles, setRoles] = useState<any[]>([]);
   const [institucionesCatalogo, setInstitucionesCatalogo] = useState<
     CatalogOption[]
@@ -381,23 +401,6 @@ export default function SiniestrosPage() {
 
   const openEdit = async (siniestro: Siniestro) => {
     setEditing(siniestro);
-    setForm({
-      numero_siniestro: siniestro.numero_siniestro || "",
-      fecha_siniestro: siniestro.fecha_siniestro.split("T")[0],
-      ubicacion: siniestro.ubicacion || "",
-      descripcion_hechos: siniestro.descripcion_hechos,
-      numero_poliza: siniestro.numero_poliza || "",
-      deducible: siniestro.deducible,
-      reserva: siniestro.reserva,
-      coaseguro: siniestro.coaseguro,
-      suma_asegurada: siniestro.suma_asegurada,
-      estado_id: siniestro.estado_id || "",
-      institucion_id: siniestro.institucion_id || "",
-      autoridad_id: siniestro.autoridad_id || "",
-      prioridad: siniestro.prioridad,
-      observaciones: siniestro.observaciones || "",
-      activo: siniestro.activo,
-    });
 
     // Cargar áreas y usuarios desde las relaciones
     let areasIds: string[] = [];
