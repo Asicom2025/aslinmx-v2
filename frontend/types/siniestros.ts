@@ -6,9 +6,10 @@
 export interface Siniestro {
   id: string;
   empresa_id: string;
-  numero_siniestro: string;
+  numero_siniestro?: string | null;
   fecha_siniestro: string;
   fecha_registro: string;
+  fecha_asignacion: string;
   ubicacion?: string;
   descripcion_hechos: string;
   
@@ -36,6 +37,7 @@ export interface Siniestro {
   proveniente_id?: string;
   codigo?: string;  // Código generado automáticamente
   numero_reporte?: string;
+  anualidad?: string;
   
   // Calificación
   calificacion_id?: string;
@@ -56,7 +58,7 @@ export interface Siniestro {
 }
 
 export interface SiniestroCreate {
-  numero_siniestro: string;
+  numero_siniestro?: string | null;
   fecha_siniestro: string;
   ubicacion?: string;
   descripcion_hechos: string;

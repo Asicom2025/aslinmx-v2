@@ -18,6 +18,8 @@ export default function PerfilPage() {
       apellido_materno: "",
       titulo: "",
       cedula_profesional: "",
+      firma: "",
+      firma_digital: "",
     },
     contactos: {
       telefono: "",
@@ -48,6 +50,8 @@ export default function PerfilPage() {
         apellido_materno: user.perfil?.apellido_materno || "",
         titulo: user.perfil?.titulo || "",
         cedula_profesional: user.perfil?.cedula_profesional || "",
+        firma: user.perfil?.firma || "",
+        firma_digital: user.perfil?.firma_digital || "",
       },
       contactos: {
         telefono: user.contactos?.telefono || "",
@@ -99,6 +103,31 @@ export default function PerfilPage() {
         ...prev[section as keyof typeof prev],
         [field]: value,
       },
+    }));
+  };
+
+  const handleFirmaFile = (field: "firma" | "firma_digital", e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) {
+      swalError("Selecciona un archivo de imagen (PNG, JPG, etc.)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result;
+      if (typeof result === "string") setForm((prev: any) => ({
+        ...prev,
+        perfil: { ...prev.perfil, [field]: result },
+      }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const clearFirma = (field: "firma" | "firma_digital") => {
+    setForm((prev: any) => ({
+      ...prev,
+      perfil: { ...prev.perfil, [field]: "" },
     }));
   };
 
@@ -363,6 +392,67 @@ export default function PerfilPage() {
                 value={form.direccion.pais}
                 onChange={(e) => onChange("direccion", "pais", e.target.value)}
               />
+            </div>
+          </div>
+
+          <div className="space-y-4 lg:col-span-2">
+            <div>
+              <h2 className="font-semibold">Firmas</h2>
+              <p className="text-sm text-gray-500">
+                Imágenes de firma para documentos y correos
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="border rounded-lg p-4 bg-gray-50/50">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Firma física
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Firma literal que puede usarse en documentos y PDFs.
+                </p>
+                {form.perfil.firma ? (
+                  <div className="flex flex-col gap-2">
+                    <img src={form.perfil.firma} alt="Firma" className="max-h-20 w-auto object-contain border rounded" />
+                    <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma")}>
+                      Quitar firma física
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-white hover:file:bg-primary/90"
+                      onChange={(e) => handleFirmaFile("firma", e)}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="border rounded-lg p-4 bg-gray-50/50">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Firma digital
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Se incluye al final de cada correo que envíes desde la plataforma.
+                </p>
+                {form.perfil.firma_digital ? (
+                  <div className="flex flex-col gap-2">
+                    <img src={form.perfil.firma_digital} alt="Firma digital" className="max-h-20 w-auto object-contain border rounded" />
+                    <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma_digital")}>
+                      Quitar firma digital
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-white hover:file:bg-primary/90"
+                      onChange={(e) => handleFirmaFile("firma_digital", e)}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

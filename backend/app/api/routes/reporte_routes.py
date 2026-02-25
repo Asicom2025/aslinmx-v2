@@ -36,43 +36,117 @@ async def listar_reportes_disponibles(
             modulo="usuarios",
             nombre="Reporte de Usuarios",
             descripcion="Listado completo de usuarios del sistema",
-            columnas_disponibles=["correo", "activo", "creado_en", "empresa_id", "rol_id"],
-            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta", "empresa_id"]
+            columnas_disponibles=[
+                "id", "correo", "username", "full_name", "activo", "creado_en", "actualizado_en",
+                "empresa_id", "rol_id", "rol_nombre", "empresa_nombre", "two_factor_enabled"
+            ],
+            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta", "empresa_id", "rol_id"]
         ),
         ReporteDisponible(
             modulo="siniestros",
             nombre="Reporte de Siniestros",
-            descripcion="Listado de siniestros con filtros avanzados",
-            columnas_disponibles=["numero_siniestro", "fecha_siniestro", "prioridad", "estado_id", "area_principal_id"],
-            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta", "estado_id", "prioridad"],
-            agrupaciones_disponibles=["estado_id", "area_principal_id", "prioridad"]
+            descripcion="Listado completo de siniestros con información relacionada",
+            columnas_disponibles=[
+                # Columnas básicas
+                "id", "numero_siniestro", "fecha_siniestro", "fecha_registro", "ubicacion",
+                "numero_poliza", "deducible", "reserva", "coaseguro", "suma_asegurada",
+                "prioridad", "forma_contacto", "observaciones", "codigo", "numero_reporte",
+                "activo", "eliminado", "creado_en", "actualizado_en",
+                # Asegurado
+                "asegurado_id", "asegurado_nombre", "asegurado_apellido_paterno", 
+                "asegurado_apellido_materno", "asegurado_nombre_completo", "asegurado_telefono",
+                "asegurado_ciudad", "asegurado_estado", "asegurado_empresa",
+                # Estado y Calificación
+                "estado_id", "estado_nombre", "estado_color",
+                "calificacion_id", "calificacion_nombre", "calificacion_color",
+                # Usuario creador
+                "creado_por", "creado_por_nombre", "creado_por_email",
+                # Instituciones y Autoridades
+                "institucion_id", "institucion_nombre", "institucion_codigo",
+                "autoridad_id", "autoridad_nombre", "autoridad_codigo",
+                # Proveniente
+                "proveniente_id", "proveniente_nombre", "proveniente_codigo",
+                # Áreas y Usuarios (relaciones many-to-many)
+                "areas_nombres", "areas_cantidad", "area_principal",
+                "usuarios_involucrados", "usuarios_cantidad"
+            ],
+            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta", "estado_id", "prioridad", "calificacion_id", "asegurado_id"],
+            agrupaciones_disponibles=["estado_id", "prioridad", "calificacion_id", "asegurado_estado"]
         ),
         ReporteDisponible(
             modulo="entidades",
             nombre="Reporte de Entidades",
             descripcion="Listado de entidades unificadas",
-            columnas_disponibles=["nombre", "codigo", "email", "telefono", "es_institucion", "es_autoridad", "es_organo"],
+            columnas_disponibles=[
+                "id", "nombre", "codigo", "email", "telefono", "direccion", "contacto_principal",
+                "es_institucion", "es_autoridad", "es_organo", "observaciones",
+                "activo", "creado_en", "actualizado_en"
+            ],
             filtros_disponibles=["activo", "es_institucion", "es_autoridad", "es_organo"]
         ),
         ReporteDisponible(
             modulo="instituciones",
             nombre="Reporte de Instituciones",
             descripcion="Listado de instituciones",
-            columnas_disponibles=["nombre", "codigo", "email", "activo"],
-            filtros_disponibles=["activo"]
+            columnas_disponibles=[
+                "id", "nombre", "codigo", "email", "activo", "creado_en", "actualizado_en", "empresa_id"
+            ],
+            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta"]
         ),
         ReporteDisponible(
             modulo="autoridades",
             nombre="Reporte de Autoridades",
             descripcion="Listado de autoridades",
-            columnas_disponibles=["nombre", "codigo", "email", "activo"],
-            filtros_disponibles=["activo"]
+            columnas_disponibles=[
+                "id", "nombre", "codigo", "email", "activo", "creado_en", "actualizado_en", "empresa_id"
+            ],
+            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta"]
         ),
         ReporteDisponible(
             modulo="areas",
             nombre="Reporte de Áreas",
             descripcion="Listado de áreas organizacionales",
-            columnas_disponibles=["nombre", "codigo", "descripcion", "activo"],
+            columnas_disponibles=[
+                "id", "nombre", "codigo", "descripcion", "activo", "creado_en", "actualizado_en", "empresa_id"
+            ],
+            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta"]
+        ),
+        ReporteDisponible(
+            modulo="provenientes",
+            nombre="Reporte de Provenientes",
+            descripcion="Listado de provenientes",
+            columnas_disponibles=[
+                "id", "nombre", "codigo", "telefono", "email", "direccion", "contacto_principal",
+                "observaciones", "activo", "creado_en", "actualizado_en", "empresa_id"
+            ],
+            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta"]
+        ),
+        ReporteDisponible(
+            modulo="estados_siniestro",
+            nombre="Reporte de Estados de Siniestro",
+            descripcion="Listado de estados configurables de siniestros",
+            columnas_disponibles=[
+                "id", "nombre", "descripcion", "color", "orden", "activo", "creado_en", "actualizado_en", "empresa_id"
+            ],
+            filtros_disponibles=["activo"]
+        ),
+        ReporteDisponible(
+            modulo="asegurados",
+            nombre="Reporte de Asegurados",
+            descripcion="Listado de asegurados (personas/entidades aseguradas)",
+            columnas_disponibles=[
+                "id", "nombre", "apellido_paterno", "apellido_materno", "telefono", "tel_oficina", "tel_casa",
+                "ciudad", "estado", "empresa", "timerst_list", "activo", "creado_en", "actualizado_en"
+            ],
+            filtros_disponibles=["activo", "fecha_desde", "fecha_hasta"]
+        ),
+        ReporteDisponible(
+            modulo="calificaciones_siniestro",
+            nombre="Reporte de Calificaciones de Siniestro",
+            descripcion="Listado de calificaciones configurables de siniestros",
+            columnas_disponibles=[
+                "id", "nombre", "descripcion", "color", "orden", "activo", "creado_en", "actualizado_en", "empresa_id"
+            ],
             filtros_disponibles=["activo"]
         ),
     ]

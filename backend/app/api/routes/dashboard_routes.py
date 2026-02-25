@@ -4,7 +4,7 @@ Rutas API para estadísticas del dashboard
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, nullslast
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import SQLAlchemyError
 import logging
@@ -12,11 +12,216 @@ import logging
 from app.db.session import get_db
 from app.core.security import get_current_active_user
 from app.models.user import User
-from app.models.legal import Siniestro, EstadoSiniestro, Area, BitacoraActividad, Notificacion
+from app.models.legal import (
+    Siniestro,
+    EstadoSiniestro,
+    Area,
+    BitacoraActividad,
+    Notificacion,
+    SiniestroArea,
+    Asegurado,
+)
 from app.models.flujo_trabajo import SiniestroEtapa
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+def normalizar_nombre_estado(nombre: str) -> str:
+    """
+    Normaliza nombres de estados inconsistentes a nombres canónicos.
+    Maneja variaciones como mayúsculas/minúsculas, acentos, ciudades, abreviaciones.
+    """
+    if not nombre:
+        return "Sin estado"
+    
+    # Convertir a minúsculas y quitar espacios extra
+    nombre_limpio = nombre.strip().lower()
+    
+    # Mapeo de variaciones a nombres canónicos (nombres oficiales de estados mexicanos)
+    mapeo_estados = {
+        # Aguascalientes
+        "aguascalientes": "Aguascalientes",
+        
+        # Baja California
+        "baja california": "Baja California",
+        "baja california sur": "Baja California Sur",
+        
+        # Campeche
+        "campeche": "Campeche",
+        
+        # Chiapas
+        "chiapas": "Chiapas",
+        "motozintla, chiapas": "Chiapas",
+        "tapachula, chiapas": "Chiapas",
+        "tapachula chiapas": "Chiapas",
+        
+        # Chihuahua
+        "chihuahua": "Chihuahua",
+        
+        # Ciudad de México / CDMX
+        "ciudad de méxico": "Ciudad de México",
+        "ciudad de mexico": "Ciudad de México",
+        "cdmx": "Ciudad de México",
+        "mexico": "Ciudad de México",  # Solo si no es "Estado de México"
+        
+        # Coahuila
+        "coahuila": "Coahuila",
+        "coahuila de zaragoza": "Coahuila",
+        "torreon, coah.": "Coahuila",
+        
+        # Colima
+        "colima": "Colima",
+        
+        # Durango
+        "durango": "Durango",
+        
+        # Estado de México
+        "estado de méxico": "Estado de México",
+        "estado de mexico": "Estado de México",
+        "edo. de mexico": "Estado de México",
+        "edo de mexico": "Estado de México",
+        "naualpan, edo. mex.": "Estado de México",
+        "naucalpan, edo mex": "Estado de México",
+        "toluca, edo mex": "Estado de México",
+        "metepec, edo. mex.": "Estado de México",
+        "cuautitlan izcalli, edo. mex.": "Estado de México",
+        
+        # Guanajuato
+        "guanajuato": "Guanajuato",
+        "silao, guanajuato": "Guanajuato",
+        "celaya, gto.": "Guanajuato",
+        "leon, gto.": "Guanajuato",
+        
+        # Guerrero
+        "guerrero": "Guerrero",
+        
+        # Hidalgo
+        "hidalgo": "Hidalgo",
+        
+        # Jalisco
+        "jalisco": "Jalisco",
+        "guadalajara, jalisco": "Jalisco",
+        "guadalajara": "Jalisco",
+        
+        # Michoacán
+        "michoacán": "Michoacán",
+        "michoacan": "Michoacán",
+        
+        # Morelos
+        "morelos": "Morelos",
+        "cuernavaca, morelos": "Morelos",
+        "cuernavaca, mor.": "Morelos",
+        "cuernavaca, mor": "Morelos",
+        
+        # Nayarit
+        "nayarit": "Nayarit",
+        
+        # Nuevo León
+        "nuevo león": "Nuevo León",
+        "nuevo leon": "Nuevo León",
+        "monterrey": "Nuevo León",
+        "municipio escobedo,  n.l.": "Nuevo León",
+        "municipio escobedo, n.l.": "Nuevo León",
+        
+        # Oaxaca
+        "oaxaca": "Oaxaca",
+        
+        # Puebla
+        "puebla": "Puebla",
+        "puebla, pue.": "Puebla",
+        
+        # Querétaro
+        "querétaro": "Querétaro",
+        "queretaro": "Querétaro",
+        
+        # Quintana Roo
+        "quintana roo": "Quintana Roo",
+        
+        # San Luis Potosí
+        "san luis potosí": "San Luis Potosí",
+        "san luis potosi": "San Luis Potosí",
+        "s.l.p.": "San Luis Potosí",
+        
+        # Sinaloa
+        "sinaloa": "Sinaloa",
+        "los mochis, sinaloa": "Sinaloa",
+        
+        # Sonora
+        "sonora": "Sonora",
+        
+        # Tabasco
+        "tabasco": "Tabasco",
+        
+        # Tamaulipas
+        "tamaulipas": "Tamaulipas",
+        
+        # Tlaxcala
+        "tlaxcala": "Tlaxcala",
+        
+        # Veracruz
+        "veracruz": "Veracruz",
+        "veracruz de ignacio de la llav": "Veracruz",
+        
+        # Yucatán
+        "yucatán": "Yucatán",
+        "yucatan": "Yucatán",
+        
+        # Zacatecas
+        "zacatecas": "Zacatecas",
+    }
+    
+    # Buscar coincidencia exacta primero
+    if nombre_limpio in mapeo_estados:
+        return mapeo_estados[nombre_limpio]
+    
+    # Buscar coincidencia parcial para casos especiales
+    # Si contiene "estado de" o "edo", es Estado de México (tiene prioridad sobre "méxico")
+    if "estado de" in nombre_limpio or ("edo" in nombre_limpio and "méxico" in nombre_limpio or "mexico" in nombre_limpio):
+        return "Estado de México"
+    
+    # Si contiene "méxico" o "mexico" sin "estado", podría ser CDMX
+    # Pero solo si no contiene "edo" (ya manejado arriba)
+    if ("méxico" in nombre_limpio or "mexico" in nombre_limpio) and "edo" not in nombre_limpio:
+        return "Ciudad de México"
+    
+    # Buscar por palabras clave de estados en el nombre (para casos como ciudades)
+    palabras_clave = {
+        "chiapas": "Chiapas",
+        "guanajuato": "Guanajuato",
+        "gto": "Guanajuato",
+        "jalisco": "Jalisco",
+        "morelos": "Morelos",
+        "mor": "Morelos",
+        "nuevo leon": "Nuevo León",
+        "n.l": "Nuevo León",
+        "monterrey": "Nuevo León",
+        "oaxaca": "Oaxaca",
+        "puebla": "Puebla",
+        "pue": "Puebla",
+        "coahuila": "Coahuila",
+        "coah": "Coahuila",
+        "sinaloa": "Sinaloa",
+        "sonora": "Sonora",
+        "tabasco": "Tabasco",
+        "tlaxcala": "Tlaxcala",
+        "veracruz": "Veracruz",
+        "yucatan": "Yucatán",
+        "zacatecas": "Zacatecas",
+    }
+    
+    for palabra, estado in palabras_clave.items():
+        if palabra in nombre_limpio:
+            return estado
+    
+    # Si no se encuentra en el mapeo y no parece ser un estado válido,
+    # devolver "Sin estado" para casos como "UNIDAD DE MEDICINA FAMILIAR HU"
+    # Solo devolver el nombre original si parece ser un nombre de estado válido
+    if len(nombre_limpio) < 3 or any(palabra in nombre_limpio for palabra in ["unidad", "medicina", "familiar"]):
+        return "Sin estado"
+    
+    # Si no se encuentra en el mapeo, devolver el nombre original capitalizado
+    return nombre.strip().title()
 
 
 @router.get("/stats")
@@ -37,68 +242,127 @@ def get_dashboard_stats(
             )
 
         # Total de siniestros
-        total_siniestros = db.query(func.count(Siniestro.id)).filter(
-            Siniestro.empresa_id == empresa_id,
-            Siniestro.eliminado == False
-        ).scalar()
+        try:
+            total_siniestros = db.query(func.count(Siniestro.id)).filter(
+                Siniestro.empresa_id == empresa_id,
+                Siniestro.eliminado == False
+            ).scalar() or 0
+        except Exception as e:
+            logger.warning(f"Error al obtener total de siniestros: {str(e)}")
+            total_siniestros = 0
 
         # Siniestros activos
-        siniestros_activos = db.query(func.count(Siniestro.id)).filter(
-            Siniestro.empresa_id == empresa_id,
-            Siniestro.eliminado == False,
-            Siniestro.activo == True
-        ).scalar()
+        try:
+            siniestros_activos = db.query(func.count(Siniestro.id)).filter(
+                Siniestro.empresa_id == empresa_id,
+                Siniestro.eliminado == False,
+                Siniestro.activo == True
+            ).scalar() or 0
+        except Exception as e:
+            logger.warning(f"Error al obtener siniestros activos: {str(e)}")
+            siniestros_activos = 0
 
-        # Siniestros por estado
-        siniestros_por_estado = db.query(
-            EstadoSiniestro.nombre,
-            func.count(Siniestro.id).label('count')
-        ).join(
-            Siniestro, Siniestro.estado_id == EstadoSiniestro.id
-        ).filter(
-            Siniestro.empresa_id == empresa_id,
-            Siniestro.eliminado == False
-        ).group_by(EstadoSiniestro.nombre).all()
+        # Siniestros por estado (GEOGRÁFICO) del ASEGURADO
+        # Se agrupa por la columna Asegurado.estado (ej. "Puebla", "Jalisco", etc.)
+        # Se normalizan los nombres inconsistentes antes de agrupar
+        try:
+            siniestros_por_estado_raw = (
+                db.query(
+                    Asegurado.estado.label("estado"),
+                    func.count(Siniestro.id).label("count"),
+                )
+                .join(Siniestro, Siniestro.asegurado_id == Asegurado.id)
+                .filter(
+                    Siniestro.empresa_id == empresa_id,
+                    Siniestro.eliminado == False,
+                    Asegurado.estado.isnot(None),
+                    Asegurado.estado != "",
+                )
+                .group_by(Asegurado.estado)
+                .all()
+            )
+            
+            # Normalizar y consolidar estados
+            estados_consolidados: Dict[str, int] = {}
+            for estado_raw, cantidad in siniestros_por_estado_raw:
+                estado_normalizado = normalizar_nombre_estado(estado_raw)
+                if estado_normalizado in estados_consolidados:
+                    estados_consolidados[estado_normalizado] += cantidad
+                else:
+                    estados_consolidados[estado_normalizado] = cantidad
+            
+            # Convertir a lista de tuplas para mantener compatibilidad
+            siniestros_por_estado = [
+                (estado, cantidad) 
+                for estado, cantidad in estados_consolidados.items()
+            ]
+        except Exception as e:
+            logger.warning(f"Error al obtener siniestros por estado (asegurado.estado): {str(e)}")
+            siniestros_por_estado = []
 
         # Siniestros por prioridad
-        siniestros_por_prioridad = db.query(
-            Siniestro.prioridad,
-            func.count(Siniestro.id).label('count')
-        ).filter(
-            Siniestro.empresa_id == empresa_id,
-            Siniestro.eliminado == False
-        ).group_by(Siniestro.prioridad).all()
+        try:
+            siniestros_por_prioridad = db.query(
+                Siniestro.prioridad,
+                func.count(Siniestro.id).label('count')
+            ).filter(
+                Siniestro.empresa_id == empresa_id,
+                Siniestro.eliminado == False
+            ).group_by(Siniestro.prioridad).all()
+        except Exception as e:
+            logger.warning(f"Error al obtener siniestros por prioridad: {str(e)}")
+            siniestros_por_prioridad = []
 
-        # Siniestros por área principal
-        siniestros_por_area = db.query(
-            Area.nombre,
-            func.count(Siniestro.id).label('count')
-        ).join(
-            Siniestro, Siniestro.area_principal_id == Area.id
-        ).filter(
-            Siniestro.empresa_id == empresa_id,
-            Siniestro.eliminado == False
-        ).group_by(Area.nombre).limit(10).all()
+        # Siniestros por área (usando la relación siniestro_areas)
+        try:
+            siniestros_por_area = db.query(
+                Area.nombre,
+                func.count(func.distinct(Siniestro.id)).label('count')
+            ).join(
+                SiniestroArea, SiniestroArea.area_id == Area.id
+            ).join(
+                Siniestro, Siniestro.id == SiniestroArea.siniestro_id
+            ).filter(
+                Siniestro.empresa_id == empresa_id,
+                Siniestro.eliminado == False,
+                SiniestroArea.activo == True
+            ).group_by(Area.nombre).limit(10).all()
+        except Exception as e:
+            logger.warning(f"Error al obtener siniestros por área: {str(e)}")
+            siniestros_por_area = []
 
         # Siniestros críticos (prioridad crítica)
-        siniestros_criticos = db.query(func.count(Siniestro.id)).filter(
-            Siniestro.empresa_id == empresa_id,
-            Siniestro.eliminado == False,
-            Siniestro.prioridad == 'critica'
-        ).scalar()
+        try:
+            siniestros_criticos = db.query(func.count(Siniestro.id)).filter(
+                Siniestro.empresa_id == empresa_id,
+                Siniestro.eliminado == False,
+                Siniestro.prioridad == 'critica'
+            ).scalar() or 0
+        except Exception as e:
+            logger.warning(f"Error al obtener siniestros críticos: {str(e)}")
+            siniestros_criticos = 0
 
         # Notificaciones no leídas del usuario
-        notificaciones_no_leidas = db.query(func.count(Notificacion.id)).filter(
-            Notificacion.usuario_id == current_user.id,
-            Notificacion.leida == False
-        ).scalar()
+        try:
+            notificaciones_no_leidas = db.query(func.count(Notificacion.id)).filter(
+                Notificacion.usuario_id == current_user.id,
+                Notificacion.leida == False
+            ).scalar() or 0
+        except Exception as e:
+            logger.warning(f"Error al obtener notificaciones no leídas: {str(e)}")
+            notificaciones_no_leidas = 0
 
         # Actividades recientes (últimas 24 horas)
-        from datetime import datetime, timedelta
-        desde = datetime.utcnow() - timedelta(hours=24)
-        actividades_recientes = db.query(func.count(BitacoraActividad.id)).filter(
-            BitacoraActividad.fecha_actividad >= desde
-        ).scalar()
+        from datetime import datetime, timedelta, timezone
+        try:
+            # Usar timezone-aware datetime para PostgreSQL
+            desde = datetime.now(timezone.utc) - timedelta(hours=24)
+            actividades_recientes = db.query(func.count(BitacoraActividad.id)).filter(
+                BitacoraActividad.fecha_actividad >= desde
+            ).scalar() or 0
+        except Exception as e:
+            logger.warning(f"Error al obtener actividades recientes: {str(e)}")
+            actividades_recientes = 0
 
         return {
             "total_siniestros": total_siniestros or 0,
@@ -106,9 +370,10 @@ def get_dashboard_stats(
             "siniestros_criticos": siniestros_criticos or 0,
             "notificaciones_no_leidas": notificaciones_no_leidas or 0,
             "actividades_recientes": actividades_recientes or 0,
+            # nombre = nombre del estado (geográfico) del asegurado
             "siniestros_por_estado": [
-                {"nombre": nombre, "cantidad": cantidad} 
-                for nombre, cantidad in siniestros_por_estado
+                {"nombre": estado or "Sin estado", "cantidad": cantidad}
+                for estado, cantidad in siniestros_por_estado
             ],
             "siniestros_por_prioridad": [
                 {"prioridad": prioridad, "cantidad": cantidad} 
@@ -120,16 +385,16 @@ def get_dashboard_stats(
             ],
         }
     except SQLAlchemyError as e:
-        logger.error(f"Error de base de datos en get_dashboard_stats: {str(e)}")
+        logger.error(f"Error de base de datos en get_dashboard_stats: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener estadísticas del dashboard"
+            detail=f"Error de base de datos: {str(e)}"
         )
     except Exception as e:
-        logger.error(f"Error inesperado en get_dashboard_stats: {str(e)}")
+        logger.error(f"Error inesperado en get_dashboard_stats: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error al obtener estadísticas del dashboard"
+            detail=f"Error inesperado: {str(e)}"
         )
 
 
@@ -151,10 +416,30 @@ def get_recent_siniestros(
                 detail="Usuario no tiene empresa asignada"
             )
         
+        # Obtener siniestros recientes
         siniestros = db.query(Siniestro).filter(
             Siniestro.empresa_id == empresa_id,
             Siniestro.eliminado == False
-        ).order_by(Siniestro.fecha_registro.desc()).limit(limit).all()
+        ).order_by(nullslast(Siniestro.fecha_registro.desc())).limit(limit).all()
+
+        # Obtener IDs de siniestros para buscar áreas
+        siniestro_ids = [s.id for s in siniestros]
+        
+        # Obtener la primera área activa de cada siniestro en una sola consulta
+        areas_map = {}
+        if siniestro_ids:
+            areas_query = db.query(
+                SiniestroArea.siniestro_id,
+                SiniestroArea.area_id
+            ).filter(
+                SiniestroArea.siniestro_id.in_(siniestro_ids),
+                SiniestroArea.activo == True
+            ).order_by(SiniestroArea.creado_en).all()
+            
+            # Crear mapa de siniestro_id -> primera area_id
+            for siniestro_id, area_id in areas_query:
+                if siniestro_id not in areas_map:
+                    areas_map[siniestro_id] = area_id
 
         return [
             {
@@ -163,7 +448,7 @@ def get_recent_siniestros(
                 "fecha_siniestro": s.fecha_siniestro.isoformat() if s.fecha_siniestro else None,
                 "prioridad": s.prioridad,
                 "estado_id": str(s.estado_id) if s.estado_id else None,
-                "area_principal_id": str(s.area_principal_id) if s.area_principal_id else None,
+                "area_principal_id": str(areas_map.get(s.id)) if s.id in areas_map else None,
             }
             for s in siniestros
         ]
@@ -203,6 +488,7 @@ def get_siniestros_by_month(
     ).filter(
         Siniestro.empresa_id == empresa_id,
         Siniestro.eliminado == False,
+        Siniestro.fecha_registro.isnot(None),
         Siniestro.fecha_registro >= fecha_limite
     ).group_by(
         extract('year', Siniestro.fecha_registro),

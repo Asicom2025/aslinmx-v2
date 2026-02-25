@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
-import TiptapEditor from "@/components/ui/TiptapEditor";
+import JoditEditor from "@/components/ui/JoditEditor";
 import apiService from "@/lib/apiService";
 import { swalError, swalSuccess } from "@/lib/swal";
 
@@ -489,8 +489,8 @@ export default function DocumentoWizard({ open, onClose, onSuccess }: DocumentoW
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Contenido de la plantilla (HTML)
               </label>
-              <TiptapEditor
-                content={plantillaForm.contenido}
+              <JoditEditor
+                value={plantillaForm.contenido}
                 onChange={(content) =>
                   setPlantillaForm({ ...plantillaForm, contenido: content })
                 }

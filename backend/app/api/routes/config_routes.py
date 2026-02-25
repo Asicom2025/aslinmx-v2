@@ -355,6 +355,14 @@ async def enviar_correo(
             request_data.variables or {}
         )
 
+    # Añadir firma digital del usuario al final del cuerpo (si tiene una configurada)
+    if cuerpo_html and getattr(current_user, "perfil", None):
+        perfil = current_user.perfil
+        firma_digital = getattr(perfil, "firma_digital", None) if perfil else None
+        if firma_digital and isinstance(firma_digital, str) and firma_digital.strip():
+            src = firma_digital.strip() if firma_digital.strip().startswith("data:") else f"data:image/png;base64,{firma_digital.strip()}"
+            cuerpo_html = cuerpo_html.rstrip() + f'<div style="margin-top:1.5em;"><img src="{src}" alt="Firma" style="max-height:80px;max-width:240px;object-fit:contain;" /></div>'
+
     # Enviar correo a cada destinatario
     resultados = []
     for destinatario in request_data.destinatarios:

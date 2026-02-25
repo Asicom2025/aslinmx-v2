@@ -14,6 +14,14 @@ import {
   FiImage,
   FiRotateCcw,
   FiRotateCw,
+  FiType,
+  FiCode,
+  FiMinus,
+  FiCheckSquare,
+  FiMessageSquare,
+  FiPlus,
+  FiArrowDown,
+  FiArrowRight,
 } from "react-icons/fi";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -26,6 +34,15 @@ import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
+import Underline from "@tiptap/extension-underline";
+import Highlight from "@tiptap/extension-highlight";
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
+import HorizontalRule from "@tiptap/extension-horizontal-rule";
+import Subscript from "@tiptap/extension-subscript";
+import Superscript from "@tiptap/extension-superscript";
+import FontFamily from "@tiptap/extension-font-family";
+import Dropcursor from "@tiptap/extension-dropcursor";
 
 type TiptapEditorProps = {
   label?: string;
@@ -57,6 +74,16 @@ export default function TiptapEditor({
         heading: {
           levels: [1, 2, 3, 4, 5, 6],
         },
+        codeBlock: {
+          HTMLAttributes: {
+            class: "bg-gray-100 rounded p-2 font-mono text-sm",
+          },
+        },
+        blockquote: {
+          HTMLAttributes: {
+            class: "border-l-4 border-gray-300 pl-4 italic my-4",
+          },
+        },
       }),
       Placeholder.configure({
         placeholder,
@@ -66,8 +93,28 @@ export default function TiptapEditor({
       TextAlign.configure({
         types: ["heading", "paragraph"],
       }),
+      Underline,
+      Highlight.configure({
+        multicolor: true,
+      }),
+      TaskList.configure({
+        HTMLAttributes: {
+          class: "list-none pl-0",
+        },
+      }),
+      TaskItem.configure({
+        nested: true,
+      }),
+      HorizontalRule,
+      Subscript,
+      Superscript,
+      Dropcursor,
+      FontFamily.configure({
+        types: ["textStyle"],
+      }),
       Table.configure({
         resizable: true,
+        draggable: true,
       }),
       TableRow,
       TableHeader,
@@ -85,7 +132,7 @@ export default function TiptapEditor({
     ],
     content: value,
     editable: !disabled,
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor }: { editor: any }) => {
       onChange(editor.getHTML());
     },
     editorProps: {
@@ -94,6 +141,13 @@ export default function TiptapEditor({
       },
     },
   });
+
+  // Sincronizar el contenido cuando value cambia desde afuera
+  useEffect(() => {
+    if (editor && value !== editor.getHTML()) {
+      editor.commands.setContent(value);
+    }
+  }, [value, editor]);
 
   // Evitar renderizado en el servidor
   if (!mounted || !editor) {
@@ -140,7 +194,7 @@ export default function TiptapEditor({
       
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-1 p-2 border border-gray-300 rounded-t-md bg-white shadow-sm">
-        {/* Formato de texto */}
+        {/* Formato de texto básico */}
         <div className="flex items-center gap-0.5 border-r border-gray-200 pr-2 mr-1">
           <button
             type="button"
@@ -170,6 +224,19 @@ export default function TiptapEditor({
           </button>
           <button
             type="button"
+            onClick={() => editor.chain().focus().toggleUnderline().run()}
+            disabled={!editor.can().chain().focus().toggleUnderline().run() || disabled}
+            className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed underline text-sm ${
+              editor.isActive("underline")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Subrayado (Ctrl+U)"
+          >
+            U
+          </button>
+          <button
+            type="button"
             onClick={() => editor.chain().focus().toggleStrike().run()}
             disabled={!editor.can().chain().focus().toggleStrike().run() || disabled}
             className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed line-through text-sm ${
@@ -180,6 +247,49 @@ export default function TiptapEditor({
             title="Tachado"
           >
             S
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleHighlight().run()}
+            disabled={!editor.can().chain().focus().toggleHighlight().run() || disabled}
+            className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-sm ${
+              editor.isActive("highlight")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Resaltar"
+          >
+            <span className="bg-yellow-300 px-1 rounded">A</span>
+          </button>
+        </div>
+
+        {/* Subíndice y superíndice */}
+        <div className="flex items-center gap-0.5 border-r border-gray-200 pr-2 mr-1">
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleSubscript().run()}
+            disabled={!editor.can().chain().focus().toggleSubscript().run() || disabled}
+            className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-xs ${
+              editor.isActive("subscript")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Subíndice"
+          >
+            X<sub>2</sub>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleSuperscript().run()}
+            disabled={!editor.can().chain().focus().toggleSuperscript().run() || disabled}
+            className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-xs ${
+              editor.isActive("superscript")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Superíndice"
+          >
+            X<sup>2</sup>
           </button>
         </div>
 
@@ -224,6 +334,45 @@ export default function TiptapEditor({
           >
             H3
           </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleHeading({ level: 4 }).run()}
+            disabled={disabled}
+            className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold ${
+              editor.isActive("heading", { level: 4 })
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Encabezado 4"
+          >
+            H4
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleHeading({ level: 5 }).run()}
+            disabled={disabled}
+            className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold ${
+              editor.isActive("heading", { level: 5 })
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Encabezado 5"
+          >
+            H5
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleHeading({ level: 6 }).run()}
+            disabled={disabled}
+            className={`px-2.5 py-1.5 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold ${
+              editor.isActive("heading", { level: 6 })
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Encabezado 6"
+          >
+            H6
+          </button>
         </div>
 
         {/* Listas */}
@@ -255,6 +404,66 @@ export default function TiptapEditor({
           >
             <FiList className="w-4 h-4" />
             <span className="sr-only">Lista numerada</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleTaskList().run()}
+            disabled={disabled}
+            className={`p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
+              editor.isActive("taskList")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Lista de tareas"
+          >
+            <FiCheckSquare className="w-4 h-4" />
+            <span className="sr-only">Lista de tareas</span>
+          </button>
+        </div>
+
+        {/* Código y cita */}
+        <div className="flex items-center gap-0.5 border-r border-gray-200 pr-2 mr-1">
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleCode().run()}
+            disabled={!editor.can().chain().focus().toggleCode().run() || disabled}
+            className={`p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
+              editor.isActive("code")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Código inline"
+          >
+            <FiCode className="w-4 h-4" />
+            <span className="sr-only">Código inline</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+            disabled={disabled}
+            className={`p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
+              editor.isActive("codeBlock")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Bloque de código"
+          >
+            <FiCode className="w-4 h-4" />
+            <span className="sr-only">Bloque de código</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+            disabled={disabled}
+            className={`p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
+              editor.isActive("blockquote")
+                ? "bg-primary-100 text-primary-700 hover:bg-primary-200"
+                : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            }`}
+            title="Cita"
+          >
+            <FiMessageSquare className="w-4 h-4" />
+            <span className="sr-only">Cita</span>
           </button>
         </div>
 
@@ -338,6 +547,72 @@ export default function TiptapEditor({
           </button>
           <button
             type="button"
+            onClick={() => editor.chain().focus().addRowBefore().run()}
+            disabled={!editor.can().addRowBefore() || disabled}
+            className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900 relative"
+            title="Agregar fila arriba"
+          >
+            <FiPlus className="w-4 h-4" />
+            <FiArrowDown className="w-2 h-2 absolute -bottom-0.5 -right-0.5" />
+            <span className="sr-only">Agregar fila arriba</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().addRowAfter().run()}
+            disabled={!editor.can().addRowAfter() || disabled}
+            className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900 relative"
+            title="Agregar fila abajo"
+          >
+            <FiPlus className="w-4 h-4" />
+            <FiArrowDown className="w-2 h-2 absolute -top-0.5 -right-0.5" />
+            <span className="sr-only">Agregar fila abajo</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().deleteRow().run()}
+            disabled={!editor.can().deleteRow() || disabled}
+            className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900 relative"
+            title="Eliminar fila"
+          >
+            <FiTrash2 className="w-4 h-4" />
+            <FiArrowDown className="w-2 h-2 absolute -top-0.5 -right-0.5" />
+            <span className="sr-only">Eliminar fila</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().addColumnBefore().run()}
+            disabled={!editor.can().addColumnBefore() || disabled}
+            className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900 relative"
+            title="Agregar columna izquierda"
+          >
+            <FiPlus className="w-4 h-4" />
+            <FiArrowRight className="w-2 h-2 absolute -bottom-0.5 -right-0.5" />
+            <span className="sr-only">Agregar columna izquierda</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().addColumnAfter().run()}
+            disabled={!editor.can().addColumnAfter() || disabled}
+            className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900 relative"
+            title="Agregar columna derecha"
+          >
+            <FiPlus className="w-4 h-4" />
+            <FiArrowRight className="w-2 h-2 absolute -top-0.5 -right-0.5" />
+            <span className="sr-only">Agregar columna derecha</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().deleteColumn().run()}
+            disabled={!editor.can().deleteColumn() || disabled}
+            className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900 relative"
+            title="Eliminar columna"
+          >
+            <FiTrash2 className="w-4 h-4" />
+            <FiArrowRight className="w-2 h-2 absolute -top-0.5 -right-0.5" />
+            <span className="sr-only">Eliminar columna</span>
+          </button>
+          <button
+            type="button"
             onClick={() => editor.chain().focus().deleteTable().run()}
             disabled={!editor.can().deleteTable() || disabled}
             className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900"
@@ -374,6 +649,64 @@ export default function TiptapEditor({
             <FiImage className="w-4 h-4" />
             <span className="sr-only">Insertar imagen</span>
           </button>
+        </div>
+
+        {/* Línea horizontal */}
+        <div className="flex items-center gap-0.5 border-r border-gray-200 pr-2 mr-1">
+          <button
+            type="button"
+            onClick={() => editor.chain().focus().setHorizontalRule().run()}
+            disabled={disabled}
+            className="p-2 rounded-md transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            title="Insertar línea horizontal"
+          >
+            <FiMinus className="w-4 h-4" />
+            <span className="sr-only">Insertar línea horizontal</span>
+          </button>
+        </div>
+
+        {/* Colores */}
+        <div className="flex items-center gap-0.5 border-r border-gray-200 pr-2 mr-1">
+          <div className="relative">
+            <input
+              type="color"
+              onChange={(e) => editor.chain().focus().setColor(e.target.value).run()}
+              value={editor.getAttributes("textStyle").color || "#000000"}
+              disabled={disabled}
+              className="w-8 h-8 rounded border border-gray-300 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Color de texto"
+            />
+          </div>
+        </div>
+
+        {/* Fuente */}
+        <div className="flex items-center gap-0.5 border-r border-gray-200 pr-2 mr-1">
+          <select
+            onChange={(e) => {
+              if (e.target.value === "") {
+                editor.chain().focus().unsetFontFamily().run();
+              } else {
+                editor.chain().focus().setFontFamily(e.target.value).run();
+              }
+            }}
+            value={editor.getAttributes("textStyle").fontFamily || ""}
+            disabled={disabled}
+            className="px-2 py-1.5 text-sm rounded-md border border-gray-300 bg-white disabled:opacity-40 disabled:cursor-not-allowed text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            title="Familia de fuente"
+          >
+            <option value="">Fuente predeterminada</option>
+            <option value="Arial">Arial</option>
+            <option value="Helvetica">Helvetica</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Palatino">Palatino</option>
+            <option value="Garamond">Garamond</option>
+            <option value="Comic Sans MS">Comic Sans MS</option>
+            <option value="Impact">Impact</option>
+            <option value="Trebuchet MS">Trebuchet MS</option>
+          </select>
         </div>
 
         {/* Acciones */}

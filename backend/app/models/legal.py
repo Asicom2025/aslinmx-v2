@@ -119,6 +119,35 @@ class Autoridad(Base):
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
 
 
+class Asegurado(Base):
+    """Asegurados (personas/entidades aseguradas)
+
+    Mapeo de la tabla public.asegurados en PostgreSQL:
+    - id uuid PK
+    - nombre, apellido_paterno, apellido_materno
+    - telefono, tel_oficina, tel_casa
+    - ciudad, estado, empresa
+    - timerst_list (único, usado como identificador externo)
+    """
+    __tablename__ = "asegurados"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    nombre = Column(String(100), nullable=False)
+    apellido_paterno = Column(String(150))
+    apellido_materno = Column(String(150))
+    telefono = Column(String(20))
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    tel_oficina = Column(String(20))
+    tel_casa = Column(String(20))
+    ciudad = Column(String(100))
+    estado = Column(String(100))
+    empresa = Column(String(50))
+    timerst_list = Column(String(100), nullable=False, unique=True)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+
 class Proveniente(Base):
     """Provenientes (personas/entidades que reportan siniestros)"""
     __tablename__ = "provenientes"
@@ -187,10 +216,13 @@ class PlantillaDocumento(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     tipo_documento_id = Column(UUID(as_uuid=True), ForeignKey("tipos_documento.id", ondelete="CASCADE"), nullable=False)
     categoria_id = Column(UUID(as_uuid=True), ForeignKey("categorias_documento.id", ondelete="CASCADE"), nullable=True)  # Opcional
+    header_plantilla_id = Column(UUID(as_uuid=True), ForeignKey("plantillas_documento.id", ondelete="SET NULL"), nullable=True)  # Header opcional (auto-referencia)
+    plantilla_continuacion_id = Column(UUID(as_uuid=True), ForeignKey("plantillas_documento.id", ondelete="SET NULL"), nullable=True)  # Segunda sección (otra plantilla, otro header)
     nombre = Column(String(200), nullable=False)
     descripcion = Column(Text)
     contenido = Column(Text)  # Contenido HTML de la plantilla
     formato = Column(String(50))  # Ej: 'A4', 'oficio', 'carta', etc.
+    logo_url = Column(Text)  # URL o base64 del logo de la plantilla
     activo = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -199,6 +231,8 @@ class PlantillaDocumento(Base):
     # Relaciones
     tipo_documento = relationship("TipoDocumento")
     categoria = relationship("CategoriaDocumento", back_populates="plantillas")
+    header_plantilla = relationship("PlantillaDocumento", remote_side=[id], foreign_keys=[header_plantilla_id])
+    plantilla_continuacion = relationship("PlantillaDocumento", remote_side=[id], foreign_keys=[plantilla_continuacion_id])
 
 
 class Siniestro(Base):
@@ -207,9 +241,9 @@ class Siniestro(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     empresa_id = Column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
-    numero_siniestro = Column(String(50), nullable=False)
-    fecha_siniestro = Column(DateTime(timezone=True), nullable=False)
-    fecha_registro = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    numero_siniestro = Column(String(50), nullable=True)
+    fecha_siniestro = Column(DateTime(timezone=True), nullable=True)
+    fecha_registro = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
     ubicacion = Column(Text)
     # descripcion_hechos removida - se maneja en versiones_descripcion_hechos
     
@@ -223,8 +257,8 @@ class Siniestro(Base):
     # Usuario que creó el siniestro
     creado_por = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
     
-    # Usuario asegurado (rol asegurado)
-    asegurado_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
+    # Asegurado
+    asegurado_id = Column(UUID(as_uuid=True), ForeignKey("asegurados.id", ondelete="SET NULL"), nullable=True)
     
     # Estado del siniestro
     estado_id = Column(UUID(as_uuid=True), ForeignKey("estados_siniestro.id", ondelete="RESTRICT"), nullable=True)
@@ -281,7 +315,7 @@ class Documento(Base):
     area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="SET NULL"), nullable=True)
     flujo_trabajo_id = Column(UUID(as_uuid=True), ForeignKey("flujos_trabajo.id", ondelete="SET NULL"), nullable=True)
     nombre_archivo = Column(String(255), nullable=False)
-    ruta_archivo = Column(String(500), nullable=False)
+    ruta_archivo = Column(String(500), nullable=True)
     contenido = Column(Text, nullable=True)  # Contenido HTML del documento editado
     tamaño_archivo = Column(Integer)  # BIGINT -> Integer
     tipo_mime = Column(String(100))
@@ -396,7 +430,6 @@ class SiniestroArea(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)
     area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="CASCADE"), nullable=False)
-    usuario_responsable = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
     fecha_asignacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     observaciones = Column(Text, nullable=True)
     activo = Column(Boolean, nullable=False, default=True)

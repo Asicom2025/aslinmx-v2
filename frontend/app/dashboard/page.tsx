@@ -88,9 +88,15 @@ export default function DashboardPage() {
       );
       if (response.ok) {
         const mapData = await response.json();
+        console.log("Mapa cargado, estructura:", {
+          tieneFeatures: !!mapData.features,
+          tieneObjects: !!mapData.objects,
+          keys: Object.keys(mapData),
+          tipo: mapData.type,
+        });
         setMexicoMapData(mapData);
       } else {
-        console.error("Error al cargar el mapa de México");
+        console.error("Error al cargar el mapa de México:", response.status, response.statusText);
       }
     } catch (error) {
       console.error("Error al cargar el mapa de México:", error);
@@ -194,6 +200,9 @@ export default function DashboardPage() {
       type: "column",
       height: 300,
     },
+    accessibility: {
+      enabled: false,
+    },
     title: {
       text: undefined,
     },
@@ -237,6 +246,9 @@ export default function DashboardPage() {
     chart: {
       type: "bar",
       height: 300,
+    },
+    accessibility: {
+      enabled: false,
     },
     title: {
       text: undefined,
@@ -292,6 +304,9 @@ export default function DashboardPage() {
       type: "pie",
       height: 300,
     },
+    accessibility: {
+      enabled: false,
+    },
     title: {
       text: undefined,
     },
@@ -330,6 +345,9 @@ export default function DashboardPage() {
     chart: {
       type: "line",
       height: 300,
+    },
+    accessibility: {
+      enabled: false,
     },
     title: {
       text: undefined,
@@ -379,54 +397,166 @@ export default function DashboardPage() {
           type: "map",
           height: 500,
         },
+        accessibility: {
+          enabled: false,
+        },
         title: {
           text: "Cargando mapa...",
         },
       };
     }
 
-    // Crear un mapa de normalización para los datos de siniestros
-    const siniestrosMap = new Map<string, number>();
+    // Crear un mapa de códigos del mapa -> cantidad de siniestros
+    // Los datos del backend ya vienen normalizados (ej: "Ciudad de México", "Puebla")
+    const codigoMapaToCantidad = new Map<string, number>();
     stats.siniestros_por_estado.forEach((item) => {
-      siniestrosMap.set(normalizeEstado(item.nombre), item.cantidad);
-      siniestrosMap.set(item.nombre, item.cantidad); // También mantener el nombre original
+      // Filtrar estados inválidos
+      if (!item.nombre || item.nombre === "Sin estado") {
+        return;
+      }
+      
+      // Convertir el nombre canónico del estado al código del mapa usando estadoMap
+      const codigoMapa = estadoMap[item.nombre];
+      if (codigoMapa) {
+        // Si ya existe, sumar; si no, establecer
+        const cantidadActual = codigoMapaToCantidad.get(codigoMapa) || 0;
+        codigoMapaToCantidad.set(codigoMapa, cantidadActual + item.cantidad);
+      } else {
+        console.warn(`No se encontró código de mapa para el estado: ${item.nombre}`);
+      }
     });
 
-    // Extraer los datos del mapa topoJSON y mapearlos con los siniestros
-    const mapFeatures = (mexicoMapData as any).features || [];
+    console.log("Estados con siniestros:", Array.from(codigoMapaToCantidad.entries()));
+
+    // Los TopoJSON de Highcharts pueden tener diferentes estructuras
+    // Intentar extraer features de diferentes formas
+    let mapFeatures: any[] = [];
+    
+    if ((mexicoMapData as any).features) {
+      // Formato GeoJSON con features
+      mapFeatures = (mexicoMapData as any).features;
+    } else if ((mexicoMapData as any).objects) {
+      // Formato TopoJSON con objects - Highcharts lo maneja internamente
+      // En este caso, necesitamos crear los datos basados en los códigos conocidos
+      console.log("TopoJSON con objects, creando datos basados en códigos conocidos");
+      
+      // Crear datos directamente usando los códigos del estadoMap
+      const mapData = Object.keys(estadoMap).map((nombreEstado) => {
+        const codigoMapa = estadoMap[nombreEstado];
+        const cantidad = codigoMapaToCantidad.get(codigoMapa) || 0;
+        return {
+          "hc-key": codigoMapa,
+          name: nombreEstado,
+          value: cantidad,
+        };
+      });
+      
+      console.log("Datos del mapa creados:", mapData.slice(0, 5));
+      console.log("Total de estados en datos:", mapData.length);
+      
+      // Calcular el máximo valor para el colorAxis
+      const valores = mapData.map((d: any) => d.value);
+      const maxValor = Math.max(...valores, 1);
+      console.log("Valor máximo de siniestros:", maxValor);
+
+      return {
+        chart: {
+          type: "map",
+          map: mexicoMapData,
+          height: 500,
+        },
+        accessibility: {
+          enabled: false,
+        },
+        title: {
+          text: undefined,
+        },
+        mapNavigation: {
+          enabled: true,
+          buttonOptions: {
+            verticalAlign: "bottom",
+          },
+        },
+        colorAxis: {
+          min: 0,
+          max: maxValor,
+          minColor: "#E0F2FE",
+          maxColor: "#0C4A6E",
+          stops: [
+            [0, "#E0F2FE"],
+            [0.25, "#7DD3FC"],
+            [0.5, "#0EA5E9"],
+            [0.75, "#0284C7"],
+            [1, "#0C4A6E"],
+          ],
+        },
+        legend: {
+          layout: "vertical",
+          align: "right",
+          verticalAlign: "middle",
+          title: {
+            text: "Siniestros",
+          },
+        },
+        tooltip: {
+          formatter: function (this: Highcharts.TooltipFormatterContextObject) {
+            const point = this.point as any;
+            return `<b>${point.name || this.key}</b><br/>Siniestros: <b>${point.value || 0}</b>`;
+          },
+        },
+        series: [
+          {
+            name: "Siniestros",
+            type: "map",
+            states: {
+              hover: {
+                brightness: 0.2,
+              },
+            },
+            dataLabels: {
+              enabled: true,
+              format: "{point.name}<br/>{point.value}",
+              style: {
+                fontWeight: "bold",
+                fontSize: "9px",
+                textOutline: "1px contrast",
+                color: "#1F2937",
+              },
+            },
+            data: mapData,
+          },
+        ],
+        credits: {
+          enabled: false,
+        },
+      };
+    }
+
+    // Si tiene features, procesarlos normalmente
     const mapData = mapFeatures.map((feature: any) => {
       const properties = feature.properties || {};
-      const nombreEstado = properties.name || properties.NAME || properties.NAME_1 || properties.admin || "";
-      const codigoMapa = properties["hc-key"] || properties.HASC_1 || properties.ISO || properties.postal || normalizeEstado(nombreEstado);
+      // El TopoJSON de Highcharts usa "hc-key" como identificador principal
+      const codigoMapa = properties["hc-key"] || properties.HASC_1 || properties.ISO || "";
+      const nombreEstado = properties.name || properties.NAME || properties.NAME_1 || properties.admin || codigoMapa;
       
-      // Buscar el valor de siniestros
-      let cantidad = 0;
-      const nombreNormalizado = normalizeEstado(nombreEstado);
-      
-      // Intentar varias formas de mapear
-      if (siniestrosMap.has(nombreEstado)) {
-        cantidad = siniestrosMap.get(nombreEstado)!;
-      } else if (siniestrosMap.has(nombreNormalizado)) {
-        cantidad = siniestrosMap.get(nombreNormalizado)!;
-      } else {
-        // Buscar en los datos de siniestros por coincidencia
-        for (const item of stats.siniestros_por_estado) {
-          const itemNormalizado = normalizeEstado(item.nombre);
-          if (itemNormalizado === nombreNormalizado || 
-              nombreNormalizado.includes(itemNormalizado) ||
-              itemNormalizado.includes(nombreNormalizado)) {
-            cantidad = item.cantidad;
-            break;
-          }
-        }
-      }
+      // Buscar la cantidad de siniestros usando el código del mapa
+      const cantidad = codigoMapaToCantidad.get(codigoMapa) || 0;
 
       return {
         "hc-key": codigoMapa,
-        name: nombreEstado || codigoMapa,
+        name: nombreEstado,
         value: cantidad,
       };
     });
+
+    console.log("Datos del mapa (primeros 5):", mapData.slice(0, 5));
+    console.log("Total de features en el mapa:", mapFeatures.length);
+
+    // Calcular el máximo valor para el colorAxis
+    const valores = mapData.map((d: any) => d.value);
+    const maxValor = Math.max(...valores, 1); // Mínimo 1 para evitar división por cero
+
+    console.log("Valor máximo de siniestros:", maxValor);
 
     // Mostrar todos los estados, incluso si no tienen siniestros (aparecerán en color claro)
     const dataToShow = mapData;
@@ -436,6 +566,9 @@ export default function DashboardPage() {
         type: "map",
         map: mexicoMapData,
         height: 500,
+      },
+      accessibility: {
+        enabled: false,
       },
       title: {
         text: undefined,
@@ -448,6 +581,7 @@ export default function DashboardPage() {
       },
       colorAxis: {
         min: 0,
+        max: maxValor,
         minColor: "#E0F2FE", // Azul muy claro
         maxColor: "#0C4A6E", // Azul oscuro
         stops: [
@@ -498,7 +632,7 @@ export default function DashboardPage() {
         enabled: false,
       },
     };
-  }, [mexicoMapData, stats?.siniestros_por_estado]);
+  }, [mexicoMapData, stats?.siniestros_por_estado, estadoMap]);
 
   if (loading || loadingStats || !user) {
     return (
@@ -572,7 +706,11 @@ export default function DashboardPage() {
           Siniestros por Estado en México
         </h3>
         {mapModuleReady && mexicoMapData && stats?.siniestros_por_estado.length > 0 ? (
-          <HighchartsReact highcharts={Highcharts} options={mexicoMapChartOptions} />
+          <HighchartsReact
+            highcharts={Highcharts}
+            constructorType={"mapChart"}
+            options={mexicoMapChartOptions}
+          />
         ) : mapModuleReady && mexicoMapData ? (
           <p className="text-gray-500 text-sm">No hay datos de siniestros por estado disponibles</p>
         ) : (
@@ -660,7 +798,7 @@ export default function DashboardPage() {
                   onClick={() => router.push(`/siniestros/${siniestro.id}`)}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-sm">{siniestro.numero_siniestro}</span>
+                    <span className="font-medium text-sm">{siniestro.numero_siniestro || "Sin número"}</span>
                     <span
                       className={`px-2 py-1 rounded text-xs font-medium ${
                         prioridadColors[siniestro.prioridad] || "bg-gray-100 text-gray-800"

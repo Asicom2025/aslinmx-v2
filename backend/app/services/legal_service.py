@@ -4,7 +4,7 @@ Servicios CRUD para catálogos legales
 from typing import List, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, extract
+from sqlalchemy import func, extract, nullslast
 from datetime import datetime
 from fastapi import HTTPException, status
 
@@ -15,6 +15,7 @@ from app.models.legal import (
     Entidad,
     Institucion,
     Autoridad,
+    Asegurado,
     Proveniente,
     TipoDocumento,
     CategoriaDocumento,
@@ -41,6 +42,8 @@ from app.schemas.legal_schema import (
     InstitucionUpdate,
     AutoridadCreate,
     AutoridadUpdate,
+    AseguradoCreate,
+    AseguradoUpdate,
     ProvenienteCreate,
     ProvenienteUpdate,
     TiposDocumentoCreate,
@@ -335,6 +338,60 @@ class AutoridadService:
         return True
 
 
+class AseguradoService:
+    @staticmethod
+    def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Asegurado]:
+        """Lista asegurados.
+
+        Nota: la tabla asegurados no tiene empresa_id, por lo que el parámetro
+        empresa_id se ignora y se listan todos los registros (opcionalmente filtrando por activo).
+        """
+        q = db.query(Asegurado)
+        if activo is not None:
+            q = q.filter(Asegurado.activo == activo)
+        return q.order_by(Asegurado.nombre).all()
+
+    @staticmethod
+    def get_by_id(db: Session, asegurado_id: UUID, empresa_id: UUID) -> Optional[Asegurado]:
+        """Obtiene un asegurado por ID.
+
+        Nota: la tabla asegurados no tiene empresa_id, por lo que solo se filtra por id.
+        """
+        return db.query(Asegurado).filter(Asegurado.id == asegurado_id).first()
+
+    @staticmethod
+    def create(db: Session, empresa_id: UUID, payload: AseguradoCreate) -> Asegurado:
+        """Crea un asegurado.
+
+        Nota: empresa_id se ignora porque la tabla no tiene esa columna.
+        """
+        asegurado = Asegurado(**payload.model_dump())
+        db.add(asegurado)
+        db.commit()
+        db.refresh(asegurado)
+        return asegurado
+
+    @staticmethod
+    def update(db: Session, asegurado_id: UUID, payload: AseguradoUpdate) -> Optional[Asegurado]:
+        asegurado = db.query(Asegurado).filter(Asegurado.id == asegurado_id).first()
+        if not asegurado:
+            return None
+        for k, v in payload.model_dump(exclude_unset=True).items():
+            setattr(asegurado, k, v)
+        db.commit()
+        db.refresh(asegurado)
+        return asegurado
+
+    @staticmethod
+    def delete(db: Session, asegurado_id: UUID) -> bool:
+        asegurado = db.query(Asegurado).filter(Asegurado.id == asegurado_id).first()
+        if not asegurado:
+            return False
+        asegurado.eliminado_en = func.now()
+        db.commit()
+        return True
+
+
 class ProvenienteService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Proveniente]:
@@ -590,7 +647,7 @@ class SiniestroService:
         if prioridad is not None:
             q = q.filter(Siniestro.prioridad == prioridad)
         
-        siniestros = q.order_by(Siniestro.fecha_siniestro.desc()).offset(skip).limit(limit).all()
+        siniestros = q.order_by(nullslast(Siniestro.fecha_siniestro.desc())).offset(skip).limit(limit).all()
         
         # Cargar versión actual de descripción para cada siniestro
         for siniestro in siniestros:
@@ -624,7 +681,7 @@ class SiniestroService:
         return siniestro
     
     @staticmethod
-    def _generar_codigo(db: Session, proveniente_id: UUID, fecha_siniestro: datetime) -> str:
+    def _generar_codigo(db: Session, proveniente_id: UUID, fecha_siniestro: Optional[datetime] = None) -> str:
         """
         Genera código único para siniestro con formato: {consecutivo}
         Ejemplo: 001, 002, 003, etc.
@@ -693,21 +750,22 @@ class SiniestroService:
     def create(db: Session, empresa_id: UUID, payload: SiniestroCreate, creado_por: UUID) -> Siniestro:
         """
         Crea un nuevo siniestro.
-        Valida que el número de siniestro sea único por empresa.
+        Valida que el número de siniestro sea único por empresa (solo si se proporciona).
         Genera código automáticamente si hay proveniente_id.
         """
-        # Verificar unicidad del número de siniestro
-        existing = db.query(Siniestro).filter(
-            Siniestro.empresa_id == empresa_id,
-            Siniestro.numero_siniestro == payload.numero_siniestro,
-            Siniestro.eliminado == False
-        ).first()
-        
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Ya existe un siniestro con el número {payload.numero_siniestro}"
-            )
+        # Verificar unicidad del número de siniestro solo si se proporciona
+        if payload.numero_siniestro:
+            existing = db.query(Siniestro).filter(
+                Siniestro.empresa_id == empresa_id,
+                Siniestro.numero_siniestro == payload.numero_siniestro,
+                Siniestro.eliminado == False
+            ).first()
+            
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Ya existe un siniestro con el número {payload.numero_siniestro}"
+                )
         
         # Extraer descripcion_hechos del payload para crear versión
         descripcion_hechos = payload.descripcion_hechos
@@ -764,20 +822,22 @@ class SiniestroService:
         if not siniestro:
             return None
         
-        # Validar unicidad del número si se cambia
-        if payload.numero_siniestro and payload.numero_siniestro != siniestro.numero_siniestro:
-            existing = db.query(Siniestro).filter(
-                Siniestro.empresa_id == empresa_id,
-                Siniestro.numero_siniestro == payload.numero_siniestro,
-                Siniestro.id != siniestro_id,
-                Siniestro.eliminado == False
-            ).first()
-            
-            if existing:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Ya existe un siniestro con el número {payload.numero_siniestro}"
-                )
+        # Validar unicidad del número si se cambia y se proporciona un valor
+        if payload.numero_siniestro is not None:
+            # Si se está estableciendo un número (cambiando de null a valor o cambiando el valor)
+            if payload.numero_siniestro != siniestro.numero_siniestro:
+                existing = db.query(Siniestro).filter(
+                    Siniestro.empresa_id == empresa_id,
+                    Siniestro.numero_siniestro == payload.numero_siniestro,
+                    Siniestro.id != siniestro_id,
+                    Siniestro.eliminado == False
+                ).first()
+                
+                if existing:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Ya existe un siniestro con el número {payload.numero_siniestro}"
+                    )
         
         # Extraer descripcion_hechos del payload si viene
         payload_dict = payload.model_dump(exclude_unset=True)

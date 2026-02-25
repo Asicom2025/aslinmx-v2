@@ -9,10 +9,17 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { swalSuccess, swalError, swalInfo } from "@/lib/swal";
 import apiService from "@/lib/apiService";
-import { getRecaptchaToken, isRecaptchaAvailable, diagnoseRecaptcha } from "@/lib/recaptcha";
+import {
+  getRecaptchaToken,
+  isRecaptchaAvailable,
+  diagnoseRecaptcha,
+} from "@/lib/recaptcha";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { useUser } from "@/context/UserContext";
+import Image from "next/image";
+
+import logoDxLegal from "@/assets/logos/logo_dx-legal.png";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -64,7 +71,9 @@ export default function LoginPage() {
       if (isRecaptchaAvailable()) {
         recaptchaToken = await getRecaptchaToken("login");
         if (!recaptchaToken) {
-          swalError("Error al verificar reCAPTCHA. Por favor, recarga la página e intenta nuevamente.");
+          swalError(
+            "Error al verificar reCAPTCHA. Por favor, recarga la página e intenta nuevamente.",
+          );
           setLoading(false);
           return;
         }
@@ -74,7 +83,7 @@ export default function LoginPage() {
       const response = await apiService.login(
         formData.username,
         formData.password,
-        recaptchaToken || undefined
+        recaptchaToken || undefined,
       );
 
       if (response.requires_2fa) {
@@ -104,9 +113,16 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
-            Aslin 2.0
-          </h2>
+          <div className="flex justify-center mb-6">
+            <Image
+              src={logoDxLegal}
+              alt="DX Legal"
+              width={180}
+              height={80}
+              className="h-auto w-auto object-contain"
+              priority
+            />
+          </div>
           <p className="mt-2 text-center text-sm text-white/80">
             Inicia sesión en tu cuenta
           </p>

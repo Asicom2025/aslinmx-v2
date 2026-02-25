@@ -233,6 +233,53 @@ class AutoridadResponse(AutoridadBase):
         from_attributes = True
 
 
+# ===== ASEGURADOS =====
+class AseguradoBase(BaseModel):
+    """Schema base de asegurado (public.asegurados)"""
+    nombre: str = Field(..., min_length=1, max_length=100)
+    apellido_paterno: Optional[str] = Field(None, max_length=150)
+    apellido_materno: Optional[str] = Field(None, max_length=150)
+    telefono: Optional[str] = Field(None, max_length=20)
+    tel_oficina: Optional[str] = Field(None, max_length=20)
+    tel_casa: Optional[str] = Field(None, max_length=20)
+    ciudad: Optional[str] = Field(None, max_length=100)
+    estado: Optional[str] = Field(None, max_length=100)
+    empresa: Optional[str] = Field(None, max_length=50)
+    timerst_list: str = Field(..., min_length=1, max_length=100)
+    activo: bool = True
+
+
+class AseguradoCreate(AseguradoBase):
+    """Schema para crear asegurado"""
+    pass
+
+
+class AseguradoUpdate(BaseModel):
+    """Schema para actualizar asegurado"""
+    nombre: Optional[str] = Field(None, min_length=1, max_length=100)
+    apellido_paterno: Optional[str] = Field(None, max_length=150)
+    apellido_materno: Optional[str] = Field(None, max_length=150)
+    telefono: Optional[str] = Field(None, max_length=20)
+    tel_oficina: Optional[str] = Field(None, max_length=20)
+    tel_casa: Optional[str] = Field(None, max_length=20)
+    ciudad: Optional[str] = Field(None, max_length=100)
+    estado: Optional[str] = Field(None, max_length=100)
+    empresa: Optional[str] = Field(None, max_length=50)
+    timerst_list: Optional[str] = Field(None, min_length=1, max_length=100)
+    activo: Optional[bool] = None
+
+
+class AseguradoResponse(AseguradoBase):
+    """Schema de respuesta de asegurado"""
+    id: UUID
+    creado_en: datetime
+    actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ===== PROVENIENTES =====
 class ProvenienteBase(BaseModel):
     """Schema base de proveniente"""
@@ -351,6 +398,7 @@ class PlantillaDocumentoBase(BaseModel):
     descripcion: Optional[str] = None
     contenido: Optional[str] = None  # Contenido HTML de la plantilla
     formato: Optional[str] = Field(None, max_length=50)
+    logo_url: Optional[str] = None  # URL o base64 del logo de la plantilla
     activo: bool = True
 
 
@@ -358,6 +406,8 @@ class PlantillaDocumentoCreate(PlantillaDocumentoBase):
     """Schema para crear plantilla de documento"""
     tipo_documento_id: UUID
     categoria_id: Optional[UUID] = None  # Opcional
+    header_plantilla_id: Optional[UUID] = None  # Header opcional (auto-referencia)
+    plantilla_continuacion_id: Optional[UUID] = None  # Segunda sección: otra plantilla (concatenada en el mismo PDF)
 
 
 class PlantillaDocumentoUpdate(BaseModel):
@@ -366,7 +416,10 @@ class PlantillaDocumentoUpdate(BaseModel):
     descripcion: Optional[str] = None
     contenido: Optional[str] = None
     formato: Optional[str] = Field(None, max_length=50)
+    logo_url: Optional[str] = None  # URL o base64 del logo de la plantilla
     categoria_id: Optional[UUID] = None
+    header_plantilla_id: Optional[UUID] = None  # Header opcional (auto-referencia)
+    plantilla_continuacion_id: Optional[UUID] = None  # Segunda sección
     activo: Optional[bool] = None
 
 
@@ -375,6 +428,8 @@ class PlantillaDocumentoResponse(PlantillaDocumentoBase):
     id: UUID
     tipo_documento_id: UUID
     categoria_id: Optional[UUID] = None
+    header_plantilla_id: Optional[UUID] = None
+    plantilla_continuacion_id: Optional[UUID] = None
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
@@ -383,11 +438,19 @@ class PlantillaDocumentoResponse(PlantillaDocumentoBase):
         from_attributes = True
 
 
+class PlantillaDocumentoConHeaderResponse(PlantillaDocumentoResponse):
+    """Schema de respuesta de plantilla con datos del header expandidos"""
+    header_plantilla: Optional[PlantillaDocumentoResponse] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ===== SINIESTROS =====
 class SiniestroBase(BaseModel):
     """Schema base de siniestro"""
-    numero_siniestro: str = Field(..., min_length=1, max_length=50)
-    fecha_siniestro: datetime
+    numero_siniestro: Optional[str] = Field(None, min_length=1, max_length=50)
+    fecha_siniestro: Optional[datetime] = None
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)  # Opcional, se maneja en versiones
     
@@ -500,7 +563,7 @@ class SiniestroResponse(SiniestroBase):
     creado_por: Optional[UUID] = None
     asegurado_id: Optional[UUID] = None
     codigo: Optional[str] = None  # Código generado automáticamente
-    fecha_registro: datetime
+    fecha_registro: Optional[datetime] = None
     eliminado: bool
     creado_en: datetime
     actualizado_en: datetime
@@ -558,7 +621,7 @@ class BitacoraActividadResponse(BitacoraActividadBase):
 class DocumentoBase(BaseModel):
     """Schema base de documento"""
     nombre_archivo: str = Field(..., min_length=1, max_length=255)
-    ruta_archivo: str = Field(..., min_length=1, max_length=500)
+    ruta_archivo: Optional[str] = Field(None, max_length=500)
     contenido: Optional[str] = None  # Contenido HTML del documento editado
     tamaño_archivo: Optional[int] = None
     tipo_mime: Optional[str] = Field(None, max_length=100)
@@ -584,6 +647,7 @@ class DocumentoCreate(DocumentoBase):
 class DocumentoUpdate(BaseModel):
     """Schema para actualizar documento"""
     nombre_archivo: Optional[str] = Field(None, min_length=1, max_length=255)
+    ruta_archivo: Optional[str] = Field(None, max_length=500)
     contenido: Optional[str] = None
     descripcion: Optional[str] = None
     fecha_documento: Optional[date] = None
@@ -740,19 +804,16 @@ class SiniestroAreaBase(BaseModel):
 class SiniestroAreaCreateBody(SiniestroAreaBase):
     """Schema para el body de la petición (sin siniestro_id, viene en la URL)"""
     area_id: UUID
-    usuario_responsable: Optional[UUID] = None
 
 
 class SiniestroAreaCreate(SiniestroAreaBase):
     """Schema para crear relación siniestro-área (completo, con siniestro_id)"""
     siniestro_id: UUID
     area_id: UUID
-    usuario_responsable: Optional[UUID] = None
 
 
 class SiniestroAreaUpdate(BaseModel):
     """Schema para actualizar relación siniestro-área"""
-    usuario_responsable: Optional[UUID] = None
     observaciones: Optional[str] = None
     activo: Optional[bool] = None
 
@@ -762,7 +823,6 @@ class SiniestroAreaResponse(SiniestroAreaBase):
     id: UUID
     siniestro_id: UUID
     area_id: UUID
-    usuario_responsable: Optional[UUID] = None
     fecha_asignacion: datetime
     creado_en: datetime
     actualizado_en: datetime

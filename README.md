@@ -186,6 +186,55 @@ Este proyecto es privado y confidencial.
 
 Desarrollado por **Asicom Software** para Aslin 2.0
 
+## 🖥️ Características ideales del servidor dedicado
+
+Recomendaciones para montar **ASLIN 2.0** en un servidor dedicado en producción.
+
+### Requisitos mínimos recomendados
+
+| Recurso   | Mínimo   | Recomendado (producción) |
+|----------|----------|----------------------------|
+| **CPU**  | 2 núcleos | 4 núcleos o más            |
+| **RAM**  | 4 GB     | 8 GB (16 GB si muchos PDFs/concurrentes) |
+| **Disco**| 40 GB SSD | 80–100 GB SSD (datos + logs + backups) |
+| **Red**  | 100 Mbps | 1 Gbps simétrico           |
+
+### Sistema operativo
+
+- **Recomendado:** **Ubuntu Server 22.04 LTS** (o 24.04 LTS).
+- Alternativas: Debian 12, Rocky Linux 9, AlmaLinux 9.
+- Evitar Windows como host si se usa Docker (más consumo y complejidad).
+
+### Software base en el servidor
+
+- **Docker** 24.x y **Docker Compose** v2.x (para orquestar backend, frontend y PostgreSQL).
+- **PostgreSQL 15** (en contenedor o nativo; el stack actual usa contenedor).
+- **Nginx** (o Caddy) como reverse proxy delante de frontend y backend: SSL, dominio, compresión.
+- **Certificado SSL**: Let's Encrypt (certbot) o certificado comercial.
+
+### Consideraciones por componente
+
+- **PostgreSQL:** Reservar al menos 1–2 GB RAM para el contenedor/instancia; disco en SSD para datos y WAL.
+- **Backend (FastAPI + WeasyPrint):** Generación de PDFs es costosa en CPU y RAM; con muchos PDFs simultáneos, 4 núcleos y 8 GB RAM ayudan a evitar cuellos de botella.
+- **Frontend (Next.js):** En producción conviene build estático (`next build` + `next start` o servido por Nginx) para reducir uso de RAM y CPU.
+- **Celery + Redis** (si se usan tareas en background): Añadir ~512 MB–1 GB RAM para Redis y 1 worker Celery; ajustar según cola de tareas.
+
+### Seguridad y operación
+
+- **Firewall:** Solo puertos 80, 443 y 22 (SSH) abiertos; resto filtrado.
+- **SSH:** Claves en lugar de contraseña; usuario no root.
+- **Backups:** Copias automáticas diarias de la base PostgreSQL y, si aplica, de volúmenes Docker (uploads, datos persistentes).
+- **Actualizaciones:** Parches de seguridad del SO y de las imágenes Docker de forma periódica.
+- **Variables de entorno:** `.env` con secretos (JWT, BD, SMTP); nunca en el repositorio.
+- **Dominio:** Apuntar el DNS al servidor y configurar Nginx/Caddy con el nombre del sistema (ej. `app.aslin.com`).
+
+### Resumen rápido
+
+- **Entorno pequeño (pocos usuarios, pocos PDFs):** 2 vCPU, 4 GB RAM, 40 GB SSD, Ubuntu 22.04, Docker + Nginx + SSL.
+- **Producción estable (varios usuarios, reportes y PDFs frecuentes):** 4 vCPU, 8 GB RAM, 80–100 GB SSD, Ubuntu 22.04 LTS, reverse proxy con SSL, backups automáticos y monitoreo básico (logs, health checks).
+
+---
+
 ## 🔗 Enlaces Útiles
 
 - **Repositorio**: https://github.com/AsicomSoftware/aslinmx-v2.git

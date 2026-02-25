@@ -14,7 +14,7 @@ import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
 import Modal from "@/components/ui/Modal";
 import DataTable from "@/components/ui/DataTable";
-import TiptapEditor from "@/components/ui/TiptapEditor";
+import JoditEditor from "@/components/ui/JoditEditor";
 import PDFGenerator from "@/components/pdf/PDFGenerator";
 import PDFPreviewModal from "./components/PDFPreviewModal";
 import CategoriasModal from "./components/CategoriasModal";
@@ -649,7 +649,7 @@ function DocumentosTab() {
         await apiService.createDocumento({
           siniestro_id: objetivo,
           nombre_archivo: form.nombre_archivo,
-          ruta_archivo: form.ruta_archivo,
+          ruta_archivo: form.ruta_archivo && form.ruta_archivo.trim() ? form.ruta_archivo : null,
           descripcion: form.descripcion,
           version: Number(form.version) || 1,
           es_principal: form.es_principal,
@@ -744,7 +744,6 @@ function DocumentosTab() {
             name="ruta_archivo"
             value={form.ruta_archivo}
             onChange={changeForm}
-            required={!editing}
           />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Descripción</label>

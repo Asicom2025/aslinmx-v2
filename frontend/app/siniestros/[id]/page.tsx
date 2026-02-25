@@ -13,9 +13,10 @@ import apiService from "@/lib/apiService";
 import { swalError, swalSuccess, swalConfirm } from "@/lib/swal";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
-import TiptapEditor from "@/components/ui/TiptapEditor";
+import JoditEditor from "@/components/ui/JoditEditor";
 import DataTable from "@/components/ui/DataTable";
 import Input from "@/components/ui/Input";
+import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { ColumnDef } from "@tanstack/react-table";
 import {
   useEmpresaColors,
@@ -51,6 +52,7 @@ import {
   FiFile,
   FiList,
   FiActivity,
+  FiPaperclip,
 } from "react-icons/fi";
 import type { Siniestro } from "@/types/siniestros";
 import type {
@@ -138,6 +140,27 @@ export default function SiniestroDetailPage() {
     DocumentoEtapa[]
   >([]);
 
+  // Estado para envío de correo con documento
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailForm, setEmailForm] = useState<{
+    configuracion_smtp_id: string;
+    destinatarios: string;
+    asunto: string;
+    mensaje: string;
+    adjuntos: File[];
+  }>({
+    configuracion_smtp_id: "",
+    destinatarios: "",
+    asunto: "",
+    mensaje: "",
+    adjuntos: [],
+  });
+  const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
+  const [emailDestinatariosUsuarios, setEmailDestinatariosUsuarios] = useState<
+    string[]
+  >([]);
+
   // Estado para tabs internos (Etapas, Documentos, Bitácora)
   const [activeContentTab, setActiveContentTab] = useState<
     "etapas" | "documentos" | "bitacora"
@@ -193,6 +216,8 @@ export default function SiniestroDetailPage() {
   const [loadingInvolucrados, setLoadingInvolucrados] = useState(false);
   const [todasLasAreas, setTodasLasAreas] = useState<any[]>([]);
   const [todosLosUsuarios, setTodosLosUsuarios] = useState<any[]>([]);
+  const [nuevoInvolucradoUsuarioId, setNuevoInvolucradoUsuarioId] =
+    useState<string>("");
 
   // Estados para modal de edición de póliza
   const [showPolizaModal, setShowPolizaModal] = useState(false);
@@ -231,6 +256,166 @@ export default function SiniestroDetailPage() {
       loadFlujosPorAreas();
     }
   }, [siniestro]);
+
+  /**
+   * Aplica los valores dinámicos del siniestro y del contexto actual
+   * a una plantilla HTML con placeholders tipo {{nombre_campo}}.
+   */
+  const aplicarPlaceholdersPlantilla = (
+    contenido: string,
+    etapa: EtapaFlujo,
+    siniestroData: Siniestro | null,
+    autorUsuario: any,
+    asegurado: any
+  ): string => {
+    if (!contenido) return contenido;
+
+    const hoy = new Date();
+    const formatoFecha = (fecha?: string | Date | null) => {
+      if (!fecha) return "";
+      const d = typeof fecha === "string" ? new Date(fecha) : fecha;
+      if (Number.isNaN(d.getTime())) return "";
+      const day = d.getDate().toString().padStart(2, "0");
+      const month = (d.getMonth() + 1).toString().padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    const nombreAsegurado =
+      `${asegurado?.nombre || ""} ${asegurado?.apellido_paterno || ""} ${
+        asegurado?.apellido_materno || ""
+      }`.trim() ||
+      asegurado?.full_name ||
+      asegurado?.email ||
+      "";
+
+    const autorNombre =
+      `${autorUsuario?.nombre || ""} ${autorUsuario?.apellido_paterno || ""} ${
+        autorUsuario?.apellido_materno || ""
+      }`.trim() ||
+      autorUsuario?.full_name ||
+      autorUsuario?.nombre_completo ||
+      autorUsuario?.email ||
+      "";
+
+    // Construir ID con el formato: (codigo_proveniente-codigo_siniestro-anualidad)
+    // Ejemplo: 102-005-25
+    const construirIdFormato = (): string => {
+      if (!siniestroData) return "";
+
+      // Código proveniente desde la info ya cargada
+      const codigoProveniente = provenienteInfo?.codigo || "";
+
+      // Consecutivo desde siniestro.codigo (pad a 3 dígitos)
+      const consecutivo = siniestroData.codigo
+        ? siniestroData.codigo.toString().padStart(3, "0")
+        : "";
+
+      // Anualidad: últimos 2 dígitos del año de fecha_siniestro (o fecha_registro / creado_en)
+      const baseFecha =
+        siniestroData.fecha_siniestro ||
+        (siniestroData as any)?.fecha_registro ||
+        siniestroData.creado_en;
+
+      const yearSource = baseFecha ? new Date(baseFecha) : hoy;
+      const anualidad = yearSource.getFullYear().toString().slice(-2);
+
+      if (!codigoProveniente || !consecutivo || !anualidad) {
+        return "";
+      }
+
+      return `${codigoProveniente}-${consecutivo}-${anualidad}`;
+    };
+
+    const idFormato = construirIdFormato();
+
+    const replacements: Record<string, string> = {
+      fecha_asignacion: formatoFecha(siniestroData?.fecha_siniestro),
+      fecha: formatoFecha(hoy),
+      numero_reporte: siniestroData?.numero_reporte || "",
+      fecha_registro: formatoFecha(
+        (siniestroData as any)?.fecha_registro || siniestroData?.creado_en
+      ),
+      id: idFormato,
+      nombre_asegurado: nombreAsegurado,
+      autor: autorNombre,
+    };
+
+    let resultado = contenido;
+    Object.entries(replacements).forEach(([key, value]) => {
+      const regex = new RegExp(`{{\\s*${key}\\s*}}`, "g");
+      resultado = resultado.replace(regex, value ?? "");
+    });
+
+    return resultado;
+  };
+
+  /**
+   * Construye el objeto de variables para el PDF (header y cuerpo).
+   * Incluye creado_en, creado_por, id, asegurado, area y el resto usado en plantillas.
+   */
+  const getVariablesForPdf = (
+    siniestroData: Siniestro | null,
+    doc: { creado_en?: string | null; area_id?: string | null } | null,
+    areaNombre: string,
+    aseguradoData: any,
+    autorNombre: string
+  ): Record<string, string> => {
+    const hoy = new Date();
+    const formatoFecha = (fecha?: string | Date | null) => {
+      if (!fecha) return "";
+      const d = typeof fecha === "string" ? new Date(fecha) : fecha;
+      if (Number.isNaN(d.getTime())) return "";
+      const day = d.getDate().toString().padStart(2, "0");
+      const month = (d.getMonth() + 1).toString().padStart(2, "0");
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    };
+
+    const nombreAsegurado =
+      `${aseguradoData?.nombre || ""} ${aseguradoData?.apellido_paterno || ""} ${
+        aseguradoData?.apellido_materno || ""
+      }`.trim() ||
+      aseguradoData?.full_name ||
+      aseguradoData?.email ||
+      "";
+
+    const creadoEn = doc?.creado_en
+      ? formatoFecha(doc.creado_en)
+      : formatoFecha(
+          (siniestroData as any)?.fecha_registro || siniestroData?.creado_en
+        );
+
+    const construirIdFormato = (): string => {
+      if (!siniestroData) return "";
+      const codigoProveniente = provenienteInfo?.codigo || "";
+      const consecutivo = siniestroData.codigo
+        ? siniestroData.codigo.toString().padStart(3, "0")
+        : "";
+      const baseFecha =
+        siniestroData.fecha_siniestro ||
+        (siniestroData as any)?.fecha_registro ||
+        siniestroData.creado_en;
+      const yearSource = baseFecha ? new Date(baseFecha) : hoy;
+      const anualidad = yearSource.getFullYear().toString().slice(-2);
+      if (!codigoProveniente || !consecutivo || !anualidad) return "";
+      return `${codigoProveniente}-${consecutivo}-${anualidad}`;
+    };
+
+    return {
+      creado_en: creadoEn,
+      creado_por: autorNombre,
+      id: construirIdFormato(),
+      asegurado: nombreAsegurado,
+      area: areaNombre || "",
+      fecha_registro: creadoEn,
+      nombre_asegurado: nombreAsegurado,
+      autor: autorNombre,
+      fecha_asignacion: formatoFecha(siniestroData?.fecha_siniestro),
+      fecha: formatoFecha(hoy),
+      numero_reporte: siniestroData?.numero_reporte || "",
+    };
+  };
 
   // Cargar estados y calificaciones cuando se carga el siniestro
   useEffect(() => {
@@ -283,6 +468,8 @@ export default function SiniestroDetailPage() {
       loadAreasAdicionales();
       loadInvolucrados();
       loadLogsAuditoria();
+      // Cargar configuraciones SMTP disponibles para envío de correos
+      loadSmtpConfigs();
     }
   }, [siniestro, siniestroId]);
 
@@ -328,6 +515,13 @@ export default function SiniestroDetailPage() {
       const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
         activo: true,
       });
+      console.log("📄 Documentos cargados:", documentos.map((d: any) => ({
+        id: d.id,
+        nombre: d.nombre_archivo,
+        etapa_flujo_id: d.etapa_flujo_id,
+        flujo_trabajo_id: d.flujo_trabajo_id,
+        area_id: d.area_id,
+      })));
       setDocumentosExistentes(documentos);
     } catch (error: any) {
       console.error("Error al cargar documentos:", error);
@@ -342,13 +536,29 @@ export default function SiniestroDetailPage() {
       // Cargar información del asegurado
       if (siniestroData.asegurado_id) {
         try {
-          const asegurado = await apiService.getUserById(
+          console.log("Cargando asegurado con ID:", siniestroData.asegurado_id);
+          const asegurado = await apiService.getAseguradoById(
             siniestroData.asegurado_id
           );
+          console.log("Asegurado cargado:", asegurado);
           setAseguradoInfo(asegurado);
-        } catch (e) {
+        } catch (e: any) {
           console.error("Error al cargar asegurado:", e);
+          console.error("Detalles del error:", {
+            message: e.message,
+            response: e.response?.data,
+            status: e.response?.status,
+            asegurado_id: siniestroData.asegurado_id,
+          });
+          // Establecer un objeto con información de error para mostrar algo al usuario
+          setAseguradoInfo({
+            nombre: "Error al cargar",
+            email: "",
+            error: true,
+          });
         }
+      } else {
+        console.log("Siniestro sin asegurado_id");
       }
 
       // Cargar información de institución
@@ -432,6 +642,23 @@ export default function SiniestroDetailPage() {
       console.error("Error al cargar bitácoras filtradas:", error);
     } finally {
       setLoadingBitacoras(false);
+    }
+  };
+
+  // Cargar configuraciones SMTP
+  const loadSmtpConfigs = async () => {
+    try {
+      const configs = await apiService.getConfiguracionesSMTP(true);
+      setSmtpConfigs(configs || []);
+      // Si no hay seleccionada y existe alguna, preseleccionar la primera
+      if (!emailForm.configuracion_smtp_id && configs && configs.length > 0) {
+        setEmailForm((prev) => ({
+          ...prev,
+          configuracion_smtp_id: configs[0].id,
+        }));
+      }
+    } catch (error: any) {
+      console.error("Error al cargar configuraciones SMTP:", error);
     }
   };
 
@@ -557,7 +784,7 @@ export default function SiniestroDetailPage() {
 
       // Preparar datos para actualizar
       const updateData: any = {
-        numero_siniestro: editForm.numero_siniestro || undefined,
+        numero_siniestro: editForm.numero_siniestro && editForm.numero_siniestro.trim() ? editForm.numero_siniestro : null,
         fecha_siniestro: editForm.fecha_siniestro || undefined,
         ubicacion: editForm.ubicacion || undefined,
         numero_poliza: editForm.numero_poliza || undefined,
@@ -567,7 +794,7 @@ export default function SiniestroDetailPage() {
         suma_asegurada: editForm.suma_asegurada || undefined,
         prioridad: editForm.prioridad || undefined,
         forma_contacto: editForm.forma_contacto || undefined,
-        numero_reporte: editForm.numero_reporte || undefined,
+        numero_reporte: editForm.numero_reporte && editForm.numero_reporte.trim() ? editForm.numero_reporte : null,
         observaciones: editForm.observaciones || undefined,
       };
 
@@ -940,10 +1167,35 @@ export default function SiniestroDetailPage() {
     setPdfBase64(null);
 
     try {
-      // Buscar el documento existente para esta etapa
-      const docExistente = documentosExistentes.find(
+      // Determinar el flujo_trabajo_id actual basado en el tab activo
+      let flujoTrabajoIdActual: string | undefined = undefined;
+      if (activeFlujoTab.startsWith("general-")) {
+        flujoTrabajoIdActual = activeFlujoTab.replace("general-", "");
+      } else if (activeFlujoTab.startsWith("area-")) {
+        flujoTrabajoIdActual = activeFlujoTab.replace("area-", "");
+      }
+
+      // Buscar documentos de esta etapa
+      const documentosEtapa = documentosExistentes.filter(
         (doc: any) => doc.etapa_flujo_id === etapa.id
       );
+      
+      // Buscar documento del flujo actual (debe coincidir exactamente)
+      // Si no hay flujo específico activo, usar el más reciente
+      let docExistente: any = null;
+      if (flujoTrabajoIdActual) {
+        // Si hay flujo específico, solo buscar documentos de ese flujo
+        docExistente = documentosEtapa.find(
+          (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
+        );
+      } else {
+        // Si no hay flujo específico, usar el más reciente
+        if (documentosEtapa.length > 0) {
+          docExistente = documentosEtapa.sort((a: any, b: any) => 
+            new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime()
+          )[0];
+        }
+      }
 
       if (!docExistente || !docExistente.contenido) {
         swalError("No hay contenido del documento para mostrar");
@@ -951,12 +1203,34 @@ export default function SiniestroDetailPage() {
         return;
       }
 
-      // Generar PDF desde el contenido HTML
+      const areaNombre =
+        areasConFlujos.find(
+          (acf) => acf.area.id === (docExistente.area_id || activeAreaTab)
+        )?.area.nombre || "";
+      const autorNombre =
+        `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
+        (user as any)?.full_name ||
+        (user as any)?.email ||
+        "";
+      const variables = getVariablesForPdf(
+        siniestro,
+        docExistente,
+        areaNombre,
+        aseguradoInfo,
+        autorNombre
+      );
+
+      const plantillaId =
+        docExistente.plantilla_documento_id ||
+        etapa.plantilla_documento_id ||
+        etapa.plantilla_documento?.id;
       const filename =
         docExistente.nombre_archivo.replace(".html", ".pdf") ||
         `${etapa.nombre}.pdf`;
       const pdfResponse = await apiService.generatePDF({
         html_content: docExistente.contenido,
+        plantilla_id: plantillaId || undefined,
+        variables,
         page_size: "A4",
         orientation: "portrait",
         filename: filename,
@@ -986,11 +1260,29 @@ export default function SiniestroDetailPage() {
         return;
       }
 
-      // Generar PDF desde el contenido HTML
+      const areaNombre =
+        areasConFlujos.find(
+          (acf) => acf.area.id === (documento.area_id || activeAreaTab)
+        )?.area.nombre || "";
+      const autorNombre =
+        `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
+        (user as any)?.full_name ||
+        (user as any)?.email ||
+        "";
+      const variables = getVariablesForPdf(
+        siniestro,
+        documento,
+        areaNombre,
+        aseguradoInfo,
+        autorNombre
+      );
+
       const filename =
         documento.nombre_archivo.replace(".html", ".pdf") || "documento.pdf";
       const pdfResponse = await apiService.generatePDF({
         html_content: documento.contenido,
+        plantilla_id: documento.plantilla_documento_id || undefined,
+        variables,
         page_size: "A4",
         orientation: "portrait",
         filename: filename,
@@ -1004,6 +1296,101 @@ export default function SiniestroDetailPage() {
       setShowPdfModal(false);
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  // Abrir modal de envío de correo desde un documento (usando su contenido)
+  const handleOpenEmailModalFromDocumento = (documento: any) => {
+    if (!siniestro) return;
+
+    const asuntoBase =
+      documento.nombre_archivo ||
+      `Documento de siniestro ${
+        siniestro.numero_siniestro || siniestro.codigo || ""
+      }`;
+
+    const mensajeBase = `Estimado(a),\n\nAdjunto envío el documento relacionado con el siniestro ${
+      siniestro.numero_siniestro || siniestro.codigo || siniestro.id
+    }.\n\nSaludos cordiales.`;
+
+    setEmailForm((prev) => ({
+      ...prev,
+      asunto: asuntoBase,
+      mensaje: mensajeBase,
+    }));
+
+    setShowEmailModal(true);
+  };
+
+  const handleEmailAdjuntosChange = (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(e.target.files || []);
+    setEmailForm((prev) => ({
+      ...prev,
+      adjuntos: files,
+    }));
+  };
+
+  const handleSendEmailWithDocument = async () => {
+    if (!siniestro) return;
+
+    if (!emailForm.configuracion_smtp_id) {
+      swalError("Debes seleccionar una configuración SMTP");
+      return;
+    }
+
+    const destinatariosTexto = emailForm.destinatarios
+      .split(/[;,]/)
+      .map((d) => d.trim())
+      .filter((d) => d.length > 0);
+
+    // Correos de usuarios internos seleccionados
+    const correosInternos = emailDestinatariosUsuarios
+      .map((usuarioId) => {
+        const u = todosLosUsuarios.find((usr) => usr.id === usuarioId);
+        return u?.email || u?.correo || null;
+      })
+      .filter((c): c is string => !!c && c.length > 0);
+
+    // Unificar y eliminar duplicados
+    const destinatariosLimpios = Array.from(
+      new Set([...destinatariosTexto, ...correosInternos])
+    );
+
+    if (destinatariosLimpios.length === 0) {
+      swalError("Debes indicar al menos un destinatario");
+      return;
+    }
+
+    try {
+      setEmailSending(true);
+
+      const payload = {
+        configuracion_smtp_id: emailForm.configuracion_smtp_id,
+        destinatarios: destinatariosLimpios,
+        asunto: emailForm.asunto || undefined,
+        cuerpo_html: emailForm.mensaje
+          ? emailForm.mensaje.replace(/\n/g, "<br />")
+          : undefined,
+        variables: {
+          siniestro_id: siniestro.id,
+        },
+        adjuntos: undefined,
+      };
+
+      await apiService.enviarCorreo(payload);
+      swalSuccess("Correo enviado correctamente");
+      setShowEmailModal(false);
+    } catch (error: any) {
+      console.error("Error al enviar correo:", error);
+      swalError(
+        error.response?.data?.detail ||
+          error.response?.data?.message ||
+          "Error al enviar el correo"
+      );
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -1062,10 +1449,55 @@ export default function SiniestroDetailPage() {
     setDocumentoContenido("");
 
     try {
+      // Determinar el flujo_trabajo_id actual basado en el tab activo
+      let flujoTrabajoIdActual: string | undefined = undefined;
+      if (activeFlujoTab.startsWith("general-")) {
+        flujoTrabajoIdActual = activeFlujoTab.replace("general-", "");
+      } else if (activeFlujoTab.startsWith("area-")) {
+        flujoTrabajoIdActual = activeFlujoTab.replace("area-", "");
+      }
+
       // Buscar si ya existe un documento para esta etapa
-      const docExistente = documentosExistentes.find(
+      // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
+      // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
+      const documentosEtapa = documentosExistentes.filter(
         (doc: any) => doc.etapa_flujo_id === etapa.id
       );
+      
+      console.log("🔍 Buscando documento para etapa:", {
+        etapa_id: etapa.id,
+        etapa_nombre: etapa.nombre,
+        flujoTrabajoIdActual,
+        documentosEtapa: documentosEtapa.map((d: any) => ({
+          id: d.id,
+          nombre: d.nombre_archivo,
+          etapa_flujo_id: d.etapa_flujo_id,
+          flujo_trabajo_id: d.flujo_trabajo_id,
+        })),
+      });
+      
+      // Buscar documento del flujo actual (debe coincidir exactamente)
+      // Si no hay flujo específico activo, usar el más reciente
+      let docExistente: any = null;
+      if (flujoTrabajoIdActual) {
+        // Si hay flujo específico, solo buscar documentos de ese flujo
+        docExistente = documentosEtapa.find(
+          (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
+        );
+      } else {
+        // Si no hay flujo específico, usar el más reciente
+        if (documentosEtapa.length > 0) {
+          docExistente = documentosEtapa.sort((a: any, b: any) => 
+            new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime()
+          )[0];
+        }
+      }
+      
+      console.log("✅ Documento encontrado:", docExistente ? {
+        id: docExistente.id,
+        nombre: docExistente.nombre_archivo,
+        flujo_trabajo_id: docExistente.flujo_trabajo_id,
+      } : "No encontrado");
 
       if (docExistente) {
         // Si existe, cargar el contenido existente
@@ -1095,9 +1527,19 @@ export default function SiniestroDetailPage() {
             plantillaId
           );
           setPlantillaActual(plantilla);
-          setDocumentoContenido(
-            plantilla.contenido || "<p>Contenido de la plantilla...</p>"
+          const contenidoBase =
+            plantilla.contenido || "<p>Contenido de la plantilla...</p>";
+
+          // Aplicar placeholders solo cuando se genera el documento por primera vez
+          const contenidoConDatos = aplicarPlaceholdersPlantilla(
+            contenidoBase,
+            etapa,
+            siniestro,
+            user,
+            aseguradoInfo
           );
+
+          setDocumentoContenido(contenidoConDatos);
         } else {
           // Sin plantilla, iniciar con contenido vacío
           setDocumentoContenido(
@@ -1317,13 +1759,13 @@ export default function SiniestroDetailPage() {
                 }
 
                 // Nombre del asegurado
-                if (aseguradoInfo?.full_name) {
+                if (aseguradoInfo?.nombre) {
                   elementos.push(
                     <span
                       key="asegurado"
                       className="font-semibold text-gray-800"
                     >
-                      {aseguradoInfo.full_name}
+                      {aseguradoInfo.nombre}
                     </span>
                   );
                 }
@@ -1604,6 +2046,7 @@ export default function SiniestroDetailPage() {
                                           }
                                           onViewDocument={handleViewDocument}
                                           empresaColors={empresaColors}
+                                          flujoTrabajoId={flujoConEtapas.flujo.id}
                                         />
                                       )}
 
@@ -1613,6 +2056,7 @@ export default function SiniestroDetailPage() {
                                           loading={loadingDocumentos}
                                           onViewDocument={handleViewDocumento}
                                           onEditDocument={handleEditDocumento}
+                                          onSendByEmail={handleOpenEmailModalFromDocumento}
                                           siniestroId={siniestroId}
                                           empresaColors={empresaColors}
                                         />
@@ -1728,6 +2172,7 @@ export default function SiniestroDetailPage() {
                                         onOpenEditor={handleOpenDocumentEditor}
                                         onViewDocument={handleViewDocument}
                                         empresaColors={empresaColors}
+                                        flujoTrabajoId={flujoConEtapas.flujo.id}
                                       />
                                     )}
 
@@ -1737,6 +2182,7 @@ export default function SiniestroDetailPage() {
                                         loading={loadingDocumentos}
                                         onViewDocument={handleViewDocumento}
                                         onEditDocument={handleEditDocumento}
+                                          onSendByEmail={handleOpenEmailModalFromDocumento}
                                         siniestroId={siniestroId}
                                         empresaColors={empresaColors}
                                       />
@@ -1809,7 +2255,7 @@ export default function SiniestroDetailPage() {
                       </div>
                       <p className="text-sm text-gray-600">
                         <span className="font-medium">Nombre:</span>{" "}
-                        {aseguradoInfo.full_name ||
+                        {aseguradoInfo.nombre ||
                           aseguradoInfo.email ||
                           "N/A"}
                       </p>
@@ -2229,12 +2675,13 @@ export default function SiniestroDetailPage() {
                         const usuario = todosLosUsuarios.find(
                           (u) => u.id === involucrado.usuario_id
                         );
-                        const tipoRelacionLabels: Record<string, string> = {
-                          asegurado: "Asegurado",
-                          proveniente: "Proveniente",
-                          testigo: "Testigo",
-                          tercero: "Tercero",
-                        };
+
+                        const rolUsuario =
+                          usuario?.rol?.nombre ||
+                          (usuario?.rol_id
+                            ? `Rol ID: ${usuario.rol_id}`
+                            : "Sin rol");
+
                         return (
                           <div
                             key={involucrado.id}
@@ -2248,9 +2695,10 @@ export default function SiniestroDetailPage() {
                                     "Usuario desconocido"}
                                 </p>
                                 <p className="text-xs text-gray-500 mt-1">
-                                  {tipoRelacionLabels[
-                                    involucrado.tipo_relacion
-                                  ] || involucrado.tipo_relacion}
+                                  Rol del usuario:{" "}
+                                  <span className="font-medium text-gray-700">
+                                    {rolUsuario}
+                                  </span>
                                   {involucrado.es_principal && (
                                     <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
                                       Principal
@@ -2279,57 +2727,51 @@ export default function SiniestroDetailPage() {
                     <label className="block text-sm font-medium text-gray-700">
                       Agregar Involucrado
                     </label>
-                    <select
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm mb-2"
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          const [usuarioId, tipoRelacion] =
-                            e.target.value.split("|");
-                          if (usuarioId && tipoRelacion) {
-                            handleAddInvolucrado(
-                              usuarioId,
-                              tipoRelacion as
-                                | "asegurado"
-                                | "proveniente"
-                                | "testigo"
-                                | "tercero"
-                            );
-                            e.target.value = "";
-                          }
+                    <div className="flex flex-col md:flex-row gap-2">
+                      {/* Lista solo de usuarios permitidos */}
+                      <select
+                        className="w-full md:flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        value={nuevoInvolucradoUsuarioId}
+                        onChange={(e) =>
+                          setNuevoInvolucradoUsuarioId(e.target.value)
                         }
-                      }}
-                      value=""
-                    >
-                      <option value="">Seleccionar usuario y tipo...</option>
-                      {todosLosUsuarios
-                        .filter(
-                          (usuario) =>
-                            !involucrados.some(
-                              (inv) => inv.usuario_id === usuario.id
-                            )
-                        )
-                        .map((usuario) => (
-                          <optgroup
-                            key={usuario.id}
-                            label={
-                              usuario.full_name || usuario.email || "Usuario"
-                            }
-                          >
-                            <option value={`${usuario.id}|asegurado`}>
-                              Como Asegurado
+                      >
+                        <option value="">Seleccionar usuario...</option>
+                        {todosLosUsuarios
+                          .filter(
+                            (usuario) =>
+                              !involucrados.some(
+                                (inv) => inv.usuario_id === usuario.id
+                              )
+                          )
+                          .map((usuario) => (
+                            <option key={usuario.id} value={usuario.id}>
+                              {usuario.full_name ||
+                                usuario.email ||
+                                "Usuario"}
                             </option>
-                            <option value={`${usuario.id}|proveniente`}>
-                              Como Proveniente
-                            </option>
-                            <option value={`${usuario.id}|testigo`}>
-                              Como Testigo
-                            </option>
-                            <option value={`${usuario.id}|tercero`}>
-                              Como Tercero
-                            </option>
-                          </optgroup>
-                        ))}
-                    </select>
+                          ))}
+                      </select>
+
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        disabled={!nuevoInvolucradoUsuarioId}
+                        onClick={async () => {
+                          if (!nuevoInvolucradoUsuarioId) return;
+                          // Relación interna en BD se mantendrá como 'tercero' por defecto,
+                          // pero al usuario solo le importa seleccionar la persona.
+                          await handleAddInvolucrado(
+                            nuevoInvolucradoUsuarioId,
+                            "tercero"
+                          );
+                          setNuevoInvolucradoUsuarioId("");
+                        }}
+                      >
+                        Agregar
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2651,8 +3093,8 @@ export default function SiniestroDetailPage() {
                 </div>
               )}
 
-              {/* Editor TipTap */}
-              <TiptapEditor
+              {/* Editor Jodit */}
+              <JoditEditor
                 label="Contenido del Documento"
                 value={documentoContenido}
                 onChange={setDocumentoContenido}
@@ -2768,6 +3210,176 @@ export default function SiniestroDetailPage() {
         </div>
       </Modal>
 
+      {/* Modal de Envío de Correo con Documento */}
+      <Modal
+        open={showEmailModal}
+        onClose={() => !emailSending && setShowEmailModal(false)}
+        title="Enviar documento por correo"
+        maxWidthClass="max-w-3xl"
+        maxHeightClass="max-h-[90vh]"
+      >
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Configuración SMTP
+              </label>
+              <select
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={emailForm.configuracion_smtp_id}
+                onChange={(e) =>
+                  setEmailForm((prev) => ({
+                    ...prev,
+                    configuracion_smtp_id: e.target.value,
+                  }))
+                }
+              >
+                <option value="">Seleccionar configuración...</option>
+                {smtpConfigs.map((cfg) => (
+                  <option key={cfg.id} value={cfg.id}>
+                    {cfg.nombre || cfg.host || cfg.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Destinatarios (correos externos)
+              </label>
+              <input
+                type="text"
+                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="correo1@dominio.com; correo2@dominio.com"
+                value={emailForm.destinatarios}
+                onChange={(e) =>
+                  setEmailForm((prev) => ({
+                    ...prev,
+                    destinatarios: e.target.value,
+                  }))
+                }
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Separa múltiples correos con coma o punto y coma.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Destinatarios internos (usuarios del sistema)
+            </label>
+            <CustomSelect
+              name="email_destinatarios_usuarios"
+              value={emailDestinatariosUsuarios}
+              onChange={(value) =>
+                setEmailDestinatariosUsuarios(
+                  Array.isArray(value) ? value : value ? [value] : []
+                )
+              }
+              options={todosLosUsuarios
+                .filter((u) => (u.email || u.correo) && u.is_active !== false)
+                .map((u) => ({
+                  value: u.id,
+                  label: `${(u.full_name ||
+                    u.nombre ||
+                    u.correo ||
+                    u.email ||
+                    ""
+                  )
+                    .toString()
+                    .trim()} <${u.correo || u.email}>` as string,
+                }))}
+              placeholder="Selecciona uno o varios usuarios internos..."
+              isMulti
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Puedes buscar usuarios por nombre o correo y seleccionar varios.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Asunto
+            </label>
+            <input
+              type="text"
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={emailForm.asunto}
+              onChange={(e) =>
+                setEmailForm((prev) => ({
+                  ...prev,
+                  asunto: e.target.value,
+                }))
+              }
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Mensaje
+            </label>
+            <textarea
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              rows={5}
+              value={emailForm.mensaje}
+              onChange={(e) =>
+                setEmailForm((prev) => ({
+                  ...prev,
+                  mensaje: e.target.value,
+                }))
+              }
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">
+              Adjuntar archivos adicionales
+            </label>
+            <div className="mt-1 flex items-center gap-2">
+              <label className="inline-flex items-center gap-2 px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer">
+                <FiPaperclip className="w-4 h-4" />
+                Seleccionar archivos
+                <input
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleEmailAdjuntosChange}
+                />
+              </label>
+              {emailForm.adjuntos.length > 0 && (
+                <span className="text-xs text-gray-500">
+                  {emailForm.adjuntos.length} archivo(s) seleccionado(s)
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Nota: El documento generado se enviará como adjunto principal (lógica en backend).
+              Los archivos adicionales se pueden agregar aquí si se implementa la subida y
+              vinculación en el servidor.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => !emailSending && setShowEmailModal(false)}
+              disabled={emailSending}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleSendEmailWithDocument}
+              disabled={emailSending}
+            >
+              {emailSending ? "Enviando..." : "Enviar correo"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Modal de Edición del Siniestro */}
       <Modal
         open={showEditModal}
@@ -2790,7 +3402,6 @@ export default function SiniestroDetailPage() {
                 name="numero_siniestro"
                 value={editForm.numero_siniestro}
                 onChange={handleEditFormChange}
-                required
               />
               <Input
                 label="Fecha del Siniestro"
@@ -3049,12 +3660,14 @@ function EtapasTimeline({
   onOpenEditor,
   onViewDocument,
   empresaColors,
+  flujoTrabajoId,
 }: {
   etapas: EtapaFlujo[];
   documentosExistentes: DocumentoEtapa[];
   onOpenEditor: (etapa: EtapaFlujo) => void;
   onViewDocument: (etapa: EtapaFlujo) => void;
   empresaColors: { primary: string; secondary: string; tertiary: string };
+  flujoTrabajoId?: string;
 }) {
   if (!etapas || etapas.length === 0) {
     return (
@@ -3184,9 +3797,47 @@ function EtapasTimeline({
                   <div className="ml-4 flex-shrink-0 flex gap-2">
                     {tieneDocumentoDisponible(etapa) ? (
                       (() => {
-                        const docExistente = documentosExistentes.find(
+                        // Buscar documento para esta etapa
+                        // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
+                        // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
+                        const documentosEtapa = documentosExistentes.filter(
                           (doc: any) => doc.etapa_flujo_id === etapa.id
                         );
+                        
+                        console.log("🔍 EtapasTimeline - Buscando documento:", {
+                          etapa_id: etapa.id,
+                          etapa_nombre: etapa.nombre,
+                          flujoTrabajoId,
+                          documentosEtapa: documentosEtapa.map((d: any) => ({
+                            id: d.id,
+                            nombre: d.nombre_archivo,
+                            etapa_flujo_id: d.etapa_flujo_id,
+                            flujo_trabajo_id: d.flujo_trabajo_id,
+                          })),
+                        });
+                        
+                        // Buscar documento del flujo actual (debe coincidir exactamente)
+                        // Si no hay flujo específico, usar el más reciente
+                        let docExistente: any = null;
+                        if (flujoTrabajoId) {
+                          // Si hay flujo específico, solo buscar documentos de ese flujo
+                          docExistente = documentosEtapa.find(
+                            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoId
+                          );
+                        } else {
+                          // Si no hay flujo específico, usar el más reciente
+                          if (documentosEtapa.length > 0) {
+                            docExistente = documentosEtapa.sort((a: any, b: any) => 
+                              new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime()
+                            )[0];
+                          }
+                        }
+                        
+                        console.log("✅ EtapasTimeline - Documento encontrado:", docExistente ? {
+                          id: docExistente.id,
+                          nombre: docExistente.nombre_archivo,
+                          flujo_trabajo_id: docExistente.flujo_trabajo_id,
+                        } : "No encontrado");
                         if (docExistente) {
                           // Si existe documento, mostrar botones "Ver" y "Editar"
                           return (
@@ -3296,6 +3947,7 @@ function DocumentosList({
   loading,
   onViewDocument,
   onEditDocument,
+  onSendByEmail,
   siniestroId,
   empresaColors,
 }: {
@@ -3303,6 +3955,7 @@ function DocumentosList({
   loading: boolean;
   onViewDocument: (documento: any) => void;
   onEditDocument: (documento: any) => void;
+  onSendByEmail: (documento: any) => void;
   siniestroId: string;
   empresaColors: { primary: string; secondary: string; tertiary: string };
 }) {
@@ -3428,6 +4081,20 @@ function DocumentosList({
                   >
                     <FiEdit3 className="w-3 h-3" />
                     Editar
+                  </button>
+                  <button
+                    onClick={() => onSendByEmail(documento)}
+                    className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white text-xs font-medium rounded transition-colors"
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.opacity = "0.9";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.opacity = "1";
+                    }}
+                    title="Enviar por correo"
+                  >
+                    <FiMail className="w-3 h-3" />
+                    Enviar
                   </button>
                 </>
               ) : (

@@ -153,6 +153,9 @@ export default function SiniestrosPage() {
     calificacion_id: "",
   });
 
+  // Límite de registros a cargar del backend
+  const [limit, setLimit] = useState<number>(1000);
+
   // Estado para edición (si se necesita en el futuro)
   const [editing, setEditing] = useState<Siniestro | null>(null);
   const [roles, setRoles] = useState<any[]>([]);
@@ -162,6 +165,7 @@ export default function SiniestrosPage() {
   const [autoridadesCatalogo, setAutoridadesCatalogo] = useState<
     CatalogOption[]
   >([]);
+  const [aseguradosCatalogo, setAseguradosCatalogo] = useState<any[]>([]);
   const [provenientesCatalogo, setProvenientesCatalogo] = useState<any[]>([]);
   const [calificaciones, setCalificaciones] = useState<string[]>(
     CALIFICACIONES_DEFAULT
@@ -201,11 +205,11 @@ export default function SiniestrosPage() {
     }
   }, [router, loading, user]);
 
-  // Cargar siniestros al cambiar filtros
+  // Cargar siniestros al cambiar filtros o límite
   useEffect(() => {
     if (!user) return;
     loadSiniestros();
-  }, [user, filtros]);
+  }, [user, filtros, limit]);
 
   // Cargar catálogos auxiliares una sola vez
   useEffect(() => {
@@ -216,6 +220,7 @@ export default function SiniestrosPage() {
     loadRoles();
     loadInstituciones();
     loadAutoridades();
+    loadAsegurados();
     loadProvenientes();
     loadCalificaciones();
     loadCatalogosColores();
@@ -240,6 +245,8 @@ export default function SiniestrosPage() {
         params.usuario_asignado = filtros.usuario_asignado;
       if (filtros.prioridad) params.prioridad = filtros.prioridad;
       if (filtros.calificacion_id) params.calificacion_id = filtros.calificacion_id;
+      // Incluir el límite de registros
+      if (limit) params.limit = limit;
 
       const data = await apiService.getSiniestros(params);
       // Debug: verificar si el código está presente en los datos
@@ -250,8 +257,15 @@ export default function SiniestrosPage() {
             id: s.id,
             codigo: s.codigo,
             numero_siniestro: s.numero_siniestro,
+            asegurado_id: s.asegurado_id,
           }))
         );
+        // Verificar si hay asegurados con IDs
+        const siniestrosConAsegurado = data.filter((s: any) => s.asegurado_id);
+        if (siniestrosConAsegurado.length > 0) {
+          console.log("Siniestros con asegurado_id:", siniestrosConAsegurado.map((s: any) => s.asegurado_id));
+          console.log("Asegurados disponibles en catálogo:", aseguradosCatalogo.map((a: any) => a.id));
+        }
       }
       setSiniestros(data);
     } catch (e: any) {
@@ -320,6 +334,16 @@ export default function SiniestrosPage() {
     }
   };
 
+  const loadAsegurados = async () => {
+    try {
+      const data = await apiService.getAsegurados(true);
+      setAseguradosCatalogo(data);
+      console.log("Asegurados cargados:", data);
+    } catch (e: any) {
+      console.error("Error al cargar asegurados:", e);
+    }
+  };
+
   const loadProvenientes = async () => {
     try {
       const data = await apiService.getProvenientes(true);
@@ -358,7 +382,7 @@ export default function SiniestrosPage() {
   const openEdit = async (siniestro: Siniestro) => {
     setEditing(siniestro);
     setForm({
-      numero_siniestro: siniestro.numero_siniestro,
+      numero_siniestro: siniestro.numero_siniestro || "",
       fecha_siniestro: siniestro.fecha_siniestro.split("T")[0],
       ubicacion: siniestro.ubicacion || "",
       descripcion_hechos: siniestro.descripcion_hechos,
@@ -493,6 +517,7 @@ export default function SiniestrosPage() {
 
       const payload = {
         ...form,
+        numero_siniestro: form.numero_siniestro && form.numero_siniestro.trim() ? form.numero_siniestro : null,
         fecha_siniestro: fechaSiniestroDateTime,
         numero_poliza: primaryPoliza
           ? primaryPoliza.numero_poliza
@@ -866,11 +891,27 @@ export default function SiniestrosPage() {
     return "";
   };
 
+  // Función para mapear asegurados del catálogo a PersonaLigera
+  const mapAseguradoToPersona = (asegurado: any): PersonaLigera => {
+    return {
+      id: asegurado.id,
+      nombre: asegurado.nombre || "",
+      apellido_paterno: asegurado.apellido_paterno || "",
+      apellido_materno: asegurado.apellido_materno || "",
+      email: "", // la tabla de asegurados no tiene email
+      telefono:
+        asegurado.telefono ||
+        asegurado.tel_oficina ||
+        asegurado.tel_casa ||
+        "",
+      estado: asegurado.estado || "",
+      ciudad: asegurado.ciudad || "",
+    };
+  };
+
   const aseguradosCatalog = useMemo<PersonaLigera[]>(() => {
-    return (usuarios || [])
-      .filter((usuario: any) => getRoleName(usuario) === "Asegurado")
-      .map(mapUserToPersona);
-  }, [usuarios, rolesMap]);
+    return (aseguradosCatalogo || []).map(mapAseguradoToPersona);
+  }, [aseguradosCatalogo]);
 
   // Función para mapear provenientes del catálogo a PersonaLigera
   const mapProvenienteToPersona = (proveniente: any): PersonaLigera => {
@@ -919,8 +960,21 @@ export default function SiniestrosPage() {
 
   const getAseguradoNombre = (aseguradoId?: string) => {
     if (!aseguradoId) return "-";
-    const asegurado = aseguradosCatalog.find((a) => a.id === aseguradoId);
-    if (!asegurado) return "-";
+    // Normalizar IDs para comparación (por si vienen con diferentes formatos)
+    const normalizedId = String(aseguradoId).trim();
+    const asegurado = aseguradosCatalog.find((a) => String(a.id).trim() === normalizedId);
+    if (!asegurado) {
+      // Si no se encuentra, intentar buscar directamente en el catálogo original
+      const aseguradoOriginal = aseguradosCatalogo.find((a: any) => String(a.id).trim() === normalizedId);
+      if (aseguradoOriginal) {
+        return aseguradoOriginal.nombre || aseguradoOriginal.email || "-";
+      }
+      // Debug: solo loguear si hay asegurados cargados pero no se encuentra el ID
+      if (aseguradosCatalogo.length > 0) {
+        console.warn(`Asegurado no encontrado con ID: ${normalizedId}. Total asegurados cargados: ${aseguradosCatalogo.length}`);
+      }
+      return "-";
+    }
     const nombreCompleto = [
       asegurado.nombre,
       asegurado.apellido_paterno,
@@ -933,7 +987,17 @@ export default function SiniestrosPage() {
 
   const getAseguradoEmail = (aseguradoId?: string) => {
     if (!aseguradoId) return "-";
-    const asegurado = aseguradosCatalog.find((a) => a.id === aseguradoId);
+    // Normalizar IDs para comparación
+    const normalizedId = String(aseguradoId).trim();
+    const asegurado = aseguradosCatalog.find((a) => String(a.id).trim() === normalizedId);
+    if (!asegurado) {
+      // Si no se encuentra, intentar buscar directamente en el catálogo original
+      const aseguradoOriginal = aseguradosCatalogo.find((a: any) => String(a.id).trim() === normalizedId);
+      if (aseguradoOriginal) {
+        return aseguradoOriginal.email || "-";
+      }
+      return "-";
+    }
     return asegurado?.email || "-";
   };
 
@@ -1097,9 +1161,9 @@ export default function SiniestrosPage() {
       cell: ({ row }) => (
         <span
           className="font-medium text-primary-600 truncate block max-w-[120px]"
-          title={row.original.numero_siniestro}
+          title={row.original.numero_siniestro || ""}
         >
-          {row.original.numero_siniestro}
+          {row.original.numero_siniestro || "-"}
         </span>
       ),
     },
@@ -1309,6 +1373,27 @@ export default function SiniestrosPage() {
               />
             </div>
           </div>
+          {/* Selector de límite de registros */}
+          <div className="mt-4 flex items-center gap-4">
+            <label className="text-sm font-medium text-gray-700">
+              Límite de registros:
+            </label>
+            <select
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            >
+              <option value={100}>100</option>
+              <option value={250}>250</option>
+              <option value={500}>500</option>
+              <option value={1000}>1000</option>
+              <option value={2000}>2000</option>
+              <option value={5000}>5000</option>
+            </select>
+            <span className="text-sm text-gray-500">
+              (Total cargados: {siniestros.length})
+            </span>
+          </div>
         </div>
 
         {/* Tabla */}
@@ -1322,12 +1407,10 @@ export default function SiniestrosPage() {
               columns={columns}
               data={siniestros}
               emptyText="No hay siniestros"
-              pageSize={25}
               size="compact"
             />
           )}
         </div>
-
       </div>
     </div>
   );

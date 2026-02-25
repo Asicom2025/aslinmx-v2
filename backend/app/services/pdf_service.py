@@ -69,20 +69,26 @@ class PDFService:
             color: #333;
         }}
         
-        /* Estilos para tablas */
+        /* Estilos para tablas: solo aplican a tablas sin estilos propios (clase .pdf-default-table) */
+        /* Las tablas con estilos inline (width, border, background-color, etc.) se respetan íntegramente */
         table {{
-            width: 100%;
             border-collapse: collapse;
+        }}
+        
+        /* Solo tablas marcadas con esta clase reciben el estilo por defecto */
+        table.pdf-default-table {{
+            width: 100%;
             margin: 1em 0;
         }}
         
-        table th, table td {{
+        table.pdf-default-table th,
+        table.pdf-default-table td {{
             border: 1px solid #ddd;
             padding: 8px;
             text-align: left;
         }}
         
-        table th {{
+        table.pdf-default-table th {{
             background-color: #f2f2f2;
             font-weight: bold;
         }}

@@ -3,7 +3,7 @@ import { FiPlus, FiSearch, FiTrash2, FiUser } from "react-icons/fi";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
-import TiptapEditor from "@/components/ui/TiptapEditor";
+import JoditEditor from "@/components/ui/JoditEditor";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import apiService from "@/lib/apiService";
 
@@ -572,9 +572,7 @@ export default function SiniestroWizard({
       return null;
     }
     if (step === 1) {
-      if (!form.numero_siniestro.trim()) {
-        return "El número de siniestro es obligatorio.";
-      }
+      // numero_siniestro es opcional, no se valida
       if (!form.fecha_siniestro) {
         return "Selecciona la fecha del siniestro.";
       }
@@ -945,7 +943,7 @@ export default function SiniestroWizard({
                     placeholder="REP-2025-0001"
                   />
                   <Input
-                    label="Número de siniestro *"
+                    label="Número de siniestro"
                     name="numero_siniestro"
                     value={form.numero_siniestro}
                     onChange={onChange}
@@ -1255,7 +1253,7 @@ export default function SiniestroWizard({
                   placeholder="EXP-2025-0001"
                 />
 
-                <TiptapEditor
+                <JoditEditor
                   label="Descripción de los hechos *"
                   value={extendedForm.especificos.descripcion_html}
                   onChange={(value) => setEspecificosValue("descripcion_html", value)}

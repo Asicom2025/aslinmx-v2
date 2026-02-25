@@ -33,7 +33,7 @@ export interface DocumentoCreate {
   tipo_documento_id?: string;
   etapa_flujo_id?: string;
   nombre_archivo: string;
-  ruta_archivo: string;
+  ruta_archivo?: string | null;
   tamaño_archivo?: number;
   tipo_mime?: string;
   usuario_subio?: string;
@@ -47,6 +47,7 @@ export interface DocumentoCreate {
 
 export interface DocumentoUpdate {
   nombre_archivo?: string;
+  ruta_archivo?: string | null;
   descripcion?: string;
   fecha_documento?: string;
   es_principal?: boolean;

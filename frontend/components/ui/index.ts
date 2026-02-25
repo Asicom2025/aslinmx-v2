@@ -19,7 +19,8 @@ export { default as Modal } from "./Modal";
 export { default as DataTable } from "./DataTable";
 export { default as Select } from "./Select";
 export { default as Switch } from "./Switch";
-export { default as TiptapEditor } from "./TiptapEditor";
+export { default as JoditEditor } from "./JoditEditor";
+export { default as TiptapEditor } from "./TiptapEditor"; // Mantener para compatibilidad temporal
 
 // Hook para colores de empresa
 export { useEmpresaColors } from "@/hooks/useEmpresaColors";

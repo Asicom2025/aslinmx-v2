@@ -26,7 +26,7 @@ def list_siniestros(
     usuario_asignado: Optional[UUID] = Query(None, description="Filtrar por usuario asignado"),
     prioridad: Optional[str] = Query(None, description="Filtrar por prioridad (baja, media, alta, critica)"),
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
-    limit: int = Query(100, ge=1, le=1000, description="Número máximo de registros a retornar"),
+    limit: int = Query(1000, ge=1, le=10000, description="Número máximo de registros a retornar"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):

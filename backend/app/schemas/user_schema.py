@@ -48,11 +48,14 @@ class RolResponse(BaseModel):
 
 
 class UsuarioPerfilResponse(BaseModel):
+    foto_de_perfil: Optional[str] = None
     nombre: Optional[str] = None
     apellido_paterno: Optional[str] = None
     apellido_materno: Optional[str] = None
     titulo: Optional[str] = None
     cedula_profesional: Optional[str] = None
+    firma: Optional[str] = None  # Firma física (imagen)
+    firma_digital: Optional[str] = None  # Imagen que se adjunta al enviar correos por la plataforma
 
 
 class UsuarioContactosResponse(BaseModel):
@@ -121,11 +124,14 @@ class TokenData(BaseModel):
 
 # Actualizaciones para /users/me
 class UsuarioPerfilUpdate(BaseModel):
+    foto_de_perfil: Optional[str] = None
     nombre: Optional[str] = None
     apellido_paterno: Optional[str] = None
     apellido_materno: Optional[str] = None
     titulo: Optional[str] = None
     cedula_profesional: Optional[str] = None
+    firma: Optional[str] = None
+    firma_digital: Optional[str] = None
 
 
 class UsuarioContactosUpdate(BaseModel):

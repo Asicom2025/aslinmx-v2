@@ -134,11 +134,14 @@ class Usuario(Base):
 class UsuarioPerfil(Base):
     __tablename__ = "usuario_perfiles"
     usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    foto_de_perfil = Column(Text, nullable=True)
     nombre = Column(String(150), nullable=False)
     apellido_paterno = Column(String(150), nullable=False)
     apellido_materno = Column(String(150), nullable=False)
     titulo = Column(String(50))
     cedula_profesional = Column(String(150))
+    firma = Column(Text, nullable=True)  # Firma física/literal (imagen)
+    firma_digital = Column(Text, nullable=True)  # Imagen que se envía por correo al mandar emails desde la plataforma
     usuario = relationship("Usuario", back_populates="perfil")
 
 

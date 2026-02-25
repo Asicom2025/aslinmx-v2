@@ -9,7 +9,8 @@ from datetime import datetime
 from uuid import UUID
 from app.models.user import User, Empresa, Rol
 from app.models.legal import (
-    Siniestro, Area, EstadoSiniestro, Entidad, Institucion, Autoridad, Proveniente
+    Siniestro, Area, EstadoSiniestro, Entidad, Institucion, Autoridad, Proveniente,
+    Asegurado, CalificacionSiniestro, SiniestroArea, SiniestroUsuario
 )
 from app.services.export_service import ExportService
 from app.services.pdf_service import PDFService
@@ -24,10 +25,12 @@ class ReporteService:
         "siniestros": Siniestro,
         "areas": Area,
         "estados_siniestro": EstadoSiniestro,
+        "calificaciones_siniestro": CalificacionSiniestro,
         "entidades": Entidad,
         "instituciones": Institucion,
         "autoridades": Autoridad,
         "provenientes": Proveniente,
+        "asegurados": Asegurado,
         "empresas": Empresa,
         "roles": Rol,
     }
@@ -58,7 +61,15 @@ class ReporteService:
             raise ValueError(f"Módulo '{modulo}' no soportado")
 
         Modelo = ReporteService.MODULOS_MODELOS[modulo]
-        query = db.query(Modelo)
+        
+        # Para siniestros, hacer joins con tablas relacionadas
+        if modulo == "siniestros":
+            query = db.query(Siniestro).options(
+                # Usar joinedload para cargar relaciones de forma eficiente
+                # Estas relaciones se cargarán automáticamente cuando se acceda
+            )
+        else:
+            query = db.query(Modelo)
 
         # Filtrar por empresa si el modelo tiene empresa_id
         if hasattr(Modelo, 'empresa_id'):
@@ -84,10 +95,12 @@ class ReporteService:
 
         registros = query.all()
 
-        # Convertir a diccionarios
+        # Convertir a diccionarios con datos relacionados
         datos = []
         for registro in registros:
-            registro_dict = ReporteService._modelo_a_dict(registro, columnas)
+            registro_dict = ReporteService._modelo_a_dict_con_relaciones(
+                db, registro, modulo, columnas
+            )
             datos.append(registro_dict)
 
         return datos
@@ -98,11 +111,42 @@ class ReporteService:
         if filtros.get("activo") is not None and hasattr(Modelo, "activo"):
             query = query.filter(Modelo.activo == filtros["activo"])
 
-        if filtros.get("fecha_desde") and hasattr(Modelo, "creado_en"):
-            query = query.filter(Modelo.creado_en >= filtros["fecha_desde"])
+        # Manejar fechas (pueden venir como string o datetime)
+        fecha_desde = filtros.get("fecha_desde")
+        if fecha_desde:
+            if isinstance(fecha_desde, str):
+                try:
+                    fecha_desde = datetime.fromisoformat(fecha_desde.replace('Z', '+00:00'))
+                except ValueError:
+                    try:
+                        fecha_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
+                    except ValueError:
+                        pass
+            if hasattr(Modelo, "creado_en"):
+                query = query.filter(Modelo.creado_en >= fecha_desde)
+            elif hasattr(Modelo, "fecha_registro"):
+                query = query.filter(Modelo.fecha_registro >= fecha_desde)
+            elif hasattr(Modelo, "fecha_siniestro"):
+                query = query.filter(Modelo.fecha_siniestro >= fecha_desde)
 
-        if filtros.get("fecha_hasta") and hasattr(Modelo, "creado_en"):
-            query = query.filter(Modelo.creado_en <= filtros["fecha_hasta"])
+        fecha_hasta = filtros.get("fecha_hasta")
+        if fecha_hasta:
+            if isinstance(fecha_hasta, str):
+                try:
+                    fecha_hasta = datetime.fromisoformat(fecha_hasta.replace('Z', '+00:00'))
+                except ValueError:
+                    try:
+                        fecha_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                        # Si es solo fecha, agregar tiempo al final del día
+                        fecha_hasta = fecha_hasta.replace(hour=23, minute=59, second=59)
+                    except ValueError:
+                        pass
+            if hasattr(Modelo, "creado_en"):
+                query = query.filter(Modelo.creado_en <= fecha_hasta)
+            elif hasattr(Modelo, "fecha_registro"):
+                query = query.filter(Modelo.fecha_registro <= fecha_hasta)
+            elif hasattr(Modelo, "fecha_siniestro"):
+                query = query.filter(Modelo.fecha_siniestro <= fecha_hasta)
 
         # Filtros adicionales específicos por módulo
         filtros_adicionales = filtros.get("filtros_adicionales", {})
@@ -140,6 +184,149 @@ class ReporteService:
                 col.name: getattr(registro, col.name, None)
                 for col in registro.__table__.columns
             }
+
+    @staticmethod
+    def _modelo_a_dict_con_relaciones(
+        db: Session,
+        registro,
+        modulo: str,
+        columnas: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Convierte un modelo SQLAlchemy a diccionario incluyendo datos relacionados"""
+        # Obtener datos base del modelo
+        if columnas:
+            resultado = {col: getattr(registro, col, None) for col in columnas if hasattr(registro, col)}
+        else:
+            resultado = {
+                col.name: getattr(registro, col.name, None)
+                for col in registro.__table__.columns
+            }
+
+        # Agregar datos relacionados según el módulo
+        if modulo == "siniestros" and isinstance(registro, Siniestro):
+            # Asegurado
+            if registro.asegurado_id:
+                asegurado = db.query(Asegurado).filter(Asegurado.id == registro.asegurado_id).first()
+                if asegurado:
+                    resultado["asegurado_nombre"] = asegurado.nombre
+                    resultado["asegurado_apellido_paterno"] = asegurado.apellido_paterno
+                    resultado["asegurado_apellido_materno"] = asegurado.apellido_materno
+                    resultado["asegurado_nombre_completo"] = f"{asegurado.nombre} {asegurado.apellido_paterno or ''} {asegurado.apellido_materno or ''}".strip()
+                    resultado["asegurado_telefono"] = asegurado.telefono or asegurado.tel_oficina or asegurado.tel_casa
+                    resultado["asegurado_ciudad"] = asegurado.ciudad
+                    resultado["asegurado_estado"] = asegurado.estado
+                    resultado["asegurado_empresa"] = asegurado.empresa
+
+            # Estado del siniestro
+            if registro.estado_id:
+                estado = db.query(EstadoSiniestro).filter(EstadoSiniestro.id == registro.estado_id).first()
+                if estado:
+                    resultado["estado_nombre"] = estado.nombre
+                    resultado["estado_color"] = estado.color
+
+            # Calificación
+            if registro.calificacion_id:
+                calificacion = db.query(CalificacionSiniestro).filter(CalificacionSiniestro.id == registro.calificacion_id).first()
+                if calificacion:
+                    resultado["calificacion_nombre"] = calificacion.nombre
+                    resultado["calificacion_color"] = calificacion.color
+
+            # Usuario creador
+            if registro.creado_por:
+                usuario = db.query(User).filter(User.id == registro.creado_por).first()
+                if usuario:
+                    resultado["creado_por_nombre"] = usuario.full_name
+                    resultado["creado_por_email"] = usuario.email
+
+            # Institución
+            if registro.institucion_id:
+                institucion = db.query(Institucion).filter(Institucion.id == registro.institucion_id).first()
+                if institucion:
+                    resultado["institucion_nombre"] = institucion.nombre
+                    resultado["institucion_codigo"] = institucion.codigo
+
+            # Autoridad
+            if registro.autoridad_id:
+                autoridad = db.query(Institucion).filter(Institucion.id == registro.autoridad_id).first()
+                if autoridad:
+                    resultado["autoridad_nombre"] = autoridad.nombre
+                    resultado["autoridad_codigo"] = autoridad.codigo
+
+            # Proveniente
+            if registro.proveniente_id:
+                proveniente = db.query(Proveniente).filter(Proveniente.id == registro.proveniente_id).first()
+                if proveniente:
+                    resultado["proveniente_nombre"] = proveniente.nombre
+                    resultado["proveniente_codigo"] = proveniente.codigo
+
+            # Áreas (many-to-many)
+            areas_relacionadas = db.query(Area).join(
+                SiniestroArea, SiniestroArea.area_id == Area.id
+            ).filter(
+                SiniestroArea.siniestro_id == registro.id,
+                SiniestroArea.activo == True
+            ).all()
+            if areas_relacionadas:
+                resultado["areas_nombres"] = ", ".join([area.nombre for area in areas_relacionadas])
+                resultado["areas_cantidad"] = len(areas_relacionadas)
+                resultado["area_principal"] = areas_relacionadas[0].nombre if areas_relacionadas else None
+
+            # Usuarios involucrados (many-to-many)
+            usuarios_relacionados = db.query(User).join(
+                SiniestroUsuario, SiniestroUsuario.usuario_id == User.id
+            ).filter(
+                SiniestroUsuario.siniestro_id == registro.id,
+                SiniestroUsuario.activo == True
+            ).all()
+            if usuarios_relacionados:
+                resultado["usuarios_involucrados"] = ", ".join([user.full_name for user in usuarios_relacionados])
+                resultado["usuarios_cantidad"] = len(usuarios_relacionados)
+
+        elif modulo == "usuarios" and isinstance(registro, User):
+            # Rol
+            if registro.rol_id:
+                rol = db.query(Rol).filter(Rol.id == registro.rol_id).first()
+                if rol:
+                    resultado["rol_nombre"] = rol.nombre
+
+            # Empresa
+            if registro.empresa_id:
+                empresa = db.query(Empresa).filter(Empresa.id == registro.empresa_id).first()
+                if empresa:
+                    resultado["empresa_nombre"] = empresa.nombre
+
+        elif modulo == "areas" and isinstance(registro, Area):
+            # No hay relaciones directas en este modelo
+            pass
+
+        elif modulo == "entidades" and isinstance(registro, Entidad):
+            # No hay relaciones directas en este modelo
+            pass
+
+        elif modulo == "instituciones" and isinstance(registro, Institucion):
+            # No hay relaciones directas en este modelo
+            pass
+
+        elif modulo == "autoridades" and isinstance(registro, Autoridad):
+            # No hay relaciones directas en este modelo
+            pass
+
+        elif modulo == "provenientes" and isinstance(registro, Proveniente):
+            # No hay relaciones directas en este modelo
+            pass
+
+        elif modulo == "asegurados" and isinstance(registro, Asegurado):
+            # Construir nombre completo
+            nombre_completo = f"{registro.nombre} {registro.apellido_paterno or ''} {registro.apellido_materno or ''}".strip()
+            resultado["nombre_completo"] = nombre_completo
+            # Teléfono preferido
+            resultado["telefono_preferido"] = registro.telefono or registro.tel_oficina or registro.tel_casa
+
+        elif modulo == "calificaciones_siniestro" and isinstance(registro, CalificacionSiniestro):
+            # No hay relaciones directas en este modelo
+            pass
+
+        return resultado
 
     @staticmethod
     def generar_reporte_excel(

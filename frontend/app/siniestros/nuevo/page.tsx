@@ -13,7 +13,7 @@ import { swalSuccess, swalError } from "@/lib/swal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
-import TiptapEditor from "@/components/ui/TiptapEditor";
+import JoditEditor from "@/components/ui/JoditEditor";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
 import {
@@ -166,6 +166,7 @@ export default function NuevoSiniestroPage() {
   const [roles, setRoles] = useState<any[]>([]);
   const [institucionesCatalogo, setInstitucionesCatalogo] = useState<CatalogOption[]>([]);
   const [autoridadesCatalogo, setAutoridadesCatalogo] = useState<CatalogOption[]>([]);
+  const [aseguradosCatalogo, setAseguradosCatalogo] = useState<any[]>([]);
   const [provenientesCatalogo, setProvenientesCatalogo] = useState<any[]>([]);
   const [calificaciones, setCalificaciones] = useState<string[]>(CALIFICACIONES_DEFAULT);
   const [calificacionesCatalogo, setCalificacionesCatalogo] = useState<any[]>([]);
@@ -194,6 +195,7 @@ export default function NuevoSiniestroPage() {
           loadRoles(),
           loadInstituciones(),
           loadAutoridades(),
+          loadAsegurados(),
           loadProvenientes(),
           loadCalificaciones(),
         ]);
@@ -336,6 +338,15 @@ export default function NuevoSiniestroPage() {
     }
   };
 
+  const loadAsegurados = async () => {
+    try {
+      const data = await apiService.getAsegurados(true);
+      setAseguradosCatalogo(data);
+    } catch (e: any) {
+      console.error("Error al cargar asegurados:", e);
+    }
+  };
+
   const loadProvenientes = async () => {
     try {
       const data = await apiService.getProvenientes(true);
@@ -382,10 +393,21 @@ export default function NuevoSiniestroPage() {
   };
 
   const aseguradosCatalog = useMemo<PersonaLigera[]>(() => {
-    return (usuarios || [])
-      .filter((usuario: any) => getRoleName(usuario) === "Asegurado")
-      .map(mapUserToPersona);
-  }, [usuarios, rolesMap]);
+    return (aseguradosCatalogo || []).map((asegurado: any) => ({
+      id: asegurado.id,
+      nombre: asegurado.nombre || "",
+      apellido_paterno: asegurado.apellido_paterno || "",
+      apellido_materno: asegurado.apellido_materno || "",
+      email: "", // la tabla de asegurados no tiene email
+      telefono:
+        asegurado.telefono ||
+        asegurado.tel_oficina ||
+        asegurado.tel_casa ||
+        "",
+      estado: asegurado.estado || "",
+      ciudad: asegurado.ciudad || "",
+    }));
+  }, [aseguradosCatalogo]);
 
   const provenientesCatalog = useMemo<PersonaLigera[]>(() => {
     return (provenientesCatalogo || []).map((proveniente: any) => ({
@@ -629,9 +651,7 @@ export default function NuevoSiniestroPage() {
     if (!extendedForm.asegurado.seleccionadoId) {
       return "Debes seleccionar un asegurado.";
     }
-    if (!form.numero_siniestro.trim()) {
-      return "El número de siniestro es obligatorio.";
-    }
+    // numero_siniestro es opcional, no se valida
     if (!form.fecha_siniestro) {
       return "Selecciona la fecha del siniestro.";
     }
@@ -863,12 +883,11 @@ export default function NuevoSiniestroPage() {
                   placeholder="REP-2025-0001"
                 />
                 <Input
-                  label="Número de siniestro *"
+                  label="Número de siniestro"
                   name="numero_siniestro"
                   value={form.numero_siniestro}
                   onChange={handleFormChange}
                   placeholder="SIN-2025-000001"
-                  required
                 />
                 <Input
                   label="Fecha del siniestro *"
@@ -1192,7 +1211,7 @@ export default function NuevoSiniestroPage() {
                 )}
               </div>
 
-              <TiptapEditor
+              <JoditEditor
                 label="Descripción de los hechos *"
                 value={extendedForm.especificos.descripcion_html}
                 onChange={(value) => setEspecificosValue("descripcion_html", value)}

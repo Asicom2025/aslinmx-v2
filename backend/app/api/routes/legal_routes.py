@@ -31,6 +31,9 @@ from app.schemas.legal_schema import (
     AutoridadCreate,
     AutoridadUpdate,
     AutoridadResponse,
+    AseguradoCreate,
+    AseguradoUpdate,
+    AseguradoResponse,
     ProvenienteCreate,
     ProvenienteUpdate,
     ProvenienteResponse,
@@ -51,6 +54,7 @@ from app.services.legal_service import (
     EntidadService,
     InstitucionService,
     AutoridadService,
+    AseguradoService,
     ProvenienteService,
     TiposDocumentoService,
     CategoriaDocumentoService,
@@ -534,6 +538,61 @@ async def importar_autoridades_csv(
         "creadas": creadas,
         "errores": errores if errores else None
     }
+
+
+# ===== ASEGURADOS =====
+@router.get("/asegurados", response_model=List[AseguradoResponse])
+def list_asegurados(
+    activo: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    return AseguradoService.list(db, current_user.empresa_id, activo)
+
+
+@router.get("/asegurados/{asegurado_id}", response_model=AseguradoResponse)
+def get_asegurado(
+    asegurado_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    asegurado = AseguradoService.get_by_id(db, asegurado_id, current_user.empresa_id)
+    if not asegurado:
+        raise HTTPException(status_code=404, detail="Asegurado no encontrado")
+    return asegurado
+
+
+@router.post("/asegurados", response_model=AseguradoResponse, status_code=status.HTTP_201_CREATED)
+def create_asegurado(
+    payload: AseguradoCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    return AseguradoService.create(db, current_user.empresa_id, payload)
+
+
+@router.put("/asegurados/{asegurado_id}", response_model=AseguradoResponse)
+def update_asegurado(
+    asegurado_id: UUID,
+    payload: AseguradoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    asegurado = AseguradoService.update(db, asegurado_id, payload)
+    if not asegurado:
+        raise HTTPException(status_code=404, detail="Asegurado no encontrado")
+    return asegurado
+
+
+@router.delete("/asegurados/{asegurado_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_asegurado(
+    asegurado_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    ok = AseguradoService.delete(db, asegurado_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Asegurado no encontrado")
 
 
 # ===== PROVENIENTES =====

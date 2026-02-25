@@ -277,6 +277,9 @@ class UserService:
                     apellido_materno=user_update.perfil.apellido_materno or "",
                     titulo=user_update.perfil.titulo,
                     cedula_profesional=user_update.perfil.cedula_profesional,
+                    foto_de_perfil=getattr(user_update.perfil, "foto_de_perfil", None),
+                    firma=getattr(user_update.perfil, "firma", None),
+                    firma_digital=getattr(user_update.perfil, "firma_digital", None),
                 )
                 db.add(perfil)
             else:

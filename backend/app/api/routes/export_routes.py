@@ -13,7 +13,7 @@ from app.db.session import get_db
 from app.core.security import get_current_user
 from app.models.user import User
 from app.models.legal import (
-    Siniestro, Entidad, Institucion, Autoridad, Proveniente, Area, EstadoSiniestro
+    Siniestro, Entidad, Institucion, Autoridad, Asegurado, Proveniente, Area, EstadoSiniestro
 )
 from app.services.export_service import ExportService
 from app.services.reporte_service import ReporteService

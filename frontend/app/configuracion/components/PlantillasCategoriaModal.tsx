@@ -5,7 +5,7 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
 import DataTable from "@/components/ui/DataTable";
-import TiptapEditor from "@/components/ui/TiptapEditor";
+import JoditEditor from "@/components/ui/JoditEditor";
 import PDFPreviewModal from "./PDFPreviewModal";
 import { ColumnDef } from "@tanstack/react-table";
 import apiService from "@/lib/apiService";
@@ -34,6 +34,7 @@ export default function PlantillasCategoriaModal({
   onSuccess,
 }: PlantillasCategoriaModalProps) {
   const [plantillas, setPlantillas] = useState<any[]>([]);
+  const [headersDisponibles, setHeadersDisponibles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
@@ -44,12 +45,17 @@ export default function PlantillasCategoriaModal({
     descripcion: "",
     contenido: "",
     formato: "",
+    logo_url: "",
+    header_plantilla_id: "",
+    plantilla_continuacion_id: "",
     activo: true,
   });
+  const [logoPreview, setLogoPreview] = useState<string>("");
 
   useEffect(() => {
     if (open) {
       loadPlantillas();
+      loadHeadersDisponibles();
     }
   }, [open, categoria.id]);
 
@@ -65,9 +71,20 @@ export default function PlantillasCategoriaModal({
     }
   };
 
+  const loadHeadersDisponibles = async () => {
+    try {
+      // Cargar todas las plantillas activas que pueden servir como headers
+      const data = await apiService.getPlantillasDocumento(undefined, undefined, true);
+      setHeadersDisponibles(data);
+    } catch (e: any) {
+      console.error("Error al cargar headers disponibles:", e);
+    }
+  };
+
   const openCreate = () => {
     setEditing(null);
-    setForm({ nombre: "", descripcion: "", contenido: "", formato: "", activo: true });
+    setForm({ nombre: "", descripcion: "", contenido: "", formato: "", logo_url: "", header_plantilla_id: "", plantilla_continuacion_id: "", activo: true });
+    setLogoPreview("");
     setModalOpen(true);
   };
 
@@ -78,8 +95,12 @@ export default function PlantillasCategoriaModal({
       descripcion: plantilla.descripcion || "",
       contenido: plantilla.contenido || "",
       formato: plantilla.formato || "",
+      logo_url: plantilla.logo_url || "",
+      header_plantilla_id: plantilla.header_plantilla_id || "",
+      plantilla_continuacion_id: plantilla.plantilla_continuacion_id || "",
       activo: !!plantilla.activo,
     });
+    setLogoPreview(plantilla.logo_url || "");
     setModalOpen(true);
   };
 
@@ -91,15 +112,48 @@ export default function PlantillasCategoriaModal({
     }));
   };
 
+  const handleLogoUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    changeForm(e);
+    setLogoPreview(e.target.value || "");
+  };
+
+  const handleLogoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      swalError("Selecciona un archivo de imagen válido (PNG, JPG, SVG, etc.)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result;
+      if (typeof result === "string") {
+        setForm((prev) => ({ ...prev, logo_url: result }));
+        setLogoPreview(result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearLogo = () => {
+    setForm((prev) => ({ ...prev, logo_url: "" }));
+    setLogoPreview("");
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload = {
+        ...form,
+        header_plantilla_id: form.header_plantilla_id || null,
+        plantilla_continuacion_id: form.plantilla_continuacion_id || null,
+      };
       if (editing) {
-        await apiService.updatePlantillaDocumento(editing.id, form);
+        await apiService.updatePlantillaDocumento(editing.id, payload);
         await swalSuccess("Plantilla actualizada");
       } else {
         await apiService.createPlantillaDocumento({
-          ...form,
+          ...payload,
           tipo_documento_id: tipoDocumento.id,
           categoria_id: categoria.id,
         });
@@ -257,10 +311,56 @@ export default function PlantillasCategoriaModal({
           />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
+              Header (opcional)
+            </label>
+            <select
+              name="header_plantilla_id"
+              value={form.header_plantilla_id}
+              onChange={(e) => setForm({ ...form, header_plantilla_id: e.target.value })}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white"
+            >
+              <option value="">Sin header</option>
+              {headersDisponibles
+                .filter((h) => h.id !== editing?.id) // No mostrar la plantilla actual como opción
+                .map((header) => (
+                  <option key={header.id} value={header.id}>
+                    {header.nombre}
+                  </option>
+                ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              El header se incluirá al inicio del documento al generar el PDF.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Segunda sección / continuación (opcional)
+            </label>
+            <select
+              name="plantilla_continuacion_id"
+              value={form.plantilla_continuacion_id}
+              onChange={(e) => setForm({ ...form, plantilla_continuacion_id: e.target.value })}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white"
+            >
+              <option value="">Sin segunda sección</option>
+              {headersDisponibles
+                .filter((h) => h.id !== editing?.id && h.id !== form.header_plantilla_id)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
+                ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Se generará un solo PDF: esta plantilla (con su header) + salto de página + la plantilla seleccionada (con su propio header).
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Contenido de la plantilla (HTML)
             </label>
-            <TiptapEditor
-              content={form.contenido}
+            <JoditEditor
+              value={form.contenido}
               onChange={(content) => setForm({ ...form, contenido: content })}
             />
           </div>
