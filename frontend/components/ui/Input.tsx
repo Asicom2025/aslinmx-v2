@@ -7,12 +7,13 @@ interface InputProps {
   label?: string;
   type?: string;
   name: string;
-  value: string;
+  value: string | number;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   placeholder?: string;
   required?: boolean;
   disabled?: boolean;
   error?: string;
+  step?: string | number;
 }
 
 export default function Input({
@@ -25,6 +26,7 @@ export default function Input({
   required = false,
   disabled = false,
   error,
+  step,
 }: InputProps) {
   return (
     <div className="w-full">
@@ -43,6 +45,7 @@ export default function Input({
         placeholder={placeholder}
         required={required}
         disabled={disabled}
+        step={step}
         className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
           error
             ? "border-red-500 focus:ring-red-500"

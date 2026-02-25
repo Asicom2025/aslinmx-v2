@@ -6,9 +6,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "../styles/globals.css";
+import "react-big-calendar/lib/css/react-big-calendar.css";
 import ClientLayout from "@/components/ClientLayout";
-import { ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import RecaptchaScript from "@/components/RecaptchaScript";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -25,19 +25,8 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={inter.className}>
+        <RecaptchaScript />
         <ClientLayout>{children}</ClientLayout>
-        <ToastContainer
-          position="top-right"
-          autoClose={3000}
-          hideProgressBar={false}
-          newestOnTop={false}
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable
-          pauseOnHover
-          theme="light"
-        />
       </body>
     </html>
   );

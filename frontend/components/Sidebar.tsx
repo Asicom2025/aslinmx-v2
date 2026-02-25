@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { useUser } from "@/context/UserContext";
 import LogoDx from "@/assets/logos/logo_dx-legal.png";
 import {
   FiHome,
-  FiAlertTriangle,
   FiCalendar,
-  FiBriefcase,
   FiUsers,
   FiSliders,
   FiBarChart2,
@@ -18,11 +16,10 @@ import {
 } from "react-icons/fi";
 import { FaFileContract } from "react-icons/fa";
 
-const links = [
+const baseLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/siniestros", label: "Siniestros" },
   { href: "/agenda", label: "Agenda" },
-  { href: "/empresas", label: "Empresas" },
   { href: "/usuarios", label: "Usuarios y Roles" },
   { href: "/parametros", label: "Parámetros" },
   { href: "/reportes", label: "Reportes" },
@@ -35,7 +32,6 @@ const iconMap: Record<string, JSX.Element> = {
   "/dashboard": <FiHome className="w-5 h-5" />,
   "/siniestros": <FaFileContract className="w-5 h-5" />,
   "/agenda": <FiCalendar className="w-5 h-5" />,
-  "/empresas": <FiBriefcase className="w-5 h-5" />,
   "/usuarios": <FiUsers className="w-5 h-5" />,
   "/parametros": <FiSliders className="w-5 h-5" />,
   "/reportes": <FiBarChart2 className="w-5 h-5" />,
@@ -46,6 +42,20 @@ const iconMap: Record<string, JSX.Element> = {
 
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
+  const { activeEmpresa } = useUser();
+
+  const gradientStyle = useMemo(() => {
+    const primary = activeEmpresa?.color_secundario || "#0A2E5C";
+    return {
+      backgroundColor: primary,
+    };
+  }, [activeEmpresa]);
+
+  const logoSrc = activeEmpresa?.logo_url || LogoDx.src;
+  const links = useMemo(
+    () => baseLinks.filter((link) => link.href !== "/empresas"),
+    []
+  );
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -60,16 +70,19 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`fixed z-40 inset-y-0 left-0 h-screen w-64 transform transition-transform duration-200 ease-in-out bg-primary-500 text-white lg:translate-x-0 ${
+      style={gradientStyle}
+      className={`fixed z-40 inset-y-0 left-0 h-screen w-64 transform transition-transform duration-200 ease-in-out text-white lg:translate-x-0 ${
         open ? "translate-x-0" : "-translate-x-full"
       }`}
     >
-      <div className="h-50 flex items-center px-4 font-semibold tracking-wide border-b border-white/10">
-        <Image
-          src={LogoDx}
-          alt="DX Legal"
-          className="w-full h-auto object-contain"
-          priority
+      <div className="h-50 flex items-center justify-center font-semibold tracking-wide border-b border-white/10">
+        <img
+          src={logoSrc}
+          onError={(e) => {
+            e.currentTarget.src = LogoDx.src;
+          }}
+          alt={activeEmpresa?.nombre || "Logo"}
+          className="h-full w-full object-contain"
         />
       </div>
       <nav className="py-4">

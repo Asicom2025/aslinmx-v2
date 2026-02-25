@@ -54,6 +54,12 @@ shell-backend: ## Acceder a shell del backend
 shell-frontend: ## Acceder a shell del frontend
 	docker-compose exec frontend sh
 
+install-frontend: ## Instalar dependencias del frontend
+	docker-compose exec frontend npm install
+
+install-backend: ## Instalar dependencias del backend
+	docker-compose exec backend pip install -r requirements.txt
+
 shell-db: ## Acceder a PostgreSQL
 	docker-compose exec db psql -U aslin_user -d aslin_db
 

@@ -4,10 +4,18 @@ Lógica de negocio para gestión de usuarios
 """
 
 from typing import Optional, List
+from uuid import UUID
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 
-from app.models.user import User, Usuario2FA, UsuarioPerfil
+from app.models.user import (
+    User,
+    Usuario2FA,
+    UsuarioPerfil,
+    UsuarioContactos,
+    UsuarioDireccion,
+    Empresa,
+)
 from app.schemas.user_schema import (
     UserCreate,
     UserUpdate,
@@ -81,12 +89,26 @@ class UserService:
         hashed_password = get_password_hash(user.password)
         db_user = User(
             email=user.email,
-            hashed_password=hashed_password
+            hashed_password=hashed_password,
+            is_active=user.is_active if user.is_active is not None else True,
+            rol_id=user.rol_id,
         )
         
         db.add(db_user)
         db.commit()
         db.refresh(db_user)
+
+        empresa_ids = []
+        if getattr(user, "empresa_ids", None):
+            empresa_ids = list(dict.fromkeys(user.empresa_ids))  # remover duplicados
+        elif getattr(user, "empresa_id", None):
+            empresa_ids = [user.empresa_id]  # compatibilidad
+
+        if empresa_ids:
+            UserService.sync_user_empresas(db, db_user, empresa_ids)
+            db.commit()
+            db.refresh(db_user)
+
         # Crear perfil opcional si viene full_name
         if getattr(user, "full_name", None):
             try:
@@ -158,9 +180,45 @@ class UserService:
         return create_access_token({"sub": str(user.id)})
     
     @staticmethod
+    def sync_user_empresas(db: Session, db_user: User, empresa_ids: Optional[List[UUID]]) -> None:
+        """
+        Sincroniza las empresas asociadas a un usuario.
+        """
+        if empresa_ids is None:
+            return
+
+        empresa_ids = list(dict.fromkeys(empresa_ids))
+        if empresa_ids:
+            empresas = db.query(Empresa).filter(Empresa.id.in_(empresa_ids)).all()
+        else:
+            empresas = []
+
+        db_user.empresas = empresas
+        db_user.empresa_id = empresas[0].id if empresas else None
+        db_user.multiempresa = len(empresas) > 1
+        db.add(db_user)
+        db.flush()
+
+    @staticmethod
+    def set_active_empresa(db: Session, db_user: User, empresa_id: UUID) -> User:
+        empresa_id_str = str(empresa_id)
+        pertenece = any(str(emp.id) == empresa_id_str for emp in db_user.empresas)
+        if not pertenece:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El usuario no tiene asignada esta empresa",
+            )
+        db_user.empresa_id = empresa_id
+        db_user.multiempresa = len(db_user.empresas) > 1
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+        return db_user
+
+    @staticmethod
     def update_user(
         db: Session,
-        user_id: int,
+        user_id: str,
         user_update: UserUpdate
     ) -> Optional[User]:
         """
@@ -179,15 +237,85 @@ class UserService:
         if not db_user:
             return None
         
-        # Actualizar campos
-        update_data = user_update.model_dump(exclude_unset=True)
+        # Actualizar campos básicos
+        update_data = user_update.model_dump(
+            exclude_unset=True,
+            exclude={"password", "empresa_id", "empresa_ids", "rol_id", "perfil", "contactos", "direccion"},
+        )
         
-        if "password" in update_data:
-            update_data["hashed_password"] = get_password_hash(update_data["password"])
-            del update_data["password"]
+        if user_update.password is not None:
+            update_data["hashed_password"] = get_password_hash(user_update.password)
         
+        # Actualizar rol
+        if user_update.rol_id is not None:
+            db_user.rol_id = user_update.rol_id
+
+        # Sincronizar empresas
+        empresa_ids: Optional[List[str]] = None
+        if user_update.empresa_ids is not None:
+            empresa_ids = [str(emp_id) for emp_id in user_update.empresa_ids]
+        elif user_update.empresa_id is not None:
+            empresa_ids = [str(user_update.empresa_id)]
+
+        if empresa_ids is not None:
+            UserService.sync_user_empresas(db, db_user, empresa_ids)
+            db.refresh(db_user)
+        
+        # Actualizar campos básicos
         for field, value in update_data.items():
-            setattr(db_user, field, value)
+            if hasattr(db_user, field):
+                setattr(db_user, field, value)
+        
+        # Perfil
+        if user_update.perfil is not None:
+            perfil = db_user.perfil
+            if perfil is None:
+                perfil = UsuarioPerfil(
+                    usuario_id=db_user.id,
+                    nombre=user_update.perfil.nombre or "",
+                    apellido_paterno=user_update.perfil.apellido_paterno or "",
+                    apellido_materno=user_update.perfil.apellido_materno or "",
+                    titulo=user_update.perfil.titulo,
+                    cedula_profesional=user_update.perfil.cedula_profesional,
+                    foto_de_perfil=getattr(user_update.perfil, "foto_de_perfil", None),
+                    firma=getattr(user_update.perfil, "firma", None),
+                    firma_digital=getattr(user_update.perfil, "firma_digital", None),
+                )
+                db.add(perfil)
+            else:
+                for k, v in user_update.perfil.model_dump(exclude_unset=True).items():
+                    setattr(perfil, k, v)
+        
+        # Contactos
+        if user_update.contactos is not None:
+            contactos = db_user.contactos
+            if contactos is None:
+                contactos = UsuarioContactos(
+                    usuario_id=db_user.id,
+                    telefono=user_update.contactos.telefono,
+                    celular=user_update.contactos.celular,
+                )
+                db.add(contactos)
+            else:
+                for k, v in user_update.contactos.model_dump(exclude_unset=True).items():
+                    setattr(contactos, k, v)
+        
+        # Dirección
+        if user_update.direccion is not None:
+            direccion = db_user.direccion
+            if direccion is None:
+                direccion = UsuarioDireccion(
+                    usuario_id=db_user.id,
+                    direccion=user_update.direccion.direccion,
+                    ciudad=user_update.direccion.ciudad,
+                    estado=user_update.direccion.estado,
+                    codigo_postal=user_update.direccion.codigo_postal,
+                    pais=user_update.direccion.pais,
+                )
+                db.add(direccion)
+            else:
+                for k, v in user_update.direccion.model_dump(exclude_unset=True).items():
+                    setattr(direccion, k, v)
         
         db.commit()
         db.refresh(db_user)

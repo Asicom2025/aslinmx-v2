@@ -24,6 +24,18 @@ class Empresa(Base):
     creado_en = Column(DateTime(timezone=True), server_default=func.now())
     actualizado_en = Column(DateTime(timezone=True), onupdate=func.now())
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
+    
+    # Aliases para compatibilidad (opcional, para uso futuro)
+    created_at = synonym("creado_en")
+    updated_at = synonym("actualizado_en")
+    deleted_at = synonym("eliminado_en")
+    is_active = synonym("activo")
+    usuarios = relationship(
+        "Usuario",
+        secondary="usuario_empresas",
+        back_populates="empresas",
+        lazy="selectin",
+    )
 
 
 class Rol(Base):
@@ -36,6 +48,14 @@ class Rol(Base):
     creado_en = Column(DateTime(timezone=True), server_default=func.now())
     actualizado_en = Column(DateTime(timezone=True), onupdate=func.now())
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
+    
+    # Relaciones - usando string para evitar importación circular
+    permisos = relationship(
+        "RolPermiso",
+        back_populates="rol",
+        cascade="all, delete-orphan",
+        lazy="select"
+    )
 
 
 class Usuario(Base):
@@ -63,6 +83,18 @@ class Usuario(Base):
     # Relaciones a tablas de catálogo (no alteran el esquema existente)
     empresa = relationship("Empresa", lazy="joined", foreign_keys=[empresa_id])
     rol = relationship("Rol", lazy="joined", foreign_keys=[rol_id])
+    usuario_empresas = relationship(
+        "UsuarioEmpresa",
+        back_populates="usuario",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    empresas = relationship(
+        "Empresa",
+        secondary="usuario_empresas",
+        back_populates="usuarios",
+        lazy="selectin",
+    )
 
     # Compatibilidad hacia el resto del código existente
     email = synonym("correo")
@@ -102,11 +134,14 @@ class Usuario(Base):
 class UsuarioPerfil(Base):
     __tablename__ = "usuario_perfiles"
     usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    foto_de_perfil = Column(Text, nullable=True)
     nombre = Column(String(150), nullable=False)
     apellido_paterno = Column(String(150), nullable=False)
     apellido_materno = Column(String(150), nullable=False)
     titulo = Column(String(50))
     cedula_profesional = Column(String(150))
+    firma = Column(Text, nullable=True)  # Firma física/literal (imagen)
+    firma_digital = Column(Text, nullable=True)  # Imagen que se envía por correo al mandar emails desde la plataforma
     usuario = relationship("Usuario", back_populates="perfil")
 
 
@@ -138,6 +173,16 @@ class Usuario2FA(Base):
     verificado_en = Column(DateTime(timezone=True))
     usuario = relationship("Usuario", back_populates="dosfa")
 
+
+class UsuarioEmpresa(Base):
+    __tablename__ = "usuario_empresas"
+    usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    empresa_id = Column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), primary_key=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now())
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    usuario = relationship("Usuario", back_populates="usuario_empresas")
+    empresa = relationship("Empresa")
 
 # Alias para compatibilidad con imports existentes
 User = Usuario

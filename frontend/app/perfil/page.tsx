@@ -5,7 +5,7 @@ import { useUser } from "@/context/UserContext";
 import apiService from "@/lib/apiService";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
-import { toast } from "react-toastify";
+import { swalSuccess, swalError, swalInfo } from "@/lib/swal";
 
 export default function PerfilPage() {
   const { user, refresh, loading } = useUser();
@@ -18,6 +18,8 @@ export default function PerfilPage() {
       apellido_materno: "",
       titulo: "",
       cedula_profesional: "",
+      firma: "",
+      firma_digital: "",
     },
     contactos: {
       telefono: "",
@@ -48,6 +50,8 @@ export default function PerfilPage() {
         apellido_materno: user.perfil?.apellido_materno || "",
         titulo: user.perfil?.titulo || "",
         cedula_profesional: user.perfil?.cedula_profesional || "",
+        firma: user.perfil?.firma || "",
+        firma_digital: user.perfil?.firma_digital || "",
       },
       contactos: {
         telefono: user.contactos?.telefono || "",
@@ -78,7 +82,7 @@ export default function PerfilPage() {
       } catch (err: any) {
         if (!cancelled) {
           setQrDataUrl("");
-          toast.error("No se pudo generar el QR localmente");
+          swalError("No se pudo generar el QR localmente");
         }
       }
     }
@@ -102,15 +106,40 @@ export default function PerfilPage() {
     }));
   };
 
+  const handleFirmaFile = (field: "firma" | "firma_digital", e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) {
+      swalError("Selecciona un archivo de imagen (PNG, JPG, etc.)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result;
+      if (typeof result === "string") setForm((prev: any) => ({
+        ...prev,
+        perfil: { ...prev.perfil, [field]: result },
+      }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const clearFirma = (field: "firma" | "firma_digital") => {
+    setForm((prev: any) => ({
+      ...prev,
+      perfil: { ...prev.perfil, [field]: "" },
+    }));
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
       await apiService.updateMe(form);
       await refresh();
-      toast.success("Perfil actualizado");
+      await swalSuccess("Perfil actualizado");
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Error al actualizar");
+      swalError(err.response?.data?.detail || "Error al actualizar");
     } finally {
       setSaving(false);
     }
@@ -123,7 +152,7 @@ export default function PerfilPage() {
       // Cambiar contraseña si viene
       if (passwordForm.current_password && passwordForm.new_password) {
         if (passwordForm.new_password !== passwordForm.confirm_new_password) {
-          toast.error("Las contraseñas no coinciden");
+          swalError("Las contraseñas no coinciden");
           setSavingSecurity(false);
           return;
         }
@@ -136,7 +165,7 @@ export default function PerfilPage() {
           new_password: "",
           confirm_new_password: "",
         });
-        toast.success("Contraseña actualizada");
+        await swalSuccess("Contraseña actualizada");
       }
 
       // Toggle 2FA si cambió el switch (sin requerir código)
@@ -144,10 +173,10 @@ export default function PerfilPage() {
         await apiService.toggle2FA(twoFA.enable);
         setTwoFA({ enable: twoFA.enable, code: "" });
         await refresh();
-        toast.success("Estado de 2FA actualizado");
+        await swalSuccess("Estado de 2FA actualizado");
       }
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Error en seguridad");
+      swalError(err.response?.data?.detail || "Error en seguridad");
     } finally {
       setSavingSecurity(false);
     }
@@ -366,6 +395,67 @@ export default function PerfilPage() {
             </div>
           </div>
 
+          <div className="space-y-4 lg:col-span-2">
+            <div>
+              <h2 className="font-semibold">Firmas</h2>
+              <p className="text-sm text-gray-500">
+                Imágenes de firma para documentos y correos
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="border rounded-lg p-4 bg-gray-50/50">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Firma física
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Firma literal que puede usarse en documentos y PDFs.
+                </p>
+                {form.perfil.firma ? (
+                  <div className="flex flex-col gap-2">
+                    <img src={form.perfil.firma} alt="Firma" className="max-h-20 w-auto object-contain border rounded" />
+                    <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma")}>
+                      Quitar firma física
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-white hover:file:bg-primary/90"
+                      onChange={(e) => handleFirmaFile("firma", e)}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="border rounded-lg p-4 bg-gray-50/50">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Firma digital
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Se incluye al final de cada correo que envíes desde la plataforma.
+                </p>
+                {form.perfil.firma_digital ? (
+                  <div className="flex flex-col gap-2">
+                    <img src={form.perfil.firma_digital} alt="Firma digital" className="max-h-20 w-auto object-contain border rounded" />
+                    <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma_digital")}>
+                      Quitar firma digital
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-white hover:file:bg-primary/90"
+                      onChange={(e) => handleFirmaFile("firma_digital", e)}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="lg:col-span-2 flex items-center justify-end gap-3 pt-2">
             <Button type="submit" variant="primary" loading={saving}>
               Guardar cambios
@@ -475,14 +565,9 @@ export default function PerfilPage() {
                               ...s,
                               otpauth: data.otpauth_url,
                             }));
-                            toast.info(
-                              "Escanea el QR con tu app de autenticación"
-                            );
+                            await swalInfo("Escanea el QR con tu app de autenticación");
                           } catch (err: any) {
-                            toast.error(
-                              err.response?.data?.detail ||
-                                "No se pudo generar el QR"
-                            );
+                            swalError(err.response?.data?.detail || "No se pudo generar el QR");
                           }
                         }}
                         className="text-azul underline"
@@ -498,12 +583,9 @@ export default function PerfilPage() {
                               ...s,
                               otpauth: data.otpauth_url,
                             }));
-                            toast.success("QR refrescado");
+                            await swalSuccess("QR refrescado");
                           } catch (err: any) {
-                            toast.error(
-                              err.response?.data?.detail ||
-                                "No se pudo refrescar el QR"
-                            );
+                            swalError(err.response?.data?.detail || "No se pudo refrescar el QR");
                           }
                         }}
                         className="text-azul underline"
@@ -522,8 +604,8 @@ export default function PerfilPage() {
                             document.body.appendChild(link);
                             link.click();
                             document.body.removeChild(link);
-                          } catch (_) {
-                            toast.error("No se pudo descargar el QR");
+                            } catch (_) {
+                            swalError("No se pudo descargar el QR");
                           }
                         }}
                         className="text-azul underline disabled:opacity-50"
@@ -555,11 +637,9 @@ export default function PerfilPage() {
                                   await navigator.clipboard.writeText(
                                     twoFA.otpauth
                                   );
-                                  toast.success(
-                                    "Clave copiada al portapapeles"
-                                  );
+                                  await swalSuccess("Clave copiada al portapapeles");
                                 } catch (_) {
-                                  toast.error("No se pudo copiar");
+                                  swalError("No se pudo copiar");
                                 }
                               }}
                             >

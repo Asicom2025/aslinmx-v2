@@ -5,13 +5,21 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "react-toastify";
+import { swalSuccess, swalError, swalInfo } from "@/lib/swal";
 import apiService from "@/lib/apiService";
+import {
+  getRecaptchaToken,
+  isRecaptchaAvailable,
+  diagnoseRecaptcha,
+} from "@/lib/recaptcha";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { useUser } from "@/context/UserContext";
+import Image from "next/image";
+
+import logoDxLegal from "@/assets/logos/logo_dx-legal.png";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,6 +32,17 @@ export default function LoginPage() {
   const [requires2FA, setRequires2FA] = useState(false);
   const [tempToken, setTempToken] = useState<string | null>(null);
   const [code, setCode] = useState("");
+
+  // Diagnóstico de reCAPTCHA en desarrollo
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      // Esperar un momento para que el script se cargue
+      const timer = setTimeout(() => {
+        diagnoseRecaptcha();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -38,25 +57,39 @@ export default function LoginPage() {
 
     try {
       if (requires2FA && tempToken) {
-        // Paso 2: verificar 2FA
+        // Paso 2: verificar 2FA (no requiere reCAPTCHA)
         const resp2 = await apiService.verify2FA(tempToken, code);
         localStorage.setItem("token", resp2.access_token);
         await refresh();
-        toast.success("¡Inicio de sesión exitoso!");
+        await swalSuccess("¡Inicio de sesión exitoso!");
         router.push("/dashboard");
         return;
+      }
+
+      // Paso 1: login - Obtener token de reCAPTCHA
+      let recaptchaToken: string | null = null;
+      if (isRecaptchaAvailable()) {
+        recaptchaToken = await getRecaptchaToken("login");
+        if (!recaptchaToken) {
+          swalError(
+            "Error al verificar reCAPTCHA. Por favor, recarga la página e intenta nuevamente.",
+          );
+          setLoading(false);
+          return;
+        }
       }
 
       // Paso 1: login
       const response = await apiService.login(
         formData.username,
-        formData.password
+        formData.password,
+        recaptchaToken || undefined,
       );
 
       if (response.requires_2fa) {
         setRequires2FA(true);
         setTempToken(response.temp_token);
-        toast.info("Ingresa tu código 2FA");
+        await swalInfo("Ingresa tu código 2FA");
         return;
       }
 
@@ -65,13 +98,12 @@ export default function LoginPage() {
 
       // Hidratar datos del usuario inmediatamente
       await refresh();
-
-      toast.success("¡Inicio de sesión exitoso!");
+      await swalSuccess("¡Inicio de sesión exitoso!");
 
       // Redirigir al dashboard
       router.push("/dashboard");
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || "Error al iniciar sesión");
+      swalError(error.response?.data?.detail || "Error al iniciar sesión");
     } finally {
       setLoading(false);
     }
@@ -81,9 +113,16 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-white">
-            Aslin 2.0
-          </h2>
+          <div className="flex justify-center mb-6">
+            <Image
+              src={logoDxLegal}
+              alt="DX Legal"
+              width={180}
+              height={80}
+              className="h-auto w-auto object-contain"
+              priority
+            />
+          </div>
           <p className="mt-2 text-center text-sm text-white/80">
             Inicia sesión en tu cuenta
           </p>

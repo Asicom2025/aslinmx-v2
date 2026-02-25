@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - aslin_network
+
+  backend:
+    image: ghcr.io/asicomapp/aslin-backend:latest
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - db
+    networks:
+      - aslin_network
+
+  frontend:
+    image: ghcr.io/asicomapp/aslin-frontend:latest
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - aslin_network
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/certs:/etc/nginx/certs
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - aslin_network
+
+volumes:
+  postgres_data:
+
+networks:
+  aslin_network:
+    driver: bridge

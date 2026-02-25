@@ -4,7 +4,7 @@ Define los modelos Pydantic para validación y serialización
 """
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
 
@@ -17,20 +17,15 @@ class UserBase(BaseModel):
     # Campos adicionales de conveniencia
     multiempresa: Optional[bool] = None
     ultimo_acceso: Optional[datetime] = None
+    empresa_ids: Optional[List[UUID]] = None
 
 
 class UserCreate(UserBase):
     """Schema para crear usuario"""
     password: str = Field(..., min_length=6, max_length=100)
-
-
-class UserUpdate(BaseModel):
-    """Schema para actualizar usuario"""
-    email: Optional[EmailStr] = None
-    username: Optional[str] = Field(None, min_length=3, max_length=100)
-    full_name: Optional[str] = None
-    password: Optional[str] = Field(None, min_length=6, max_length=100)
-    is_active: Optional[bool] = None
+    empresa_ids: Optional[List[UUID]] = None
+    rol_id: Optional[UUID] = None
+    is_active: Optional[bool] = True
 
 
 class EmpresaResponse(BaseModel):
@@ -53,11 +48,14 @@ class RolResponse(BaseModel):
 
 
 class UsuarioPerfilResponse(BaseModel):
+    foto_de_perfil: Optional[str] = None
     nombre: Optional[str] = None
     apellido_paterno: Optional[str] = None
     apellido_materno: Optional[str] = None
     titulo: Optional[str] = None
     cedula_profesional: Optional[str] = None
+    firma: Optional[str] = None  # Firma física (imagen)
+    firma_digital: Optional[str] = None  # Imagen que se adjunta al enviar correos por la plataforma
 
 
 class UsuarioContactosResponse(BaseModel):
@@ -80,6 +78,7 @@ class UserResponse(UserBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     empresa: Optional[EmpresaResponse] = None
+    empresas: Optional[List[EmpresaResponse]] = None
     rol: Optional[RolResponse] = None
     perfil: Optional[UsuarioPerfilResponse] = None
     contactos: Optional[UsuarioContactosResponse] = None
@@ -96,6 +95,7 @@ class UserLogin(BaseModel):
     """Schema para login"""
     username: str
     password: str
+    recaptcha_token: Optional[str] = None  # Token de reCAPTCHA v3
 
 
 class LoginResponse(BaseModel):
@@ -124,11 +124,14 @@ class TokenData(BaseModel):
 
 # Actualizaciones para /users/me
 class UsuarioPerfilUpdate(BaseModel):
+    foto_de_perfil: Optional[str] = None
     nombre: Optional[str] = None
     apellido_paterno: Optional[str] = None
     apellido_materno: Optional[str] = None
     titulo: Optional[str] = None
     cedula_profesional: Optional[str] = None
+    firma: Optional[str] = None
+    firma_digital: Optional[str] = None
 
 
 class UsuarioContactosUpdate(BaseModel):
@@ -142,6 +145,25 @@ class UsuarioDireccionUpdate(BaseModel):
     estado: Optional[str] = None
     codigo_postal: Optional[str] = None
     pais: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    """Schema para actualizar usuario"""
+    email: Optional[EmailStr] = None
+    username: Optional[str] = Field(None, min_length=3, max_length=100)
+    full_name: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=6, max_length=100)
+    is_active: Optional[bool] = None
+    empresa_id: Optional[UUID] = None
+    empresa_ids: Optional[List[UUID]] = None
+    rol_id: Optional[UUID] = None
+    perfil: Optional[UsuarioPerfilUpdate] = None
+    contactos: Optional[UsuarioContactosUpdate] = None
+    direccion: Optional[UsuarioDireccionUpdate] = None
+
+
+class UserEmpresaSwitch(BaseModel):
+    empresa_id: UUID
 
 
 class UserMeUpdate(BaseModel):
