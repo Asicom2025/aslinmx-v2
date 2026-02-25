@@ -9,6 +9,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        build-essential \
        libpq-dev \
+       libcairo2 \
+       libpango-1.0-0 \
+       libpangocairo-1.0-0 \
+       libgdk-pixbuf-2.0-0 \
+       libffi-dev \
+       libgobject-2.0-0 \
+       shared-mime-info \
+       fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
