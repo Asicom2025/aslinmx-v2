@@ -13,6 +13,8 @@ services:
     container_name: aslin_backend
     restart: unless-stopped
     env_file: .env
+    volumes:
+      - ./db:/app/db:ro
     depends_on:
       - db
     ports:

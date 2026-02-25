@@ -36,4 +36,5 @@ EXPOSE 8000
 
 ENV PYTHONPATH=/app
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Inicializar BD una sola vez antes de uvicorn (evita race con --workers)
+CMD ["sh", "-c", "python init_db.py && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]

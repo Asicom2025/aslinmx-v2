@@ -13,8 +13,6 @@ import logging
 
 from app.core.config import settings
 from app.api.api_router import api_router
-from app.db.session import engine
-from app.db.base import Base
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -124,11 +122,16 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup_event():
     """
-    Evento que se ejecuta al iniciar la aplicación.
-    Crea las tablas en la base de datos si no existen.
+    En Docker, la BD se inicializa en init_db.py (antes de los workers).
+    En desarrollo local sin init_db, create_all se ejecuta aquí.
     """
-    Base.metadata.create_all(bind=engine)
-    print("✅ Base de datos inicializada")
+    try:
+        from app.db.session import engine
+        from app.db.base import Base
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        # Si falla (ej. race con workers), las tablas probablemente ya existen
+        logger.debug("Startup create_all: %s", e)
 
 
 @app.get("/")
