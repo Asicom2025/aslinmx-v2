@@ -30,23 +30,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "3000:3000"
-    networks:
-      - aslin_network
-
-  nginx:
-    image: nginx:alpine
-    container_name: aslin_nginx
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-      - "443:443"
-    volumes:
-      - ./ngnix/conf.d:/etc/nginx/conf.d
-      - ./ngnix/certs:/etc/nginx/certs
-    depends_on:
-      - frontend
-      - backend
+      - "127.0.0.1:3000:3000"
     networks:
       - aslin_network
 

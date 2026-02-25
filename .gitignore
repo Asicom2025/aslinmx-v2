@@ -61,6 +61,7 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+/db/
 
 # Docker
 docker-compose.override.yml
@@ -68,7 +69,6 @@ docker-compose.override.yml
 # Logs
 logs/
 reports/
-db/
 *.log
 
 # Alembic
