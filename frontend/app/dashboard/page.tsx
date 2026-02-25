@@ -57,7 +57,7 @@ export default function DashboardPage() {
           // El módulo puede exportarse de diferentes formas
           const mapModule = HighchartsMapModule.default || HighchartsMapModule;
           if (typeof mapModule === "function") {
-            mapModule(Highcharts);
+            (mapModule as (h: typeof Highcharts) => void)(Highcharts);
           }
           mapModuleLoaded = true;
           setMapModuleReady(true);
@@ -499,9 +499,10 @@ export default function DashboardPage() {
           },
         },
         tooltip: {
-          formatter: function (this: Highcharts.TooltipFormatterContextObject) {
-            const point = this.point as any;
-            return `<b>${point.name || this.key}</b><br/>Siniestros: <b>${point.value || 0}</b>`;
+          formatter: function () {
+            const ctx = this as { point?: { name?: string; value?: number }; key?: string };
+            const point = ctx.point;
+            return `<b>${point?.name || ctx.key}</b><br/>Siniestros: <b>${point?.value ?? 0}</b>`;
           },
         },
         series: [
@@ -601,9 +602,10 @@ export default function DashboardPage() {
         },
       },
       tooltip: {
-        formatter: function (this: Highcharts.TooltipFormatterContextObject) {
-          const point = this.point as any;
-          return `<b>${point.name || this.key}</b><br/>Siniestros: <b>${point.value || 0}</b>`;
+        formatter: function () {
+          const ctx = this as { point?: { name?: string; value?: number }; key?: string };
+          const point = ctx.point;
+          return `<b>${point?.name || ctx.key}</b><br/>Siniestros: <b>${point?.value ?? 0}</b>`;
         },
       },
       series: [

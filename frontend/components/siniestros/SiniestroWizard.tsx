@@ -509,16 +509,16 @@ export default function SiniestroWizard({
           ...prev.generales,
           polizas: updated.length
             ? updated
-            : [
+            : ([
                 {
                   tempId: buildTempId("poliza"),
                   numero_poliza: "",
-                  deducible: "",
-                  reserva: "",
-                  coaseguro: "",
-                  suma_asegurada: "",
+                  deducible: "" as const,
+                  reserva: "" as const,
+                  coaseguro: "" as const,
+                  suma_asegurada: "" as const,
                 },
-              ],
+              ] as PolizaDraft[]),
         },
       };
 
@@ -1131,7 +1131,7 @@ export default function SiniestroWizard({
                 <div>
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-base font-semibold text-gray-900">Pólizas relacionadas</h3>
-                    <Button type="button" variant="ghost" onClick={handleAddPoliza}>
+                    <Button type="button" variant="outline" onClick={handleAddPoliza}>
                       <FiPlus className="mr-2" /> Agregar póliza adicional
                     </Button>
                   </div>

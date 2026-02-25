@@ -114,7 +114,6 @@ export default function TiptapEditor({
       }),
       Table.configure({
         resizable: true,
-        draggable: true,
       }),
       TableRow,
       TableHeader,

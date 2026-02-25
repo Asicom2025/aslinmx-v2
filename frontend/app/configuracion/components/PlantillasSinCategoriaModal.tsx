@@ -93,10 +93,12 @@ export default function PlantillasSinCategoriaModal({
       descripcion: plantilla.descripcion || "",
       contenido: plantilla.contenido || "",
       formato: plantilla.formato || "",
+      logo_url: plantilla.logo_url || "",
       header_plantilla_id: plantilla.header_plantilla_id || "",
       plantilla_continuacion_id: plantilla.plantilla_continuacion_id || "",
       activo: !!plantilla.activo,
     });
+    setLogoPreview(plantilla.logo_url || "");
     setModalOpen(true);
   };
 

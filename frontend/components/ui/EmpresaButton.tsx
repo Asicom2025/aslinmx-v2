@@ -18,6 +18,7 @@ interface EmpresaButtonProps {
   disabled?: boolean;
   loading?: boolean;
   className?: string;
+  title?: string;
 }
 
 export default function EmpresaButton({
@@ -30,6 +31,7 @@ export default function EmpresaButton({
   disabled = false,
   loading = false,
   className = "",
+  title,
 }: EmpresaButtonProps) {
   const colors = useEmpresaColors();
 
@@ -100,6 +102,7 @@ export default function EmpresaButton({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
+      title={title}
       className={`${baseClasses} ${sizeClasses[size]} ${widthClass} ${disabledClass} ${className}`}
       style={{
         backgroundColor: variantStyle.backgroundColor,

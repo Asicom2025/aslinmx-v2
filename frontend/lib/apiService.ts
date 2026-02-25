@@ -97,6 +97,10 @@ const authService = {
     const response = await api.get("/users/me/2fa/otpauth");
     return response.data;
   },
+  setActiveEmpresa: async (empresaId: string) => {
+    const response = await api.post("/users/me/empresa", { empresa_id: empresaId });
+    return response.data;
+  },
 };
 
 // Servicios de usuarios
@@ -958,7 +962,7 @@ const documentoService = {
     area_id?: string;
     flujo_trabajo_id?: string;
     nombre_archivo: string;
-    ruta_archivo: string;
+    ruta_archivo?: string | null;
     contenido?: string;
     tamaño_archivo?: number;
     tipo_mime?: string;

@@ -147,6 +147,7 @@ export default function PerfilPage() {
 
   const onSubmitSecurity = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setSavingSecurity(true);
     try {
       // Cambiar contraseña si viene
@@ -171,7 +172,7 @@ export default function PerfilPage() {
       // Toggle 2FA si cambió el switch (sin requerir código)
       if (twoFA.enable !== !!user.two_factor_enabled) {
         await apiService.toggle2FA(twoFA.enable);
-        setTwoFA({ enable: twoFA.enable, code: "" });
+        setTwoFA((prev) => ({ ...prev, enable: twoFA.enable, code: "" }));
         await refresh();
         await swalSuccess("Estado de 2FA actualizado");
       }

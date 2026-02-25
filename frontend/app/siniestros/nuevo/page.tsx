@@ -619,16 +619,16 @@ export default function NuevoSiniestroPage() {
           ...prev.generales,
           polizas: updated.length
             ? updated
-            : [
+            : ([
                 {
                   tempId: buildTempId("poliza"),
                   numero_poliza: "",
-                  deducible: "",
-                  reserva: "",
-                  coaseguro: "",
-                  suma_asegurada: "",
+                  deducible: "" as const,
+                  reserva: "" as const,
+                  coaseguro: "" as const,
+                  suma_asegurada: "" as const,
                 },
-              ],
+              ] as PolizaDraft[]),
         },
       };
 

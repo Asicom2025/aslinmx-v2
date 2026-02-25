@@ -3,7 +3,9 @@
  * Campo de entrada con label y estilos consistentes
  */
 
-interface InputProps {
+import React from "react";
+
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   type?: string;
   name: string;
@@ -16,7 +18,7 @@ interface InputProps {
   step?: string | number;
 }
 
-export default function Input({
+const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input({
   label,
   type = "text",
   name,
@@ -27,7 +29,8 @@ export default function Input({
   disabled = false,
   error,
   step,
-}: InputProps) {
+  ...rest
+}, ref) {
   return (
     <div className="w-full">
       {label && (
@@ -37,6 +40,7 @@ export default function Input({
         </label>
       )}
       <input
+        ref={ref}
         type={type}
         id={name}
         name={name}
@@ -46,6 +50,7 @@ export default function Input({
         required={required}
         disabled={disabled}
         step={step}
+        {...rest}
         className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
           error
             ? "border-red-500 focus:ring-red-500"
@@ -57,5 +62,7 @@ export default function Input({
       )}
     </div>
   );
-}
+});
+
+export default Input;
 
