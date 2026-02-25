@@ -1,0 +1,11 @@
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+htmlcov
+
+# No excluir app/db (el patrón *.db en root puede causar confusión)
+# La carpeta app/ debe incluirse completa
