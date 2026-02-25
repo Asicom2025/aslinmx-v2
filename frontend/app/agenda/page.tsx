@@ -16,7 +16,7 @@ import {
   SlotInfo,
 } from "react-big-calendar";
 import { format, parse, startOfWeek, getDay } from "date-fns";
-import esES from "date-fns/locale/es";
+import { es } from "date-fns/locale";
 import { FiPlus, FiLogOut, FiCheckCircle } from "react-icons/fi";
 import CreateEventModal from "./components/CreateEventModal";
 import DeleteEventModal from "./components/DeleteEventModal";
@@ -37,8 +37,8 @@ declare global {
 
 // Localización a español para el calendario
 const locales = {
-  es: esES,
-  "es-MX": esES,
+  es,
+  "es-MX": es,
 };
 
 const localizer = dateFnsLocalizer({
