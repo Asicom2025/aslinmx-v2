@@ -1,0 +1,36 @@
+name: Build & Deploy Aslin
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login GHCR
+        run: echo ${{ secrets.GH_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build & Push Backend
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/aslin-backend:latest ./backend
+          docker push ghcr.io/${{ github.repository }}/aslin-backend:latest
+
+      - name: Build & Push Frontend
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/aslin-frontend:latest ./frontend
+          docker push ghcr.io/${{ github.repository }}/aslin-frontend:latest
+
+      - name: Deploy on Server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /opt/app
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
