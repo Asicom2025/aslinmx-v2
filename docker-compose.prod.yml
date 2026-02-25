@@ -9,24 +9,31 @@ services:
       - aslin_network
 
   backend:
-    image: ghcr.io/asicomapp/aslin-backend:latest
+    build: ./backend
+    container_name: aslin_backend
     restart: unless-stopped
     env_file: .env
     depends_on:
       - db
+    ports:
+      - "127.0.0.1:8000:8000"
     networks:
       - aslin_network
 
   frontend:
-    image: ghcr.io/asicomapp/aslin-frontend:latest
+    build: ./frontend
+    container_name: aslin_frontend
     restart: unless-stopped
     depends_on:
       - backend
+    ports:
+      - "3000:3000"
     networks:
       - aslin_network
 
   nginx:
     image: nginx:alpine
+    container_name: aslin_nginx
     restart: unless-stopped
     ports:
       - "80:80"
