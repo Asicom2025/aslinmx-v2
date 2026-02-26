@@ -3,6 +3,9 @@ name: Build & Deploy Aslin
 on:
   push:
     branches: [ "main" ]
+permissions:
+  contents: read
+  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -22,6 +25,7 @@ jobs:
         run: |
           docker build -t $REGISTRY/$IMAGE_NAMESPACE/aslin-backend:latest ./backend
           docker push $REGISTRY/$IMAGE_NAMESPACE/aslin-backend:latest
+
 
       - name: Build & Push Frontend
         run: |
