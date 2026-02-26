@@ -237,10 +237,10 @@ class UserService:
         if not db_user:
             return None
         
-        # Actualizar campos básicos
+        # Actualizar campos básicos (full_name es propiedad de solo lectura, se actualiza vía perfil)
         update_data = user_update.model_dump(
             exclude_unset=True,
-            exclude={"password", "empresa_id", "empresa_ids", "rol_id", "perfil", "contactos", "direccion"},
+            exclude={"password", "empresa_id", "empresa_ids", "rol_id", "perfil", "contactos", "direccion", "full_name"},
         )
         
         if user_update.password is not None:
