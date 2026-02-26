@@ -179,7 +179,7 @@ def get_otpauth_uri(
     return {"otpauth_url": uri}
 
 
-@router.get("/", response_model=List[UserResponse])
+@router.get("", response_model=List[UserResponse])
 def get_users(
     skip: int = 0,
     limit: int = 100,

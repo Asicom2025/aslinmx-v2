@@ -6,7 +6,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "../styles/globals.css";
-import "react-big-calendar/lib/css/react-big-calendar.css";
 import ClientLayout from "@/components/ClientLayout";
 import RecaptchaScript from "@/components/RecaptchaScript";
 

@@ -70,7 +70,7 @@ docker-compose.override.yml
 logs/
 reports/
 *.log
-
+.env-prod
 # Alembic
 backend/alembic/versions/__pycache__/
 

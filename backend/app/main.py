@@ -19,12 +19,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Crear instancia de FastAPI
+# redirect_slashes=False evita 307 al llamar /api/v1/users en lugar de /api/v1/users/
 app = FastAPI(
     title="Aslin 2.0 API",
     description="API REST para sistema de gestión administrativa",
     version="2.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    redirect_slashes=False
 )
 
 # Configurar CORS - debe estar antes de otros middlewares

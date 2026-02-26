@@ -16,7 +16,7 @@ from app.models.user import User
 router = APIRouter()
 
 
-@router.get("/", response_model=List[EmpresaResponse])
+@router.get("", response_model=List[EmpresaResponse])
 def get_empresas(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -63,7 +63,7 @@ def get_empresa(
     return empresa
 
 
-@router.post("/", response_model=EmpresaResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EmpresaResponse, status_code=status.HTTP_201_CREATED)
 def create_empresa(
     empresa: EmpresaCreate,
     db: Session = Depends(get_db),

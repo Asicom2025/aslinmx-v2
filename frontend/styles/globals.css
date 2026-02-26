@@ -1,3 +1,6 @@
+/* @import debe ir antes de todo (excepto @charset y @layer) */
+@import "react-big-calendar/lib/css/react-big-calendar.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
