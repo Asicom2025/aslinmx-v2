@@ -1,6 +1,7 @@
 """
 Rutas API para relaciones de siniestros (involucrados y áreas adicionales)
 """
+import logging
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -13,7 +14,10 @@ from app.schemas.legal_schema import (
     SiniestroUsuarioCreate, SiniestroUsuarioUpdate, SiniestroUsuarioResponse,
     SiniestroAreaCreate, SiniestroAreaCreateBody, SiniestroAreaUpdate, SiniestroAreaResponse,
 )
-from app.services.legal_service import SiniestroUsuarioService, SiniestroAreaService
+from app.services.legal_service import SiniestroUsuarioService, SiniestroAreaService, SiniestroService
+from app.services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/siniestros", tags=["Siniestros - Relaciones"])
 
@@ -37,11 +41,10 @@ def add_involucrado(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Agrega un involucrado a un siniestro"""
-    # Asegurar que el siniestro_id coincida con la URL
+    """Agrega un involucrado a un siniestro. Envía correo al involucrado si existe plantilla 'Nuevo involucrado'."""
     payload.siniestro_id = siniestro_id
     try:
-        return SiniestroUsuarioService.create(db, payload)
+        relacion = SiniestroUsuarioService.create(db, payload)
     except HTTPException:
         raise
     except Exception as e:
@@ -49,6 +52,18 @@ def add_involucrado(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al agregar involucrado: {str(e)}"
         )
+
+    # Notificación por correo al usuario asignado (plantilla "Nuevo involucrado"), sin fallar la petición
+    try:
+        siniestro = SiniestroService.get_by_id(db, siniestro_id, current_user.empresa_id)
+        if siniestro:
+            ok, err = EmailService.enviar_notificacion_nuevo_involucrado(db, siniestro, relacion, current_user)
+            if not ok:
+                logger.warning("Correo de nuevo involucrado no enviado: %s", err)
+    except Exception as e:
+        logger.exception("Error al enviar correo de nuevo involucrado: %s", e)
+
+    return relacion
 
 
 @router.put("/involucrados/{relacion_id}", response_model=SiniestroUsuarioResponse)

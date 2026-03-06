@@ -193,10 +193,14 @@ class EmailService:
         firma_cid_bytes: Optional[bytes] = None,
         logo_cid_bytes: Optional[bytes] = None,
         file_icon_cid_bytes: Optional[bytes] = None,
+        *,
+        incluir_file_icon_solo_si_usa_plantilla: bool = True,
     ) -> Tuple[bool, Optional[str]]:
         """
-        Envía un correo electrónico de forma síncrona
-        
+        Envía un correo electrónico de forma síncrona.
+        file_icon (file2) no se agrega como adjunto: solo se incluye como imagen inline (CID)
+        cuando la plantilla lo usa (cuerpo_html contiene "cid:file_icon"). Si no lo usa, no se agrega.
+
         Returns:
             (success, error_message)
         """
@@ -257,12 +261,18 @@ class EmailService:
                     except Exception as e:
                         logger.warning("No se pudo adjuntar archivo en memoria: %s", e)
 
-            # Imágenes inline (CID) para que Gmail y otros clientes las muestren sin bloquear
-            for cid_name, img_bytes in [
+            # Imágenes inline (CID) para que Gmail y otros clientes las muestren sin bloquear.
+            # file2 (file_icon) solo se agrega si la plantilla lo usa; no va como adjunto descargable.
+            usar_file_icon = bool(
+                file_icon_cid_bytes
+                and (not incluir_file_icon_solo_si_usa_plantilla or (cuerpo_html and "cid:file_icon" in (cuerpo_html or "")))
+            )
+            cid_parts = [
                 ("firma", firma_cid_bytes),
                 ("logo", logo_cid_bytes),
-                ("file_icon", file_icon_cid_bytes),
-            ]:
+                ("file_icon", file_icon_cid_bytes if usar_file_icon else None),
+            ]
+            for cid_name, img_bytes in cid_parts:
                 if not img_bytes:
                     continue
                 try:
@@ -422,7 +432,15 @@ class EmailService:
 
     # Nombres de plantillas de correo (tabla plantillas_correo)
     NOMBRE_PLANTILLA_NUEVO_SINIESTRO = "Nuevo siniestro"
+    NOMBRE_PLANTILLA_NUEVO_INVOLUCRADO = "Nuevo involucrado"
     NOMBRE_PLANTILLA_TE_ENVIAN_ARCHIVO = "Envió de archivo"
+
+    _TIPO_RELACION_LABELS = {
+        "asegurado": "Asegurado",
+        "proveniente": "Proveniente",
+        "testigo": "Testigo",
+        "tercero": "Tercero",
+    }
 
     @staticmethod
     def enviar_notificacion_nuevo_siniestro(
@@ -486,8 +504,8 @@ class EmailService:
         else:
             fecha_asignacion_str = str(fecha_asig)
 
-        base_url = getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
-        base_for_assets = base_url.rstrip("/")
+        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
+        base_for_assets = (base_url or "").rstrip("/")
         enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
         id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
 
@@ -536,5 +554,115 @@ class EmailService:
         if not success:
             return False, error
         logger.info("Correo de nuevo siniestro enviado a %s", destinatarios)
+        return True, None
+
+    @staticmethod
+    def enviar_notificacion_nuevo_involucrado(
+        db: Session,
+        siniestro: Any,
+        relacion: Any,
+        current_user: Any,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Envía correo al usuario asignado como involucrado usando la plantilla "Nuevo involucrado".
+        Destinatario: correo del usuario involucrado (relacion.usuario_id).
+        Si no hay SMTP, plantilla o el usuario no tiene correo, retorna (False, mensaje) sin lanzar excepción.
+        """
+        from app.models.user import Usuario
+        from app.models.legal import SiniestroArea, Area
+
+        usuario = db.query(Usuario).filter(Usuario.id == relacion.usuario_id).first()
+        if not usuario or not getattr(usuario, "correo", None) or not str(usuario.correo).strip():
+            return False, "Usuario involucrado sin correo"
+
+        destinatarios = [usuario.correo.strip()]
+
+        config_smtp = db.query(ConfiguracionSMTP).filter(
+            ConfiguracionSMTP.empresa_id == current_user.empresa_id,
+            ConfiguracionSMTP.activo == True,
+        ).first()
+        if not config_smtp:
+            logger.warning("No hay configuración SMTP activa: no se envía correo de nuevo involucrado")
+            return False, "Sin configuración SMTP activa"
+
+        plantilla = db.query(PlantillaCorreo).filter(
+            PlantillaCorreo.empresa_id == current_user.empresa_id,
+            PlantillaCorreo.activo == True,
+            PlantillaCorreo.nombre == EmailService.NOMBRE_PLANTILLA_NUEVO_INVOLUCRADO,
+        ).first()
+        if not plantilla:
+            logger.warning(
+                "Plantilla de correo '%s' no encontrada o inactiva: no se envía correo",
+                EmailService.NOMBRE_PLANTILLA_NUEVO_INVOLUCRADO,
+            )
+            return False, f"Plantilla '{EmailService.NOMBRE_PLANTILLA_NUEVO_INVOLUCRADO}' no encontrada o inactiva"
+
+        areas_rel = db.query(SiniestroArea).filter(
+            SiniestroArea.siniestro_id == siniestro.id,
+            SiniestroArea.activo == True,
+        ).all()
+        area_ids = [r.area_id for r in areas_rel if r.area_id]
+        areas_nombres = [
+            a.nombre for a in db.query(Area).filter(Area.id.in_(area_ids)).all()
+        ] if area_ids else []
+
+        tipo_relacion = getattr(relacion, "tipo_relacion", "") or ""
+        tipo_relacion_label = EmailService._TIPO_RELACION_LABELS.get(
+            tipo_relacion.lower(), tipo_relacion or "Involucrado"
+        )
+
+        fecha_asig = getattr(relacion, "creado_en", None) or datetime.now()
+        if hasattr(fecha_asig, "strftime"):
+            fecha_asignacion_str = fecha_asig.strftime("%d/%m/%Y %H:%M")
+        else:
+            fecha_asignacion_str = str(fecha_asig)
+
+        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
+        base_for_assets = (base_url or "").rstrip("/")
+        enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
+        id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
+
+        logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
+        logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
+        if not logo_cid_bytes and current_user.empresa_id:
+            from app.models.user import Empresa
+            emp = db.query(Empresa).filter(Empresa.id == current_user.empresa_id).first()
+            if emp and getattr(emp, "logo_url", None) and str(emp.logo_url).strip():
+                logo_url = (emp.logo_url or "").strip()
+
+        firma_url, firma_cid_bytes = EmailService.get_firma_for_template(db, current_user)
+
+        variables = {
+            "id": id_display,
+            "enlace_ver_id": enlace_ver_id,
+            "areas": areas_nombres,
+            "tipo_relacion": tipo_relacion,
+            "tipo_relacion_label": tipo_relacion_label,
+            "fecha_asignacion": fecha_asignacion_str,
+            "logo_url": logo_url,
+            "base_url": base_url,
+            "firma_url": firma_url,
+            "ano_actual": str(datetime.now().year),
+        }
+
+        try:
+            asunto, cuerpo_html, cuerpo_texto = EmailService.render_template(plantilla, variables)
+        except Exception as e:
+            logger.exception("Error renderizando plantilla de correo nuevo involucrado")
+            return False, str(e)
+
+        success, error = EmailService.send_email_sync(
+            config_smtp,
+            destinatarios,
+            asunto,
+            cuerpo_html=cuerpo_html,
+            cuerpo_texto=cuerpo_texto,
+            firma_cid_bytes=firma_cid_bytes,
+            logo_cid_bytes=logo_cid_bytes,
+            file_icon_cid_bytes=file_icon_cid_bytes,
+        )
+        if not success:
+            return False, error
+        logger.info("Correo de nuevo involucrado enviado a %s", destinatarios)
         return True, None
 

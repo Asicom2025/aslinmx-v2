@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     # URL del frontend (para enlaces en correos, ej. ver siniestro)
     FRONTEND_URL: str = "http://localhost:3000"
+    BASE_URL: str = "http://localhost:3000"  # URL base para correos (enlaces, assets). Si no se define en .env, usa FRONTEND_URL
     BACKEND_URL: str = "http://localhost:8000"  # URL base del API (para enlaces de descarga en correos)
     # Rutas de assets para plantillas de correo (servidos por el frontend en /assets/...)
     EMAIL_LOGO_PATH: str = "/assets/logos/logo_dx-legal.png"
