@@ -616,6 +616,7 @@ class SiniestroResponse(SiniestroBase):
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
+    id_formato: Optional[str] = None  # ID legible: proveniente-consecutivo-año (ej. 102-001-26)
 
     class Config:
         from_attributes = True

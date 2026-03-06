@@ -30,6 +30,9 @@ def list_siniestros(
     area_id: Optional[UUID] = Query(None, description="Filtrar por área principal"),
     usuario_asignado: Optional[UUID] = Query(None, description="Filtrar por usuario asignado"),
     prioridad: Optional[str] = Query(None, description="Filtrar por prioridad (baja, media, alta, critica)"),
+    busqueda_id: Optional[str] = Query(None, description="Buscar por ID/numero_reporte (ej. 102-001-25 o 10200125)"),
+    numero_siniestro: Optional[str] = Query(None, description="Buscar por número de siniestro (texto libre)"),
+    asegurado_nombre: Optional[str] = Query(None, description="Buscar por nombre del asegurado"),
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(1000, ge=1, le=10000, description="Número máximo de registros a retornar"),
     db: Session = Depends(get_db),
@@ -37,7 +40,7 @@ def list_siniestros(
 ):
     """
     Lista todos los siniestros con filtros opcionales.
-    Permite filtrar por estado, área, usuario asignado, prioridad y activo.
+    Búsqueda: busqueda_id (formato 102-001-25), numero_siniestro (texto), asegurado_nombre.
     """
     return SiniestroService.list(
         db=db,
@@ -47,6 +50,9 @@ def list_siniestros(
         area_id=area_id,
         usuario_asignado=usuario_asignado,
         prioridad=prioridad,
+        busqueda_id=busqueda_id,
+        numero_siniestro_q=numero_siniestro,
+        asegurado_nombre=asegurado_nombre,
         skip=skip,
         limit=limit
     )

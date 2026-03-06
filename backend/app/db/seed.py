@@ -1,7 +1,7 @@
 """
 Ejecuta el seed inicial (db/init.sql) si la base de datos está vacía.
 Se invoca automáticamente al iniciar el backend.
-Asegura que el rol Administrador exista (requerido para asignar acciones a módulos).
+El rol Administrador se crea manualmente, no se genera aquí.
 """
 
 import os
@@ -12,28 +12,6 @@ from app.db.session import engine
 logger = logging.getLogger(__name__)
 
 INIT_SQL_PATH = "/app/db/init.sql"
-ROL_ADMIN_ID = "b0000000-0000-0000-0000-000000000001"
-
-
-def ensure_admin_role() -> None:
-    """
-    Garantiza que el rol Administrador exista.
-    Necesario para asignar acciones a módulos (rol_permisos).
-    """
-    try:
-        with engine.connect() as conn:
-            conn.execute(
-                text("""
-                    INSERT INTO roles (id, nombre, descripcion, nivel, activo)
-                    VALUES (CAST(:id AS uuid), 'Administrador', 'Acceso total al sistema', 1, true)
-                    ON CONFLICT (id) DO NOTHING
-                """),
-                {"id": ROL_ADMIN_ID},
-            )
-            conn.commit()
-            logger.info("Rol Administrador verificado")
-    except Exception as e:
-        logger.warning("No se pudo asegurar rol Administrador: %s", e)
 
 
 def run_seed_if_empty() -> bool:
@@ -87,5 +65,3 @@ def run_seed_if_empty() -> bool:
     except Exception as e:
         logger.error("Error al ejecutar seed: %s", e)
         return False
-    finally:
-        ensure_admin_role()

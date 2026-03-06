@@ -4,7 +4,8 @@ Servicios CRUD para catálogos legales
 from typing import List, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, extract, nullslast
+from sqlalchemy import func, extract, nullslast, cast, or_
+from sqlalchemy.types import Integer
 from datetime import datetime
 from fastapi import HTTPException, status
 
@@ -666,13 +667,17 @@ class SiniestroService:
         area_id: Optional[UUID] = None,
         usuario_asignado: Optional[UUID] = None,
         prioridad: Optional[str] = None,
+        busqueda_id: Optional[str] = None,
+        numero_siniestro_q: Optional[str] = None,
+        asegurado_nombre: Optional[str] = None,
         skip: int = 0,
         limit: int = 100
     ) -> List[Siniestro]:
         """
         Lista siniestros con filtros opcionales.
-        Usa eager loading para optimizar consultas.
-        Los filtros de área y usuario ahora se buscan en las tablas de relaciones.
+        busqueda_id: búsqueda por numero_reporte (formato 102-001-25 o sin guiones).
+        numero_siniestro_q: búsqueda por texto en numero_siniestro (ilike).
+        asegurado_nombre: búsqueda por nombre del asegurado (ilike en nombre + apellidos).
         """
         q = db.query(Siniestro).filter(
             Siniestro.empresa_id == empresa_id,
@@ -684,29 +689,105 @@ class SiniestroService:
         if estado_id is not None:
             q = q.filter(Siniestro.estado_id == estado_id)
         if area_id is not None:
-            # Filtrar por área en siniestro_areas
             q = q.join(SiniestroArea).filter(
                 SiniestroArea.area_id == area_id,
                 SiniestroArea.activo == True
             ).distinct()
         if usuario_asignado is not None:
-            # Filtrar por usuario en siniestro_usuarios
             q = q.join(SiniestroUsuario).filter(
                 SiniestroUsuario.usuario_id == usuario_asignado,
                 SiniestroUsuario.activo == True
             ).distinct()
         if prioridad is not None:
             q = q.filter(Siniestro.prioridad == prioridad)
+        if busqueda_id and busqueda_id.strip():
+            # ID = clave_proveniente + consecutivo + anualidad (ej. 102-001-25)
+            raw = busqueda_id.strip().replace(" ", "")
+            codigo_prov: Optional[str] = None
+            consecutivo: Optional[str] = None
+            anualidad: Optional[str] = None
+            if "-" in raw:
+                parts = [p.strip() for p in raw.split("-") if p.strip()]
+                if len(parts) >= 1:
+                    codigo_prov = parts[0]
+                if len(parts) >= 2:
+                    consecutivo = parts[1].replace(" ", "").zfill(3)[:3]
+                if len(parts) >= 3:
+                    anualidad = parts[2].replace(" ", "").zfill(2)[-2:]
+            else:
+                digits = "".join(c for c in raw if c.isdigit())
+                if len(digits) >= 5:
+                    anualidad = digits[-2:]
+                    consecutivo = digits[-5:-2].zfill(3)
+                    codigo_prov = digits[:-5] or None
+                elif len(digits) >= 1:
+                    codigo_prov = digits
+            if codigo_prov is not None or consecutivo is not None or anualidad is not None:
+                q = q.outerjoin(Proveniente, Siniestro.proveniente_id == Proveniente.id)
+                if codigo_prov:
+                    codigo_prov_norm = codigo_prov.replace("-", "").replace(" ", "")
+                    prov_cod_norm = func.replace(func.replace(func.coalesce(Proveniente.codigo, ""), "-", ""), " ", "")
+                    q = q.filter(
+                        or_(
+                            prov_cod_norm == codigo_prov_norm,
+                            prov_cod_norm.like(f"%{codigo_prov_norm}%"),
+                        )
+                    )
+                if consecutivo:
+                    consec_norm = consecutivo.zfill(3)[:3]
+                    codigo_padded = func.lpad(func.replace(func.coalesce(Siniestro.codigo, ""), " ", ""), 3, "0")
+                    q = q.filter(codigo_padded == consec_norm)
+                if anualidad and anualidad.isdigit():
+                    # Anualidad = 2 dígitos del año (igual que en listado: fecha_registro)
+                    fecha_ref = func.coalesce(Siniestro.fecha_registro, Siniestro.fecha_siniestro)
+                    year_expr = cast(extract("year", fecha_ref), Integer)
+                    q = q.filter(func.mod(year_expr, 100) == int(anualidad))
+                q = q.distinct()
+        if numero_siniestro_q and numero_siniestro_q.strip():
+            q = q.filter(Siniestro.numero_siniestro.ilike(f"%{numero_siniestro_q.strip()}%"))
+        if asegurado_nombre and asegurado_nombre.strip():
+            q = q.outerjoin(Asegurado, Siniestro.asegurado_id == Asegurado.id).filter(
+                func.concat(
+                    func.coalesce(Asegurado.nombre, ""),
+                    " ",
+                    func.coalesce(Asegurado.apellido_paterno, ""),
+                    " ",
+                    func.coalesce(Asegurado.apellido_materno, ""),
+                ).ilike(f"%{asegurado_nombre.strip()}%")
+            ).distinct()
         
         siniestros = q.order_by(nullslast(Siniestro.fecha_siniestro.desc())).offset(skip).limit(limit).all()
         
-        # Cargar versión actual de descripción para cada siniestro
+        # Cargar versión actual de descripción y id_formato (proveniente-consecutivo-año) para cada siniestro
+        proveniente_ids = list({s.proveniente_id for s in siniestros if s.proveniente_id})
+        provenientes_map = {}
+        if proveniente_ids:
+            for p in db.query(Proveniente).filter(Proveniente.id.in_(proveniente_ids)).all():
+                provenientes_map[p.id] = p
         for siniestro in siniestros:
             version_actual = VersionesDescripcionHechosService.get_actual(db, siniestro.id)
             if version_actual:
-                setattr(siniestro, 'descripcion_hechos', version_actual.descripcion_html)
+                setattr(siniestro, "descripcion_hechos", version_actual.descripcion_html)
             else:
-                setattr(siniestro, 'descripcion_hechos', None)
+                setattr(siniestro, "descripcion_hechos", None)
+            # ID formateado: clave proveniente - consecutivo - anualidad (ej. 102-001-26)
+            codigo_prov = ""
+            if siniestro.proveniente_id and siniestro.proveniente_id in provenientes_map:
+                codigo_prov = (provenientes_map[siniestro.proveniente_id].codigo or "").strip()
+            consecutivo = ((siniestro.codigo or "").strip()).zfill(3)[:3] if (siniestro.codigo or "").strip() else ""
+            fecha_ref = siniestro.fecha_registro or siniestro.fecha_siniestro
+            anualidad = ""
+            if fecha_ref:
+                try:
+                    year = fecha_ref.year if hasattr(fecha_ref, "year") else (fecha_ref if isinstance(fecha_ref, int) else None)
+                    if year is not None:
+                        anualidad = str(int(year) % 100).zfill(2)
+                except (TypeError, ValueError):
+                    pass
+            if codigo_prov and consecutivo and anualidad:
+                setattr(siniestro, "id_formato", f"{codigo_prov}-{consecutivo}-{anualidad}")
+            else:
+                setattr(siniestro, "id_formato", None)
         
         return siniestros
     
@@ -1059,8 +1140,9 @@ class DocumentoService:
     
     @staticmethod
     def create(db: Session, payload: DocumentoCreate) -> Documento:
-        """Crea un nuevo documento"""
-        documento = Documento(**payload.model_dump())
+        """Crea un nuevo documento. Excluye campos solo usados para bitácora."""
+        data = payload.model_dump(exclude={"horas_trabajadas_bitacora", "comentarios_bitacora"})
+        documento = Documento(**data)
         db.add(documento)
         db.commit()
         db.refresh(documento)
@@ -1075,14 +1157,15 @@ class DocumentoService:
         ).first()
         if not documento:
             return None
-        
-        for k, v in payload.model_dump(exclude_unset=True).items():
+
+        exclude = {"horas_trabajadas_bitacora", "comentarios_bitacora"}
+        for k, v in payload.model_dump(exclude_unset=True, exclude=exclude).items():
             setattr(documento, k, v)
-        
+
         db.commit()
         db.refresh(documento)
         return documento
-    
+
     @staticmethod
     def delete(db: Session, documento_id: UUID) -> bool:
         """Elimina lógicamente un documento (soft delete)"""

@@ -367,7 +367,7 @@ async def enviar_correo(
 
         # Logo e icono como CID para que Gmail muestre las imágenes
         logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
-        base_for_assets = (getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000").rstrip("/")
+        base_for_assets = (getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000").rstrip("/")
         logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
         file_icon_url = "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png"))
         if not logo_cid_bytes and current_user.empresa_id:
@@ -473,7 +473,7 @@ async def enviar_archivo_correo(
             if not c2 and getattr(doc, "plantilla_origen", None) and getattr(doc.plantilla_origen, "categoria", None):
                 c2 = getattr(doc.plantilla_origen.categoria, "nombre", "") or ""
 
-    base_url = getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
+    base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
     backend_url = getattr(settings, "BACKEND_URL", None) or "http://localhost:8000"
     # Enlace de descarga: si hay documento, apuntar directo al endpoint de archivo;
     # si no, al detalle del siniestro.
@@ -483,7 +483,7 @@ async def enviar_archivo_correo(
 
     # Logo e icono: adjuntar como CID (como la firma) para que Gmail muestre las imágenes
     logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
-    base_for_assets = (getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000").rstrip("/")
+    base_for_assets = (getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000").rstrip("/")
     logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
     file_icon_url = "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png"))
     if not logo_cid_bytes and current_user.empresa_id:
