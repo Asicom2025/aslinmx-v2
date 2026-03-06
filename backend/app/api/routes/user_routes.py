@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.services.permiso_service import RolPermisoService
 from app.schemas.user_schema import (
     UserCreate,
     UserUpdate,
@@ -26,7 +27,6 @@ from app.services.user_service import UserService
 from app.services.recaptcha_service import RecaptchaService
 from app.core.security import get_current_active_user
 from app.models.user import User
-from sqlalchemy.orm import Session
 
 router = APIRouter()
 
@@ -110,12 +110,20 @@ def verify_2fa(
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
 ):
     """
-    Obtener información del usuario actual
+    Obtener información del usuario actual, incluyendo permisos de su rol.
     """
-    return current_user
+    list(current_user.areas)  # forzar carga de áreas (multiárea)
+    data = UserResponse.model_validate(current_user).model_dump()
+    if current_user.rol_id:
+        data["permisos"] = RolPermisoService.get_permisos_por_rol_nombres(db, str(current_user.rol_id))
+    else:
+        data["permisos"] = []
+    data["areas"] = [{"id": str(a.id), "nombre": a.nombre} for a in current_user.areas]
+    return data
 
 
 @router.put("/me", response_model=UserResponse)
@@ -209,7 +217,7 @@ def get_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado"
         )
-    
+    list(user.areas)  # forzar carga de áreas (multiárea) para la respuesta
     return user
 
 

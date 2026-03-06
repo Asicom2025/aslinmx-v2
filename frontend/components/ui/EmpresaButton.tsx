@@ -1,27 +1,25 @@
 /**
  * Componente Button que usa automáticamente los colores de la empresa
- * Reemplaza al Button original para usar colores dinámicos
+ * Reemplaza al Button original para usar colores dinámicos.
+ * Reenvía atributos HTML del botón (data-tour, aria-*, id, etc.) para que driver.js y accesibilidad los detecten.
  */
 
 "use client";
 
+import { forwardRef } from "react";
 import { FaSpinner } from "react-icons/fa";
 import { useEmpresaColors } from "@/hooks/useEmpresaColors";
 
-interface EmpresaButtonProps {
+interface EmpresaButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "className" | "style"> {
   children: React.ReactNode;
-  onClick?: () => void;
-  type?: "button" | "submit" | "reset";
   variant?: "primary" | "secondary" | "tertiary" | "danger" | "success" | "outline";
   size?: "sm" | "md" | "lg";
   fullWidth?: boolean;
-  disabled?: boolean;
   loading?: boolean;
   className?: string;
-  title?: string;
 }
 
-export default function EmpresaButton({
+const EmpresaButton = forwardRef<HTMLButtonElement, EmpresaButtonProps>(function EmpresaButton({
   children,
   onClick,
   type = "button",
@@ -32,7 +30,8 @@ export default function EmpresaButton({
   loading = false,
   className = "",
   title,
-}: EmpresaButtonProps) {
+  ...rest
+}, ref) {
   const colors = useEmpresaColors();
 
   const baseClasses = "font-semibold rounded-lg flex flex-row items-center justify-center transition-all focus:outline-none focus:ring-2 focus:ring-offset-2";
@@ -99,6 +98,7 @@ export default function EmpresaButton({
 
   return (
     <button
+      ref={ref}
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
@@ -124,6 +124,7 @@ export default function EmpresaButton({
           e.currentTarget.style.transform = "translateY(0)";
         }
       }}
+      {...rest}
     >
       {loading ? (
         <span className="flex items-center justify-center">
@@ -135,4 +136,6 @@ export default function EmpresaButton({
       )}
     </button>
   );
-}
+});
+
+export default EmpresaButton;

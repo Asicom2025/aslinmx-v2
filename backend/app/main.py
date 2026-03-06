@@ -12,6 +12,7 @@ import traceback
 import logging
 
 from app.core.config import settings
+from app.core.error_responses import ensure_detail_string, validation_errors_to_detail
 from app.api.api_router import api_router
 
 # Configurar logging
@@ -64,12 +65,12 @@ async def global_exception_handler(request: Request, exc: Exception):
     else:
         headers = {}
     
+    detail = "Error interno del servidor"
+    if settings.DEBUG and str(exc):
+        detail = f"{detail}: {str(exc)}"
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "detail": "Error interno del servidor",
-            "error": str(exc) if settings.DEBUG else "Error interno del servidor"
-        },
+        content={"detail": detail},
         headers=headers
     )
 
@@ -113,7 +114,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors(), "body": exc.body},
+        content={"detail": validation_errors_to_detail(exc.errors())},
         headers=headers
     )
 

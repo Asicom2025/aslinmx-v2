@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.schemas.rol_schema import RolCreate, RolUpdate, RolResponse
 from app.services.rol_service import RolService
 from app.core.security import get_current_active_user
+from app.core.permisos import require_permiso
 from app.models.user import User
 
 router = APIRouter()
@@ -22,7 +23,7 @@ def get_roles(
     limit: int = Query(100, ge=1, le=1000),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("usuarios", "leer")),
 ):
     """
     Obtener lista de roles (requiere autenticación)
@@ -35,7 +36,7 @@ def get_roles(
 def get_rol(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("usuarios", "leer")),
 ):
     """
     Obtener rol por ID (requiere autenticación)
@@ -55,7 +56,7 @@ def get_rol(
 def create_rol(
     rol: RolCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("usuarios", "crear")),
 ):
     """
     Crear nuevo rol (requiere autenticación)
@@ -68,7 +69,7 @@ def update_rol(
     rol_id: str,
     rol_update: RolUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("usuarios", "actualizar")),
 ):
     """
     Actualizar rol (requiere autenticación)
@@ -88,7 +89,7 @@ def update_rol(
 def delete_rol(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("usuarios", "eliminar")),
 ):
     """
     Eliminar rol (requiere autenticación)

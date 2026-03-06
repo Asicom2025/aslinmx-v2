@@ -91,7 +91,7 @@ export default function Navbar() {
           >
             <FiMenu className="w-6 h-6" />
           </button>
-          <div className="flex items-center gap-2">
+          <div data-tour="navbar-empresa" className="flex items-center gap-2">
             {empresasDisponibles.length > 1 ? (
               <select
                 className="bg-white/15 text-white text-sm font-semibold rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-white/40"
@@ -117,7 +117,7 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="hidden md:flex items-center flex-1 mx-4 max-w-xl">
+        <div data-tour="navbar-busqueda" className="hidden md:flex items-center flex-1 mx-4 max-w-xl">
           <div className="relative w-full">
             <input
               type="text"
@@ -134,7 +134,7 @@ export default function Navbar() {
 
         <div className="flex items-center gap-2">
           {/* Notificaciones */}
-          <div className="relative">
+          <div data-tour="navbar-notificaciones" className="relative">
             <button
               className="relative p-2 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
               onClick={() => {
@@ -210,7 +210,7 @@ export default function Navbar() {
           </div>
 
           {/* Perfil */}
-          <div className="relative">
+          <div data-tour="navbar-perfil" className="relative">
             <button
               className="flex items-center gap-2 p-2 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
               onClick={() => {
@@ -218,8 +218,16 @@ export default function Navbar() {
                 setNotificacionesOpen(false);
               }}
             >
-              <div className="w-8 h-8 rounded-full bg-white/30 grid place-items-center font-semibold">
-                <span>{user?.full_name?.charAt(0).toUpperCase() || <FaSpinner className="animate-spin w-4 h-4" />}</span>
+              <div className="w-8 h-8 rounded-full bg-white/30 overflow-hidden grid place-items-center font-semibold shrink-0">
+                {user?.perfil?.foto_de_perfil ? (
+                  <img
+                    src={user.perfil.foto_de_perfil}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span>{user?.full_name?.charAt(0).toUpperCase() || <FaSpinner className="animate-spin w-4 h-4" />}</span>
+                )}
               </div>
               <span className="hidden sm:inline line-clamp-1 truncate max-w-[200px]">
                 {user?.full_name || user?.email || <FaSpinner className="animate-spin w-4 h-4" />}
@@ -252,9 +260,18 @@ export default function Navbar() {
                     </a>
                   </li>
                   <li>
-                    <a className="block px-4 py-2 hover:bg-gray-50" href="#">
-                      Áreas asignadas
-                    </a>
+                    <div className="px-4 py-2 border-t border-gray-100 first:border-t-0">
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Áreas asignadas</p>
+                      {user?.areas && user.areas.length > 0 ? (
+                        <ul className="text-sm text-gray-700 flex flex-wrap gap-1">
+                          {user.areas.map((a) => (
+                            <li key={a.id}>{a.nombre}</li>
+                          )).reduce((acc, curr) => acc.concat(curr, " · "), []).slice(0, -1)}
+                        </ul>
+                      ) : (
+                        <p className="text-sm text-gray-500">Sin áreas asignadas</p>
+                      )}
+                    </div>
                   </li>
                   <li>
                     <button

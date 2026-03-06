@@ -48,6 +48,7 @@ interface CrearAseguradoModalProps {
   open: boolean;
   onClose: () => void;
   onAseguradoCreado: (aseguradoId: string) => void;
+  /** @deprecated El asegurado se crea en la tabla asegurados, no como usuario con rol. */
   aseguradoRolId?: string;
 }
 
@@ -55,7 +56,6 @@ export default function CrearAseguradoModal({
   open,
   onClose,
   onAseguradoCreado,
-  aseguradoRolId,
 }: CrearAseguradoModalProps) {
   const [formData, setFormData] = useState({
     nombre: "",
@@ -170,45 +170,35 @@ export default function CrearAseguradoModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.nombre.trim() || !formData.apellido_paterno.trim() || !formData.email.trim()) {
-      swalError("Nombre, apellido paterno y correo electrónico son obligatorios");
+
+    if (!formData.nombre.trim() || !formData.apellido_paterno.trim()) {
+      swalError("Nombre y apellido paterno son obligatorios");
       return;
     }
 
+    // timerst_list es obligatorio y único en la tabla asegurados; usamos email o un identificador generado
+    const timerstList =
+      formData.email?.trim() || `aseg-${Date.now()}-${formData.nombre.slice(0, 5)}`;
+
     setLoading(true);
     try {
-      // Crear usuario/asegurado
-      const userData = {
-        email: formData.email,
-        password: "TempPassword123!", // Contraseña temporal, el usuario deberá cambiarla
-        full_name: `${formData.nombre} ${formData.apellido_paterno} ${formData.apellido_materno}`.trim(),
-        rol_id: aseguradoRolId || undefined, // Asignar rol de Asegurado
-        perfil: {
-          nombre: formData.nombre,
-          apellido_paterno: formData.apellido_paterno,
-          apellido_materno: formData.apellido_materno,
-        },
-        contactos: {
-          celular: formData.celular || undefined,
-          telefono: formData.telefono_casa || formData.telefono_oficina || undefined,
-        },
-        direccion: formData.direccion
-          ? {
-              direccion: formData.direccion,
-              colonia: formData.colonia || undefined,
-              municipio: formData.municipio || undefined,
-              ciudad: formData.ciudad || undefined,
-              estado: formData.estado || undefined,
-              codigo_postal: formData.codigo_postal || undefined,
-              pais: formData.pais || undefined,
-            }
-          : undefined,
+      const aseguradoData = {
+        nombre: formData.nombre.trim(),
+        apellido_paterno: formData.apellido_paterno.trim() || null,
+        apellido_materno: formData.apellido_materno.trim() || null,
+        telefono: formData.celular?.trim() || formData.telefono_casa?.trim() || formData.telefono_oficina?.trim() || null,
+        tel_casa: formData.telefono_casa?.trim() || null,
+        tel_oficina: formData.telefono_oficina?.trim() || null,
+        ciudad: formData.ciudad?.trim() || null,
+        estado: formData.estado?.trim() || null,
+        empresa: null,
+        timerst_list: timerstList,
+        activo: true,
       };
 
-      const nuevoUsuario = await apiService.registerUser(userData);
+      const nuevoAsegurado = await apiService.createAsegurado(aseguradoData);
       await swalSuccess("Asegurado creado correctamente");
-      onAseguradoCreado(nuevoUsuario.id);
+      onAseguradoCreado(nuevoAsegurado.id);
       onClose();
     } catch (error: any) {
       const errorMsg =
@@ -246,12 +236,11 @@ export default function CrearAseguradoModal({
         </div>
 
         <Input
-          label="Correo Electrónico *"
+          label="Correo electrónico (opcional; se usa como identificador único)"
           name="email"
           type="email"
           value={formData.email}
           onChange={handleChange}
-          required
         />
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

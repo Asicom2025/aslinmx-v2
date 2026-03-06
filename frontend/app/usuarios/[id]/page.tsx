@@ -21,6 +21,7 @@ interface User {
   empresa?: { id: string; nombre: string } | null;
   empresas?: { id: string; nombre: string }[] | null;
   rol?: { id: string; nombre: string } | null;
+  areas?: { id: string; nombre: string }[] | null;
   perfil?: {
     nombre?: string;
     apellido_paterno?: string;
@@ -50,12 +51,14 @@ export default function EditarUsuarioPage() {
   const [user, setUser] = useState<User | null>(null);
   const [roles, setRoles] = useState<any[]>([]);
   const [empresas, setEmpresas] = useState<any[]>([]);
-  
+  const [areas, setAreas] = useState<any[]>([]);
+
   const [form, setForm] = useState({
     email: "",
     username: "",
     full_name: "",
     empresa_ids: [] as string[],
+    area_ids: [] as string[],
     rol_id: "",
     is_active: true,
     password: "",
@@ -89,6 +92,7 @@ export default function EditarUsuarioPage() {
     loadUser();
     loadRoles();
     loadEmpresas();
+    loadAreas();
   }, [currentUser, loading, router, params.id]);
 
   const loadRoles = async () => {
@@ -111,6 +115,15 @@ export default function EditarUsuarioPage() {
     }
   };
 
+  const loadAreas = async () => {
+    try {
+      const data = await apiService.getAreas?.(true) ?? [];
+      setAreas(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      console.error("Error al cargar áreas:", e);
+    }
+  };
+
   const loadUser = async () => {
     try {
       setLoadingUser(true);
@@ -122,6 +135,7 @@ export default function EditarUsuarioPage() {
         username: data.username || "",
         full_name: data.full_name || "",
         empresa_ids: data.empresas?.map((empresa: any) => empresa.id) || (data.empresa ? [data.empresa.id] : []),
+        area_ids: data.areas?.map((a: { id: string }) => a.id) || [],
         rol_id: data.rol?.id || "",
         is_active: data.is_active ?? true,
         password: "",
@@ -187,6 +201,7 @@ export default function EditarUsuarioPage() {
         username: form.username,
         full_name: form.full_name,
         empresa_ids: form.empresa_ids || [],
+        area_ids: form.area_ids || [],
         rol_id: form.rol_id || null,
         is_active: form.is_active,
         perfil: form.perfil,
@@ -225,7 +240,7 @@ export default function EditarUsuarioPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="w-full p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -259,8 +274,11 @@ export default function EditarUsuarioPage() {
               <p className="text-white/80 text-sm md:text-base">
                 {user.rol?.nombre || "Sin rol"} ·{" "}
                 {(user.empresas && user.empresas.length > 0
-                  ? user.empresas.map((empresa) => empresa.nombre).join(", ")
+                  ? user.empresas.map((empresa) => empresa.nombre).join(" · ")
                   : user.empresa?.nombre) || "Sin empresa"}
+                {(user.areas && user.areas.length > 0) && (
+                  <> · Áreas: {user.areas.map((a: { nombre: string }) => a.nombre).join(" · ")}</>
+                )}
               </p>
             </div>
           </div>
@@ -333,6 +351,20 @@ export default function EditarUsuarioPage() {
                 placeholder="Selecciona una o varias empresas"
               />
             </div>
+            <div className="md:col-span-2">
+              <CustomSelect
+                label="Áreas asignadas"
+                name="area_ids"
+                value={form.area_ids}
+                onChange={(value) => onChange("main", "area_ids", value as string[])}
+                options={areas.map((area: { id: string; nombre: string }) => ({
+                  value: area.id,
+                  label: area.nombre,
+                }))}
+                isMulti={true}
+                placeholder="Selecciona una o varias áreas"
+              />
+            </div>
             <div>
               <Switch
                 label="Usuario activo"
@@ -374,7 +406,7 @@ export default function EditarUsuarioPage() {
                   { value: "Arqa.", label: "Arqa. (Arquitecta)" },
                   { value: "C.P.", label: "C.P. (Contador Público)" },
                   { value: "C.P.A.", label: "C.P.A. (Contadora Pública)" },
-                  { value: "Q.F.B.", label: "Q.F.B. (Químico Farmacéutico Biólogo)" },
+                  { value: "Q.F.B.", label: "Q.F.B. (Químico Farmacéutico Biólogo)" },  
                   { value: "Q.F.B.A.", label: "Q.F.B.A. (Química Farmacéutica Bióloga)" },
                   { value: "M.C.", label: "M.C. (Maestro en Ciencias)" },
                   { value: "M.C.A.", label: "M.C.A. (Maestra en Ciencias)" },

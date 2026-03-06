@@ -17,13 +17,16 @@ import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
 import DataTable from "@/components/ui/DataTable";
 import { FiDownload, FiUpload, FiPlus } from "react-icons/fi";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 
 export default function ParametrosPage() {
   const router = useRouter();
   const { user, loading } = useUser();
+  useTour("tour-parametros", { autoStart: true });
   const [activeTab, setActiveTab] = useState<
-    "entidades" | "instituciones" | "autoridades" | "provenientes" | "estados" | "calificaciones"
-  >("entidades");
+    "instituciones" | "autoridades" | "provenientes" | "estados" | "calificaciones"
+  >("instituciones");
 
   useEffect(() => {
     // Esperar a que termine la carga del usuario
@@ -64,14 +67,16 @@ export default function ParametrosPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">Parámetros</h1>
+    <div className="min-h-screen w-full bg-gray-50 p-6">
+      <div className="w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-3xl font-bold text-gray-900">Parámetros</h1>
+          <TourButton tour="tour-parametros" label="Ver guía" />
+        </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6 overflow-x-auto">
+        <div data-tour="params-tabs" className="border-b border-gray-200 mb-6 overflow-x-auto">
           <nav className="-mb-px flex gap-6" aria-label="Tabs">
-            <TabButton id="entidades" label="Entidades" />
             <TabButton id="instituciones" label="Instituciones" />
             <TabButton id="autoridades" label="Autoridades" />
             <TabButton id="provenientes" label="Provenientes" />
@@ -80,8 +85,7 @@ export default function ParametrosPage() {
           </nav>
         </div>
 
-        {activeTab === "entidades" && <EntidadesTab router={router} user={user} />}
-
+        <div data-tour="params-tabla">
         {activeTab === "instituciones" && <InstitucionesTab router={router} user={user} />}
 
         {activeTab === "autoridades" && <AutoridadesTab router={router} user={user} />}
@@ -91,6 +95,7 @@ export default function ParametrosPage() {
         {activeTab === "estados" && <EstadosSiniestroTab router={router} user={user} />}
 
         {activeTab === "calificaciones" && <CalificacionesTab router={router} user={user} />}
+        </div>
       </div>
     </div>
   );
@@ -1473,483 +1478,4 @@ function CalificacionesTable({ data, onEdit, onDelete }: { data: any[]; onEdit: 
   ];
 
   return <DataTable columns={columns} data={data} emptyText="Sin calificaciones registradas" size="compact" />;
-}
-
-// ========== Componente Entidades ==========
-function EntidadesTab({ router, user }: { router: any; user: any }) {
-  const [items, setItems] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<any | null>(null);
-  const [filtros, setFiltros] = useState({
-    activo: true as boolean | undefined,
-    es_institucion: undefined as boolean | undefined,
-    es_autoridad: undefined as boolean | undefined,
-    es_organo: undefined as boolean | undefined,
-  });
-  const [form, setForm] = useState({
-    nombre: "",
-    codigo: "",
-    email: "",
-    telefono: "",
-    direccion: "",
-    contacto_principal: "",
-    observaciones: "",
-    es_institucion: false,
-    es_autoridad: false,
-    es_organo: false,
-    activo: true,
-  });
-
-  const loadItems = async () => {
-    try {
-      setLoading(true);
-      const data = await apiService.getEntidades(
-        filtros.activo,
-        filtros.es_institucion,
-        filtros.es_autoridad,
-        filtros.es_organo
-      );
-      setItems(data);
-    } catch (e: any) {
-      if (e.response?.status === 401) {
-        router.push("/login");
-        return;
-      }
-      swalError(e.response?.data?.detail || "Error al cargar entidades");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (user) {
-      loadItems();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, filtros]);
-
-  const openCreate = () => {
-    setEditing(null);
-    setForm({
-      nombre: "",
-      codigo: "",
-      email: "",
-      telefono: "",
-      direccion: "",
-      contacto_principal: "",
-      observaciones: "",
-      es_institucion: false,
-      es_autoridad: false,
-      es_organo: false,
-      activo: true,
-    });
-    setModalOpen(true);
-  };
-
-  const openEdit = (item: any) => {
-    setEditing(item);
-    setForm({
-      nombre: item.nombre || "",
-      codigo: item.codigo || "",
-      email: item.email || "",
-      telefono: item.telefono || "",
-      direccion: item.direccion || "",
-      contacto_principal: item.contacto_principal || "",
-      observaciones: item.observaciones || "",
-      es_institucion: !!item.es_institucion,
-      es_autoridad: !!item.es_autoridad,
-      es_organo: !!item.es_organo,
-      activo: !!item.activo,
-    });
-    setModalOpen(true);
-  };
-
-  const changeForm = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target;
-    setForm((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? (e.target as HTMLInputElement).checked : value,
-    }));
-  };
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validar que al menos un rol esté seleccionado
-    if (!form.es_institucion && !form.es_autoridad && !form.es_organo) {
-      swalError("Debes seleccionar al menos un rol (Institución, Autoridad u Órgano)");
-      return;
-    }
-
-    try {
-      if (editing) {
-        await apiService.updateEntidad(editing.id, form);
-        await swalSuccess("Entidad actualizada");
-      } else {
-        await apiService.createEntidad(form);
-        await swalSuccess("Entidad creada");
-      }
-      setModalOpen(false);
-      loadItems();
-    } catch (e: any) {
-      if (e.response?.status === 401) {
-        router.push("/login");
-        return;
-      }
-      swalError(e.response?.data?.detail || "Error al guardar");
-    }
-  };
-
-  const deleteEntidad = async (id: string) => {
-    const confirmed = await swalConfirmDelete("¿Eliminar entidad? Esta acción no se puede deshacer.");
-    if (!confirmed) return;
-    try {
-      await apiService.deleteEntidad(id);
-      await swalSuccess("Entidad eliminada");
-      loadItems();
-    } catch (e: any) {
-      if (e.response?.status === 401) {
-        router.push("/login");
-        return;
-      }
-      swalError(e.response?.data?.detail || "Error al eliminar");
-    }
-  };
-
-  const getRoles = (entidad: any) => {
-    const roles: string[] = [];
-    if (entidad.es_institucion) roles.push("Institución");
-    if (entidad.es_autoridad) roles.push("Autoridad");
-    if (entidad.es_organo) roles.push("Órgano");
-    return roles.join(", ") || "-";
-  };
-
-  const [importing, setImporting] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
-
-  const handleDownloadTemplate = async () => {
-    try {
-      await apiService.downloadTemplateCSV("entidades");
-      await swalSuccess("Template descargado correctamente");
-    } catch (e: any) {
-      swalError(e.response?.data?.detail || "Error al descargar template");
-    }
-  };
-
-  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setImporting(true);
-    try {
-      const result = await apiService.importarCSV("entidades", file);
-      await swalSuccess(
-        result.mensaje + (result.errores ? `\n\nErrores: ${result.errores.length}` : "")
-      );
-      if (result.errores && result.errores.length > 0) {
-        console.error("Errores de importación:", result.errores);
-      }
-      loadItems();
-    } catch (e: any) {
-      swalError(e.response?.data?.detail || "Error al importar CSV");
-    } finally {
-      setImporting(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
-  };
-
-  return (
-    <div className="bg-white rounded-lg shadow p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-xl font-semibold text-gray-900">Entidades</h2>
-          <p className="text-sm text-gray-500">
-            Gestiona entidades unificadas que pueden ser instituciones, autoridades u órganos para evitar redundancia.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={handleDownloadTemplate}>
-            <FiDownload className="w-4 h-4 mr-1" />
-            Descargar Template
-          </Button>
-          <label className="cursor-pointer">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv"
-              onChange={handleImportCSV}
-              style={{ display: "none" }}
-              disabled={importing}
-            />
-            <span>
-              <Button variant="secondary" disabled={importing} onClick={() => fileInputRef.current?.click()}>
-                <FiUpload className="w-4 h-4 mr-1" />
-                {importing ? "Importando..." : "Importar CSV"}
-              </Button>
-            </span>
-          </label>
-          <Button variant="primary" onClick={openCreate}>
-            <FiPlus className="w-4 h-4 mr-1" />
-            Nueva Entidad
-          </Button>
-        </div>
-      </div>
-
-      {/* Filtros */}
-      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
-            <select
-              value={filtros.activo === undefined ? "" : filtros.activo ? "true" : "false"}
-              onChange={(e) =>
-                setFiltros({
-                  ...filtros,
-                  activo: e.target.value === "" ? undefined : e.target.value === "true",
-                })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            >
-              <option value="">Todos</option>
-              <option value="true">Activos</option>
-              <option value="false">Inactivos</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Institución</label>
-            <select
-              value={filtros.es_institucion === undefined ? "" : filtros.es_institucion ? "true" : "false"}
-              onChange={(e) =>
-                setFiltros({
-                  ...filtros,
-                  es_institucion: e.target.value === "" ? undefined : e.target.value === "true",
-                })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            >
-              <option value="">Todos</option>
-              <option value="true">Sí</option>
-              <option value="false">No</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Autoridad</label>
-            <select
-              value={filtros.es_autoridad === undefined ? "" : filtros.es_autoridad ? "true" : "false"}
-              onChange={(e) =>
-                setFiltros({
-                  ...filtros,
-                  es_autoridad: e.target.value === "" ? undefined : e.target.value === "true",
-                })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            >
-              <option value="">Todos</option>
-              <option value="true">Sí</option>
-              <option value="false">No</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Órgano</label>
-            <select
-              value={filtros.es_organo === undefined ? "" : filtros.es_organo ? "true" : "false"}
-              onChange={(e) =>
-                setFiltros({
-                  ...filtros,
-                  es_organo: e.target.value === "" ? undefined : e.target.value === "true",
-                })
-              }
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-            >
-              <option value="">Todos</option>
-              <option value="true">Sí</option>
-              <option value="false">No</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <Button
-              variant="secondary"
-              onClick={() =>
-                setFiltros({
-                  activo: true,
-                  es_institucion: undefined,
-                  es_autoridad: undefined,
-                  es_organo: undefined,
-                })
-              }
-            >
-              Limpiar filtros
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <p className="text-gray-500">Cargando entidades...</p>
-      ) : (
-        <EntidadesTable data={items} onEdit={openEdit} onDelete={deleteEntidad} getRoles={getRoles} />
-      )}
-
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title={editing ? "Editar entidad" : "Nueva entidad"}
-        maxWidthClass="max-w-3xl"
-      >
-        <form onSubmit={submit} className="space-y-4">
-          <Input label="Nombre" name="nombre" value={form.nombre} onChange={changeForm} required />
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Código" name="codigo" value={form.codigo} onChange={changeForm} />
-            <Input label="Email" name="email" type="email" value={form.email} onChange={changeForm} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Teléfono" name="telefono" value={form.telefono} onChange={changeForm} />
-            <Input label="Contacto principal" name="contacto_principal" value={form.contacto_principal} onChange={changeForm} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Dirección</label>
-            <textarea
-              name="direccion"
-              value={form.direccion || ""}
-              onChange={changeForm}
-              rows={2}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Observaciones</label>
-            <textarea
-              name="observaciones"
-              value={form.observaciones || ""}
-              onChange={changeForm}
-              rows={3}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-            />
-          </div>
-          
-          {/* Roles */}
-          <div className="border-t pt-4">
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              Roles <span className="text-red-500">*</span>
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="es_institucion"
-                  checked={form.es_institucion}
-                  onChange={changeForm}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Institución</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="es_autoridad"
-                  checked={form.es_autoridad}
-                  onChange={changeForm}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Autoridad</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  name="es_organo"
-                  checked={form.es_organo}
-                  onChange={changeForm}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Órgano</span>
-              </label>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">
-              Selecciona al menos un rol para la entidad
-            </p>
-          </div>
-
-          <Switch
-            label="Activo"
-            checked={!!form.activo}
-            onChange={(checked) => setForm((prev) => ({ ...prev, activo: checked }))}
-          />
-          <div className="pt-2 flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" variant="primary">
-              {editing ? "Guardar" : "Crear"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-    </div>
-  );
-}
-
-function EntidadesTable({
-  data,
-  onEdit,
-  onDelete,
-  getRoles,
-}: {
-  data: any[];
-  onEdit: (row: any) => void;
-  onDelete: (id: string) => void;
-  getRoles: (row: any) => string;
-}) {
-  const columns: ColumnDef<any>[] = [
-    {
-      header: "Nombre",
-      accessorKey: "nombre",
-      cell: (info) => <span className="text-sm text-gray-900">{info.getValue() as string}</span>,
-    },
-    {
-      header: "Código",
-      accessorKey: "codigo",
-      cell: (info) => <span className="text-sm text-gray-600">{(info.getValue() as string) || "-"}</span>,
-    },
-    {
-      header: "Roles",
-      id: "roles",
-      cell: ({ row }) => (
-        <span className="text-sm text-gray-600">{getRoles(row.original)}</span>
-      ),
-    },
-    {
-      header: "Email",
-      accessorKey: "email",
-      cell: (info) => <span className="text-sm text-gray-600">{(info.getValue() as string) || "-"}</span>,
-    },
-    {
-      header: "Teléfono",
-      accessorKey: "telefono",
-      cell: (info) => <span className="text-sm text-gray-600">{(info.getValue() as string) || "-"}</span>,
-    },
-    {
-      header: "Activo",
-      accessorKey: "activo",
-      cell: (info) => <span className="text-sm text-gray-600">{info.getValue() ? "Sí" : "No"}</span>,
-    },
-    {
-      id: "acciones",
-      header: "",
-      cell: ({ row }) => (
-        <div className="flex gap-2 justify-end">
-          <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>
-            Editar
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>
-            Eliminar
-          </Button>
-        </div>
-      ),
-    },
-  ];
-
-  return <DataTable columns={columns} data={data} emptyText="No hay entidades registradas" size="compact" />;
 }

@@ -46,8 +46,12 @@ from app.schemas.legal_schema import (
     PlantillaDocumentoCreate,
     PlantillaDocumentoUpdate,
     PlantillaDocumentoResponse,
+    RespuestaFormularioCreate,
+    RespuestaFormularioUpdate,
+    RespuestaFormularioResponse,
 )
 from app.services.legal_service import (
+    RespuestaFormularioService,
     AreaService,
     EstadoSiniestroService,
     CalificacionSiniestroService,
@@ -64,6 +68,27 @@ from app.services.legal_service import (
 router = APIRouter(prefix="/catalogos", tags=["Catálogos"])
 
 
+def _area_to_response(area) -> AreaResponse:
+    """Construye AreaResponse incluyendo jefe_nombre si el área tiene jefe."""
+    data = {
+        "id": area.id,
+        "empresa_id": area.empresa_id,
+        "usuario_id": getattr(area, "usuario_id", None),
+        "nombre": area.nombre,
+        "descripcion": area.descripcion,
+        "codigo": area.codigo,
+        "activo": area.activo,
+        "creado_en": area.creado_en,
+        "actualizado_en": area.actualizado_en,
+        "eliminado_en": getattr(area, "eliminado_en", None),
+        "jefe_nombre": None,
+    }
+    if getattr(area, "jefe", None):
+        jefe = area.jefe
+        data["jefe_nombre"] = getattr(jefe, "full_name", None) or getattr(jefe, "email", None) or str(jefe.id)
+    return AreaResponse(**data)
+
+
 # ===== ÁREAS =====
 @router.get("/areas", response_model=List[AreaResponse])
 def list_areas(
@@ -71,7 +96,8 @@ def list_areas(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return AreaService.list(db, current_user.empresa_id, activo)
+    areas = AreaService.list(db, current_user.empresa_id, activo)
+    return [_area_to_response(a) for a in areas]
 
 
 @router.post("/areas", response_model=AreaResponse, status_code=status.HTTP_201_CREATED)
@@ -80,7 +106,8 @@ def create_area(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return AreaService.create(db, current_user.empresa_id, payload)
+    area = AreaService.create(db, current_user.empresa_id, payload)
+    return _area_to_response(area)
 
 
 @router.put("/areas/{area_id}", response_model=AreaResponse)
@@ -93,7 +120,7 @@ def update_area(
     area = AreaService.update(db, area_id, payload)
     if not area:
         raise HTTPException(status_code=404, detail="Área no encontrada")
-    return area
+    return _area_to_response(area)
 
 
 @router.delete("/areas/{area_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -851,5 +878,57 @@ def delete_plantilla_documento(
     if not ok:
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
     return None
+
+
+# ===== RESPUESTAS FORMULARIO PLANTILLA =====
+@router.get(
+    "/plantillas-documento/{plantilla_id}/respuesta/{siniestro_id}",
+    response_model=RespuestaFormularioResponse,
+)
+def get_respuesta_formulario(
+    plantilla_id: UUID,
+    siniestro_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Obtiene la respuesta de formulario para una plantilla+siniestro."""
+    respuesta = RespuestaFormularioService.get_or_none(db, plantilla_id, siniestro_id)
+    if not respuesta:
+        raise HTTPException(status_code=404, detail="Respuesta no encontrada")
+    return respuesta
+
+
+@router.put(
+    "/plantillas-documento/{plantilla_id}/respuesta/{siniestro_id}",
+    response_model=RespuestaFormularioResponse,
+)
+def upsert_respuesta_formulario(
+    plantilla_id: UUID,
+    siniestro_id: UUID,
+    payload: RespuestaFormularioUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Crea o actualiza la respuesta de formulario para una plantilla+siniestro."""
+    return RespuestaFormularioService.upsert(
+        db,
+        plantilla_id=plantilla_id,
+        siniestro_id=siniestro_id,
+        valores=payload.valores,
+        usuario_id=current_user.id,
+    )
+
+
+@router.get(
+    "/respuestas-formulario/siniestro/{siniestro_id}",
+    response_model=List[RespuestaFormularioResponse],
+)
+def list_respuestas_by_siniestro(
+    siniestro_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Lista todas las respuestas de formulario de un siniestro."""
+    return RespuestaFormularioService.list_by_siniestro(db, siniestro_id)
 
 

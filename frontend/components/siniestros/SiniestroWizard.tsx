@@ -357,65 +357,42 @@ export default function SiniestroWizard({
     }
 
     try {
-      // Obtener datos completos del usuario/asegurado
-      const usuarioCompleto = await apiService.getUserById(id);
-      
-      // Extraer datos del perfil, contactos y dirección
-      const perfil = usuarioCompleto?.perfil || usuarioCompleto?.profile || {};
-      const contactos = usuarioCompleto?.contactos || usuarioCompleto?.contacto || null;
-      const direccion = usuarioCompleto?.direccion || usuarioCompleto?.direcciones || null;
+      // Obtener datos del asegurado desde la tabla asegurados
+      const asegurado = await apiService.getAseguradoById(id);
 
-      // Función helper para extraer valores de contactos
-      const getContacto = (campo: string) => {
-        if (!contactos) return "";
-        if (Array.isArray(contactos)) {
-          const contacto = contactos.find((c: any) => c.tipo === campo);
-          return contacto?.valor || "";
-        }
-        return contactos[campo] || contactos[`${campo}_contacto`] || "";
-      };
-
-      // Actualizar el formulario con los datos del asegurado seleccionado
       setExtendedForm((prev) => ({
         ...prev,
         asegurado: {
           ...prev.asegurado,
           seleccionadoId: id,
           nuevo: {
-            nombre: perfil.nombre || usuarioCompleto.nombre || "",
-            apellido_paterno: perfil.apellido_paterno || "",
-            apellido_materno: perfil.apellido_materno || "",
-            celular: getContacto("celular") || "",
-            telefono_casa: getContacto("telefono_casa") || "",
-            telefono_oficina: getContacto("telefono_oficina") || "",
-            estado: direccion?.estado || "",
-            ciudad: direccion?.ciudad || "",
-            email: usuarioCompleto.email || "",
-            direccion: direccion?.calle || direccion?.direccion_completa || "",
-            colonia: direccion?.colonia || "",
-            municipio: direccion?.municipio || direccion?.delegacion || "",
-            codigo_postal: direccion?.codigo_postal || "",
-            pais: direccion?.pais || "México",
+            nombre: asegurado?.nombre || "",
+            apellido_paterno: asegurado?.apellido_paterno || "",
+            apellido_materno: asegurado?.apellido_materno || "",
+            celular: asegurado?.telefono || "",
+            telefono_casa: asegurado?.tel_casa || "",
+            telefono_oficina: asegurado?.tel_oficina || "",
+            estado: asegurado?.estado || "",
+            ciudad: asegurado?.ciudad || "",
+            email: "",
+            direccion: "",
+            colonia: "",
+            municipio: "",
+            codigo_postal: "",
+            pais: "México",
           },
         },
       }));
 
-      // También actualizar la ubicación en el formulario principal si hay dirección
-      if (direccion?.calle || direccion?.direccion_completa) {
-        const direccionCompleta = [
-          direccion.calle || direccion.direccion_completa,
-          direccion.colonia,
-          direccion.municipio || direccion.delegacion,
-          direccion.estado,
-          direccion.codigo_postal,
-        ]
-          .filter(Boolean)
-          .join(", ");
-        
-        setForm((prev) => ({
-          ...prev,
-          ubicacion: direccionCompleta,
-        }));
+      // La tabla asegurados tiene ciudad, estado; armamos ubicación si hay datos
+      if (asegurado?.ciudad || asegurado?.estado) {
+        const ubicacionPartes = [asegurado.ciudad, asegurado.estado].filter(Boolean);
+        if (ubicacionPartes.length > 0) {
+          setForm((prev) => ({
+            ...prev,
+            ubicacion: ubicacionPartes.join(", "),
+          }));
+        }
       }
     } catch (error: any) {
       console.error("Error al obtener datos del asegurado:", error);

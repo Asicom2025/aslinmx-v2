@@ -23,6 +23,8 @@ import apiService from "@/lib/apiService";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
 import { FiFolder, FiFileText, FiEye } from "react-icons/fi";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 
 type ConfigTab = "general" | "flujos" | "areas" | "documentos" | "tipos_documento";
 
@@ -60,6 +62,7 @@ function FlujosTrabajoPageWrapper() {
 export default function ConfiguracionPage() {
   const router = useRouter();
   const { loading } = useUser();
+  useTour("tour-configuracion", { autoStart: true });
   const [activeTab, setActiveTab] = useState<ConfigTab>("general");
 
   useEffect(() => {
@@ -83,12 +86,15 @@ export default function ConfiguracionPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">Configuración</h1>
+    <div className="min-h-screen w-full bg-gray-50 p-6">
+      <div className="w-full">
+        <div className="flex justify-between items-center mb-4">
+          <h1 className="text-3xl font-bold text-gray-900">Configuración</h1>
+          <TourButton tour="tour-configuracion" label="Ver guía" />
+        </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6 overflow-x-auto">
+        <div data-tour="config-tabs" className="border-b border-gray-200 mb-6 overflow-x-auto">
           <nav className="-mb-px flex gap-6" aria-label="Tabs">
             <TabButton id="general" label="General" />
             <TabButton id="flujos" label="Flujos" />
@@ -99,7 +105,7 @@ export default function ConfiguracionPage() {
         </div>
 
         {/* Content */}
-        {activeTab === "general" && <GeneralTab />}
+        {activeTab === "general" && <div data-tour="config-empresa"><GeneralTab /></div>}
 
         {activeTab === "flujos" && (
           <div className="bg-white rounded-lg shadow p-2">
@@ -387,6 +393,420 @@ function GeneralTab() {
       ) : (
         <p className="text-gray-500">No tienes una empresa activa asociada.</p>
       )}
+
+      {/* Configuración SMTP para envío de correos */}
+      {activeEmpresa && (
+        <SmtpSection />
+      )}
+
+      {activeEmpresa && (
+        <PlantillasCorreoSection />
+      )}
+    </div>
+  );
+}
+
+const plantillaCorreoFormInitial = {
+  nombre: "",
+  asunto: "",
+  cuerpo_html: "",
+  cuerpo_texto: "",
+  variables_texto: "", // comma-separated, se convierte a array al guardar
+  activo: true,
+};
+
+function PlantillasCorreoSection() {
+  const { activeEmpresa } = useUser();
+  const [list, setList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [form, setForm] = useState(plantillaCorreoFormInitial);
+  const [saving, setSaving] = useState(false);
+
+  const loadList = async () => {
+    if (!activeEmpresa?.id) return;
+    try {
+      setLoading(true);
+      const data = await apiService.getPlantillasCorreo();
+      setList(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al cargar plantillas de correo");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeEmpresa?.id) loadList();
+  }, [activeEmpresa?.id]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(plantillaCorreoFormInitial);
+    setModalOpen(true);
+  };
+
+  const openEdit = (item: any) => {
+    setEditing(item);
+    const vars = item.variables_disponibles;
+    setForm({
+      nombre: item.nombre || "",
+      asunto: item.asunto || "",
+      cuerpo_html: item.cuerpo_html || "",
+      cuerpo_texto: item.cuerpo_texto || "",
+      variables_texto: Array.isArray(vars) ? vars.join(", ") : "",
+      activo: item.activo ?? true,
+    });
+    setModalOpen(true);
+  };
+
+  const submitPlantilla = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeEmpresa?.id) return;
+    try {
+      setSaving(true);
+      const variables_disponibles = form.variables_texto
+        ? form.variables_texto.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+      const payload = {
+        nombre: form.nombre,
+        asunto: form.asunto,
+        cuerpo_html: form.cuerpo_html,
+        cuerpo_texto: form.cuerpo_texto || undefined,
+        variables_disponibles: variables_disponibles?.length ? variables_disponibles : undefined,
+        activo: form.activo,
+      };
+      if (editing) {
+        await apiService.updatePlantillaCorreo(editing.id, payload);
+        await swalSuccess("Plantilla de correo actualizada");
+      } else {
+        await apiService.createPlantillaCorreo(payload);
+        await swalSuccess("Plantilla de correo creada");
+      }
+      setModalOpen(false);
+      loadList();
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al guardar plantilla");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deletePlantilla = async (id: string) => {
+    const ok = await swalConfirmDelete("¿Eliminar esta plantilla de correo?");
+    if (!ok) return;
+    try {
+      await apiService.deletePlantillaCorreo(id);
+      await swalSuccess("Plantilla eliminada");
+      loadList();
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al eliminar");
+    }
+  };
+
+  return (
+    <div className="border-t border-gray-200 pt-6 mt-6">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Plantillas de correo</h2>
+          <p className="text-sm text-gray-500">
+            Crea plantillas reutilizables para notificaciones y envíos. Usa variables como {"{{nombre_destinatario}}"}, {"{{numero_siniestro}}"} en asunto y cuerpo.
+          </p>
+        </div>
+        <Button variant="primary" onClick={openCreate}>Nueva plantilla de correo</Button>
+      </div>
+
+      {loading ? (
+        <p className="text-gray-500">Cargando...</p>
+      ) : list.length === 0 ? (
+        <p className="text-gray-500 py-4">No hay plantillas. Crea una para usarla al enviar correos (junto con una configuración SMTP).</p>
+      ) : (
+        <div className="space-y-2">
+          {list.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3"
+            >
+              <div>
+                <p className="font-medium text-gray-900">{item.nombre}</p>
+                <p className="text-sm text-gray-500">
+                  Asunto: {item.asunto}
+                  {item.activo ? (
+                    <span className="ml-2 text-green-600">Activa</span>
+                  ) : (
+                    <span className="ml-2 text-gray-400">Inactiva</span>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>Editar</Button>
+                <Button variant="danger" size="sm" onClick={() => deletePlantilla(item.id)}>Eliminar</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Editar plantilla de correo" : "Nueva plantilla de correo"} maxWidthClass="max-w-4xl">
+        <form onSubmit={submitPlantilla} className="space-y-4">
+          <Input label="Nombre" name="nombre" value={form.nombre} onChange={(e) => setForm((p) => ({ ...p, nombre: e.target.value }))} placeholder="Ej. Notificación de asignación" required />
+          <Input label="Asunto" name="asunto" value={form.asunto} onChange={(e) => setForm((p) => ({ ...p, asunto: e.target.value }))} placeholder="Puedes usar {{variable}}" required />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cuerpo (HTML)</label>
+            <JoditEditor
+              value={form.cuerpo_html}
+              onChange={(v) => setForm((p) => ({ ...p, cuerpo_html: v }))}
+              placeholder="Contenido del correo en HTML. Usa variables como {{nombre_destinatario}}, {{numero_siniestro}}."
+              height={280}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Cuerpo texto plano (opcional)</label>
+            <textarea
+              value={form.cuerpo_texto}
+              onChange={(e) => setForm((p) => ({ ...p, cuerpo_texto: e.target.value }))}
+              rows={3}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              placeholder="Versión en texto plano para clientes de correo que no soportan HTML"
+            />
+          </div>
+          <Input
+            label="Variables disponibles (separadas por coma)"
+            name="variables_texto"
+            value={form.variables_texto}
+            onChange={(e) => setForm((p) => ({ ...p, variables_texto: e.target.value }))}
+            placeholder="nombre_destinatario, numero_siniestro, asunto, enlace"
+          />
+          <Switch label="Activa" checked={form.activo} onChange={(c) => setForm((p) => ({ ...p, activo: c }))} />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" variant="primary" disabled={saving}>{saving ? "Guardando..." : "Guardar"}</Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
+const smtpFormInitial = {
+  nombre: "",
+  servidor: "",
+  puerto: 587,
+  usuario: "",
+  password: "",
+  usar_tls: true,
+  usar_ssl: false,
+  remitente_nombre: "",
+  remitente_email: "",
+  activo: true,
+};
+
+function SmtpSection() {
+  const { activeEmpresa } = useUser();
+  const [list, setList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [form, setForm] = useState(smtpFormInitial);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [testEmail, setTestEmail] = useState("");
+
+  const loadList = async () => {
+    if (!activeEmpresa?.id) return;
+    try {
+      setLoading(true);
+      const data = await apiService.getConfiguracionesSMTP();
+      setList(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al cargar configuraciones SMTP");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeEmpresa?.id) loadList();
+  }, [activeEmpresa?.id]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm(smtpFormInitial);
+    setModalOpen(true);
+  };
+
+  const openEdit = (item: any) => {
+    setEditing(item);
+    setForm({
+      nombre: item.nombre || "",
+      servidor: item.servidor || "",
+      puerto: item.puerto ?? 587,
+      usuario: item.usuario || "",
+      password: "", // no mostrar contraseña guardada
+      usar_tls: item.usar_tls ?? true,
+      usar_ssl: item.usar_ssl ?? false,
+      remitente_nombre: item.remitente_nombre || "",
+      remitente_email: item.remitente_email || "",
+      activo: item.activo ?? true,
+    });
+    setModalOpen(true);
+  };
+
+  const changeSmtpForm = (field: string, value: string | number | boolean) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const submitSmtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeEmpresa?.id) return;
+    try {
+      setSaving(true);
+      const payload = {
+        nombre: form.nombre,
+        servidor: form.servidor,
+        puerto: Number(form.puerto),
+        usuario: form.usuario,
+        password: form.password || (editing ? undefined : ""),
+        usar_tls: form.usar_tls,
+        usar_ssl: form.usar_ssl,
+        remitente_nombre: form.remitente_nombre || undefined,
+        remitente_email: form.remitente_email,
+        activo: form.activo,
+      };
+      if (editing) {
+        if (!payload.password) delete (payload as any).password;
+        await apiService.updateConfiguracionSMTP(editing.id, payload);
+        await swalSuccess("Configuración SMTP actualizada");
+      } else {
+        if (!payload.password) {
+          swalError("La contraseña es obligatoria al crear.");
+          return;
+        }
+        await apiService.createConfiguracionSMTP(payload);
+        await swalSuccess("Configuración SMTP creada");
+      }
+      setModalOpen(false);
+      loadList();
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al guardar configuración SMTP");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteSmtp = async (id: string) => {
+    const ok = await swalConfirmDelete("¿Eliminar esta configuración SMTP?");
+    if (!ok) return;
+    try {
+      await apiService.deleteConfiguracionSMTP(id);
+      await swalSuccess("Configuración SMTP eliminada");
+      loadList();
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al eliminar");
+    }
+  };
+
+  const testSmtp = async (id: string) => {
+    const email = testEmail.trim() || undefined;
+    if (!email) {
+      swalError("Indica un correo de destino para la prueba.");
+      return;
+    }
+    try {
+      setTesting(id);
+      await apiService.testConfiguracionSMTP(id, {
+        configuracion_smtp_id: id,
+        destinatario: email,
+        asunto: "Prueba de configuración SMTP",
+        mensaje: "Este es un correo de prueba.",
+      });
+      await swalSuccess("Correo de prueba enviado correctamente.");
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al enviar correo de prueba");
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  return (
+    <div className="border-t border-gray-200 pt-6 mt-6">
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Envío de correos (SMTP)</h2>
+          <p className="text-sm text-gray-500">
+            Configura uno o más servidores SMTP para enviar correos desde la plataforma.
+          </p>
+        </div>
+        <Button variant="primary" onClick={openCreate}>Nueva configuración SMTP</Button>
+      </div>
+
+      {loading ? (
+        <p className="text-gray-500">Cargando...</p>
+      ) : list.length === 0 ? (
+        <p className="text-gray-500 py-4">No hay configuraciones SMTP. Crea una para poder enviar correos.</p>
+      ) : (
+        <div className="space-y-2">
+          {list.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3"
+            >
+              <div>
+                <p className="font-medium text-gray-900">{item.nombre}</p>
+                <p className="text-sm text-gray-500">
+                  {item.servidor}:{item.puerto} · {item.remitente_email}
+                  {item.activo ? (
+                    <span className="ml-2 text-green-600">Activo</span>
+                  ) : (
+                    <span className="ml-2 text-gray-400">Inactivo</span>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="email"
+                  placeholder="Correo para prueba"
+                  value={testEmail}
+                  onChange={(e) => setTestEmail(e.target.value)}
+                  className="rounded-md border border-gray-300 px-2 py-1 text-sm w-40"
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => testSmtp(item.id)}
+                  disabled={!!testing}
+                >
+                  {testing === item.id ? "Enviando..." : "Probar"}
+                </Button>
+                <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>Editar</Button>
+                <Button variant="danger" size="sm" onClick={() => deleteSmtp(item.id)}>Eliminar</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Editar SMTP" : "Nueva configuración SMTP"}>
+        <form onSubmit={submitSmtp} className="space-y-4">
+          <Input label="Nombre (ej. Gmail, Office)" name="nombre" value={form.nombre} onChange={(e) => changeSmtpForm("nombre", e.target.value)} required />
+          <Input label="Servidor" name="servidor" value={form.servidor} onChange={(e) => changeSmtpForm("servidor", e.target.value)} placeholder="smtp.ejemplo.com" required />
+          <Input label="Puerto" name="puerto" type="number" value={String(form.puerto)} onChange={(e) => changeSmtpForm("puerto", e.target.value ? parseInt(e.target.value, 10) : 587)} required />
+          <Input label="Usuario" name="usuario" value={form.usuario} onChange={(e) => changeSmtpForm("usuario", e.target.value)} required />
+          <Input label="Contraseña" name="password" type="password" value={form.password} onChange={(e) => changeSmtpForm("password", e.target.value)} placeholder={editing ? "Dejar vacío para no cambiar" : ""} required={!editing} />
+          <div className="grid grid-cols-2 gap-4">
+            <Switch label="Usar TLS" checked={form.usar_tls} onChange={(c) => changeSmtpForm("usar_tls", c)} />
+            <Switch label="Usar SSL" checked={form.usar_ssl} onChange={(c) => changeSmtpForm("usar_ssl", c)} />
+          </div>
+          <Input label="Remitente (nombre)" name="remitente_nombre" value={form.remitente_nombre} onChange={(e) => changeSmtpForm("remitente_nombre", e.target.value)} />
+          <Input label="Remitente (email)" name="remitente_email" type="email" value={form.remitente_email} onChange={(e) => changeSmtpForm("remitente_email", e.target.value)} required />
+          <Switch label="Activo" checked={form.activo} onChange={(c) => changeSmtpForm("activo", c)} />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
+            <Button type="submit" variant="primary" disabled={saving}>{saving ? "Guardando..." : "Guardar"}</Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
@@ -395,10 +815,11 @@ function AreasTab() {
   const { user } = useUser();
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
+  const [usuarios, setUsuarios] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
-  const [form, setForm] = useState({ nombre: "", descripcion: "", codigo: "", activo: true });
+  const [form, setForm] = useState({ nombre: "", descripcion: "", codigo: "", activo: true, usuario_id: "" as string });
 
   const loadItems = async () => {
     try {
@@ -416,15 +837,25 @@ function AreasTab() {
     }
   };
 
+  const loadUsuarios = async () => {
+    try {
+      const data = await apiService.getUsers(0, 500);
+      setUsuarios(Array.isArray(data) ? data : []);
+    } catch {
+      setUsuarios([]);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       loadItems();
+      loadUsuarios();
     }
   }, [user]);
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ nombre: "", descripcion: "", codigo: "", activo: true });
+    setForm({ nombre: "", descripcion: "", codigo: "", activo: true, usuario_id: "" });
     setModalOpen(true);
   };
 
@@ -435,6 +866,7 @@ function AreasTab() {
       descripcion: area.descripcion || "",
       codigo: area.codigo || "",
       activo: !!area.activo,
+      usuario_id: area.usuario_id || "",
     });
     setModalOpen(true);
   };
@@ -447,11 +879,12 @@ function AreasTab() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload = { nombre: form.nombre, descripcion: form.descripcion || undefined, codigo: form.codigo || undefined, activo: form.activo, usuario_id: form.usuario_id || null };
       if (editing) {
-        await apiService.updateArea(editing.id, form as any);
+        await apiService.updateArea(editing.id, payload);
         await swalSuccess("Área actualizada");
       } else {
-        await apiService.createArea(form as any);
+        await apiService.createArea(payload);
         await swalSuccess("Área creada");
       }
       setModalOpen(false);
@@ -501,6 +934,22 @@ function AreasTab() {
           <Input label="Nombre" name="nombre" value={form.nombre} onChange={changeForm} required />
           <Input label="Código" name="codigo" value={form.codigo || ""} onChange={changeForm} />
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Jefe de área</label>
+            <select
+              name="usuario_id"
+              value={form.usuario_id}
+              onChange={(e) => setForm((prev) => ({ ...prev, usuario_id: e.target.value }))}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            >
+              <option value="">Sin asignar</option>
+              {usuarios.map((u: any) => (
+                <option key={u.id} value={u.id}>
+                  {u.perfil?.nombre ? `${u.perfil.nombre} ${u.perfil.apellido_paterno || ""}`.trim() : u.email}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Descripción</label>
             <textarea
               name="descripcion"
@@ -535,6 +984,11 @@ function AreasTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: any
     {
       header: "Código",
       accessorKey: "codigo",
+      cell: (info) => <span className="text-sm text-gray-600">{(info.getValue() as string) || "-"}</span>,
+    },
+    {
+      header: "Jefe de área",
+      accessorKey: "jefe_nombre",
       cell: (info) => <span className="text-sm text-gray-600">{(info.getValue() as string) || "-"}</span>,
     },
     {

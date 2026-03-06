@@ -13,6 +13,7 @@ from app.models.user import (
     UsuarioDireccion,
     Usuario2FA,
     UsuarioEmpresa,
+    UsuarioArea,
 )
 from app.models.permiso import Modulo, Accion, RolPermiso
 from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa
@@ -59,6 +60,7 @@ __all__ = [
     "UsuarioDireccion",
     "Usuario2FA",
     "UsuarioEmpresa",
+    "UsuarioArea",
     "Modulo",
     "Accion",
     "RolPermiso",

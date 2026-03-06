@@ -16,6 +16,7 @@ import {
 } from "@/lib/recaptcha";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
+import RecaptchaScript from "@/components/RecaptchaScript";
 import { useUser } from "@/context/UserContext";
 import Image from "next/image";
 
@@ -61,7 +62,7 @@ export default function LoginPage() {
         const resp2 = await apiService.verify2FA(tempToken, code);
         localStorage.setItem("token", resp2.access_token);
         await refresh();
-        await swalSuccess("¡Inicio de sesión exitoso!");
+        // await swalSuccess("¡Inicio de sesión exitoso!"); para no mostrar el mensaje de éxito en desarrollo solamente
         router.push("/dashboard");
         return;
       }
@@ -73,7 +74,7 @@ export default function LoginPage() {
         if (!recaptchaToken) {
           swalError(
             "Error al verificar reCAPTCHA. Por favor, recarga la página e intenta nuevamente.",
-          );
+          ); // aqui es valido mostrar error!
           setLoading(false);
           return;
         }
@@ -89,7 +90,7 @@ export default function LoginPage() {
       if (response.requires_2fa) {
         setRequires2FA(true);
         setTempToken(response.temp_token);
-        await swalInfo("Ingresa tu código 2FA");
+        // await swalInfo("Ingresa tu código 2FA"); no mostrar en producción
         return;
       }
 
@@ -98,7 +99,6 @@ export default function LoginPage() {
 
       // Hidratar datos del usuario inmediatamente
       await refresh();
-      await swalSuccess("¡Inicio de sesión exitoso!");
 
       // Redirigir al dashboard
       router.push("/dashboard");
@@ -110,7 +110,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-12 px-4 sm:px-6 lg:px-8">
+    <>
+      <RecaptchaScript />
+      <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div>
           <div className="flex justify-center mb-6">
@@ -188,5 +190,6 @@ export default function LoginPage() {
         </form>
       </div>
     </div>
+    </>
   );
 }

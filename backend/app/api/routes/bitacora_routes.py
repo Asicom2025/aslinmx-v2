@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
+from app.core.permisos import require_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
     BitacoraActividadCreate, BitacoraActividadUpdate, BitacoraActividadResponse,
@@ -27,7 +28,7 @@ def list_bitacora_siniestro(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "ver_bitacora")),
 ):
     """Lista actividades de bitácora de un siniestro, opcionalmente filtradas por área y flujo"""
     return BitacoraActividadService.list(

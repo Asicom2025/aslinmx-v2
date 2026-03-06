@@ -39,12 +39,18 @@ class EmpresaResponse(BaseModel):
     dominio: Optional[str] = None
     activo: Optional[bool] = None
 
+    class Config:
+        from_attributes = True
+
 
 class RolResponse(BaseModel):
     id: UUID
     nombre: str
     descripcion: Optional[str] = None
     nivel: Optional[int] = None
+
+    class Config:
+        from_attributes = True
 
 
 class UsuarioPerfilResponse(BaseModel):
@@ -57,10 +63,16 @@ class UsuarioPerfilResponse(BaseModel):
     firma: Optional[str] = None  # Firma física (imagen)
     firma_digital: Optional[str] = None  # Imagen que se adjunta al enviar correos por la plataforma
 
+    class Config:
+        from_attributes = True
+
 
 class UsuarioContactosResponse(BaseModel):
     telefono: Optional[str] = None
     celular: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 
 class UsuarioDireccionResponse(BaseModel):
@@ -69,6 +81,24 @@ class UsuarioDireccionResponse(BaseModel):
     estado: Optional[str] = None
     codigo_postal: Optional[str] = None
     pais: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PermisoItem(BaseModel):
+    """Un permiso (módulo + acción) para el usuario actual"""
+    modulo: str
+    accion: str
+
+
+class AreaSummary(BaseModel):
+    """Resumen de área para listados (ej. áreas del usuario)"""
+    id: UUID
+    nombre: str
+
+    class Config:
+        from_attributes = True
 
 
 class UserResponse(UserBase):
@@ -83,10 +113,14 @@ class UserResponse(UserBase):
     perfil: Optional[UsuarioPerfilResponse] = None
     contactos: Optional[UsuarioContactosResponse] = None
     direccion: Optional[UsuarioDireccionResponse] = None
+    # Permisos del rol del usuario (modulo_tecnico, accion_tecnico)
+    permisos: Optional[List[PermisoItem]] = None
+    # Áreas asignadas al usuario (multiárea)
+    areas: Optional[List[AreaSummary]] = None
     # Info de seguridad
     two_factor_enabled: Optional[bool] = None
     two_factor_verified_at: Optional[datetime] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -157,6 +191,7 @@ class UserUpdate(BaseModel):
     empresa_id: Optional[UUID] = None
     empresa_ids: Optional[List[UUID]] = None
     rol_id: Optional[UUID] = None
+    area_ids: Optional[List[UUID]] = None  # Áreas asignadas al usuario (multiárea)
     perfil: Optional[UsuarioPerfilUpdate] = None
     contactos: Optional[UsuarioContactosUpdate] = None
     direccion: Optional[UsuarioDireccionUpdate] = None

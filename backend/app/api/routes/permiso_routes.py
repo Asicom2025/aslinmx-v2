@@ -9,17 +9,38 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
+from app.core.permisos import require_permiso
 from app.models.user import User
 from app.services.permiso_service import (
     ModuloService, AccionService, RolPermisoService
 )
 from app.schemas.permiso_schema import (
-    ModuloResponse, AccionResponse,
+    ModuloResponse, ModuloCreate, ModuloUpdate,
+    AccionResponse, AccionCreate,
     RolPermisoResponse, RolPermisoCreate, RolPermisoUpdate,
     RolPermisosConfigResponse, RolPermisosBulkUpdate
 )
 
 router = APIRouter()
+
+
+# =========================
+# MIS PERMISOS (usuario actual)
+# =========================
+
+@router.get("/mis-permisos", response_model=List[dict])
+def get_mis_permisos(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Obtiene los permisos del usuario actual según su rol.
+    Retorna lista de { modulo, accion } (nombres técnicos).
+    Si no tiene rol, retorna lista vacía.
+    """
+    if not current_user.rol_id:
+        return []
+    return RolPermisoService.get_permisos_por_rol_nombres(db, str(current_user.rol_id))
 
 
 # =========================
@@ -32,7 +53,7 @@ def get_modulos(
     limit: int = Query(100, ge=1, le=1000),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("permisos", "leer")),
 ):
     """Obtener lista de módulos"""
     modulos = ModuloService.get_modulos(db, skip=skip, limit=limit, activo=activo)
@@ -43,7 +64,7 @@ def get_modulos(
 def get_modulo(
     modulo_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("permisos", "leer")),
 ):
     """Obtener un módulo por ID"""
     modulo = ModuloService.get_modulo_by_id(db, modulo_id)
@@ -53,6 +74,80 @@ def get_modulo(
             detail="Módulo no encontrado"
         )
     return modulo
+
+
+@router.post("/modulos", response_model=ModuloResponse, status_code=status.HTTP_201_CREATED)
+def create_modulo(
+    modulo: ModuloCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("permisos", "crear")),
+):
+    """Crear un nuevo módulo"""
+    return ModuloService.create_modulo(db, modulo)
+
+
+@router.put("/modulos/{modulo_id}", response_model=ModuloResponse)
+def update_modulo(
+    modulo_id: str,
+    modulo: ModuloUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Actualizar un módulo existente"""
+    updated = ModuloService.update_modulo(db, modulo_id, modulo)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Módulo no encontrado"
+        )
+    return updated
+
+
+@router.get("/modulos/{modulo_id}/acciones", response_model=List[AccionResponse])
+def get_acciones_modulo(
+    modulo_id: str,
+    activo: Optional[bool] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Obtener acciones asignadas a un módulo (desde rol_permisos de cualquier rol)"""
+    if not ModuloService.get_modulo_by_id(db, modulo_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Módulo no encontrado")
+    return AccionService.get_acciones_por_modulo(db, modulo_id, activo=activo)
+
+
+@router.post("/roles/{rol_id}/modulos/{modulo_id}/acciones/{accion_id}")
+def asignar_accion_modulo(
+    rol_id: str,
+    modulo_id: str,
+    accion_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Asignar una acción a un módulo para un rol (inserta en rol_permisos)"""
+    if not ModuloService.get_modulo_by_id(db, modulo_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Módulo no encontrado")
+    if not AccionService.get_accion_by_id(db, accion_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Acción no encontrada")
+    RolPermisoService.asignar_accion_modulo(db, rol_id, modulo_id, accion_id)
+    return {"message": "Acción asignada al módulo"}
+
+
+@router.delete("/roles/{rol_id}/modulos/{modulo_id}/acciones/{accion_id}")
+def desasignar_accion_modulo(
+    rol_id: str,
+    modulo_id: str,
+    accion_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Quitar una acción de un módulo para un rol"""
+    if not RolPermisoService.desasignar_accion_modulo(db, rol_id, modulo_id, accion_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La acción no estaba asignada a este módulo"
+        )
+    return {"message": "Acción desasignada del módulo"}
 
 
 # =========================
@@ -86,6 +181,16 @@ def get_accion(
     return accion
 
 
+@router.post("/acciones", response_model=AccionResponse, status_code=status.HTTP_201_CREATED)
+def create_accion(
+    accion: AccionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Crear una nueva acción"""
+    return AccionService.create_accion(db, accion)
+
+
 # =========================
 # PERMISOS DE ROL
 # =========================
@@ -106,7 +211,7 @@ def get_permisos_rol(
 def get_configuracion_permisos(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("permisos", "leer")),
 ):
     """
     Obtener la configuración completa de permisos de un rol
@@ -159,7 +264,7 @@ def actualizar_permisos_bulk(
     rol_id: str,
     bulk_update: RolPermisosBulkUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("permisos", "actualizar")),
 ):
     """
     Actualizar múltiples permisos de un rol a la vez

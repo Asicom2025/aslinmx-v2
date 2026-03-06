@@ -100,6 +100,18 @@ class EnviarCorreoRequest(BaseModel):
     adjuntos: Optional[List[str]] = None  # URLs o rutas de archivos adjuntos
 
 
+class EnviarArchivoCorreoRequest(BaseModel):
+    """Envío de correo usando plantilla 'Te envían un archivo'. Si documento_id es un informe (tiene plantilla), se adjunta el PDF."""
+    siniestro_id: UUID
+    configuracion_smtp_id: UUID
+    destinatarios: List[EmailStr]
+    mensaje: str  # textMail: mensaje que coloca el usuario
+    documento_id: Optional[UUID] = None  # Si es informe (tiene plantilla), se adjunta PDF
+    tipo_documento_nombre: Optional[str] = None  # c1
+    categoria_nombre: Optional[str] = None  # c2
+    # c3 se puede dejar vacío o usar para otro dato si se desea
+
+
 # ========== Auditoría ==========
 class AuditoriaResponse(BaseModel):
     id: UUID

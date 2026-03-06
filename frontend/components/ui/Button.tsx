@@ -8,17 +8,13 @@
 
 import EmpresaButton from "./EmpresaButton";
 
-interface ButtonProps {
+interface ButtonProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "className"> {
   children: React.ReactNode;
-  onClick?: () => void;
-  type?: "button" | "submit" | "reset";
   variant?: "primary" | "secondary" | "tertiary" | "danger" | "success" | "outline";
   size?: "sm" | "md" | "lg";
   fullWidth?: boolean;
-  disabled?: boolean;
   loading?: boolean;
   className?: string;
-  title?: string;
 }
 
 /**

@@ -3,9 +3,12 @@ Servicio para envío de correos electrónicos
 """
 
 import smtplib
+from pathlib import Path
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
+from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
 from email import encoders
 from typing import List, Optional, Dict, Any, Tuple
 import logging
@@ -24,8 +27,52 @@ except ImportError:
     Template = None
 
 from app.models.config import ConfiguracionSMTP, PlantillaCorreo, HistorialCorreo
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Rutas relativas al backend/app para assets de correo (logo e icono) adjuntos como CID
+EMAIL_ASSETS_DIR = Path(__file__).resolve().parent.parent / "static" / "email_assets"
+EMAIL_LOGO_FILENAME = "logo_dx-legal.png"
+EMAIL_FILE_ICON_FILENAME = "file2.png"
+
+
+def _read_file_bytes(path: Path) -> Optional[bytes]:
+    """Lee un archivo y devuelve sus bytes o None."""
+    try:
+        if path.is_file():
+            return path.read_bytes()
+    except Exception as e:
+        logger.debug("No se pudo leer %s: %s", path, e)
+    return None
+
+
+def get_email_assets_bytes() -> Tuple[Optional[bytes], Optional[bytes]]:
+    """
+    Carga logo e icono de archivo para adjuntar como CID en correos (evita bloqueo de imágenes por Gmail).
+    Busca en backend/app/static/email_assets/ y, si no existe, en frontend/public/assets/.
+    Returns:
+        (logo_bytes, file_icon_bytes)
+    """
+    logo_bytes = None
+    icon_bytes = None
+    # 1) Backend app/static/email_assets
+    logo_path = EMAIL_ASSETS_DIR / EMAIL_LOGO_FILENAME
+    icon_path = EMAIL_ASSETS_DIR / EMAIL_FILE_ICON_FILENAME
+    logo_bytes = _read_file_bytes(logo_path)
+    icon_bytes = _read_file_bytes(icon_path)
+    # 2) Fallback: frontend/public/assets (desde raíz del proyecto)
+    if not logo_bytes or not icon_bytes:
+        for base in (Path.cwd(), Path(__file__).resolve().parent.parent.parent.parent):
+            frontend_logo = base / "frontend" / "public" / "assets" / "logos" / EMAIL_LOGO_FILENAME
+            frontend_icon = base / "frontend" / "public" / "assets" / "icons" / EMAIL_FILE_ICON_FILENAME
+            if not logo_bytes:
+                logo_bytes = _read_file_bytes(frontend_logo)
+            if not icon_bytes:
+                icon_bytes = _read_file_bytes(frontend_icon)
+            if logo_bytes and icon_bytes:
+                break
+    return (logo_bytes, icon_bytes)
 
 
 class EmailService:
@@ -141,7 +188,11 @@ class EmailService:
         asunto: str,
         cuerpo_html: Optional[str] = None,
         cuerpo_texto: Optional[str] = None,
-        adjuntos: Optional[List[str]] = None
+        adjuntos: Optional[List[str]] = None,
+        adjuntos_bytes: Optional[List[tuple]] = None,
+        firma_cid_bytes: Optional[bytes] = None,
+        logo_cid_bytes: Optional[bytes] = None,
+        file_icon_cid_bytes: Optional[bytes] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
         Envía un correo electrónico de forma síncrona
@@ -167,7 +218,7 @@ class EmailService:
                 part_html = MIMEText(f"<pre>{cuerpo_texto}</pre>", "html", "utf-8")
                 message.attach(part_html)
 
-            # Agregar adjuntos
+            # Agregar adjuntos (rutas en disco)
             if adjuntos:
                 for ruta_adjunto in adjuntos:
                     try:
@@ -182,6 +233,45 @@ class EmailService:
                             message.attach(part)
                     except Exception as e:
                         logger.warning(f"No se pudo adjuntar archivo {ruta_adjunto}: {str(e)}")
+            # Agregar adjuntos en memoria (nombre_archivo, bytes). PDF como application/pdf.
+            if adjuntos_bytes:
+                for nombre_archivo, contenido in adjuntos_bytes:
+                    try:
+                        lower = (nombre_archivo or "").lower()
+                        if lower.endswith(".pdf"):
+                            part = MIMEApplication(contenido, _subtype="pdf")
+                            part.add_header(
+                                "Content-Disposition",
+                                "attachment",
+                                filename=nombre_archivo,
+                            )
+                        else:
+                            part = MIMEBase("application", "octet-stream")
+                            part.set_payload(contenido)
+                            encoders.encode_base64(part)
+                            part.add_header(
+                                "Content-Disposition",
+                                f'attachment; filename="{nombre_archivo}"'
+                            )
+                        message.attach(part)
+                    except Exception as e:
+                        logger.warning("No se pudo adjuntar archivo en memoria: %s", e)
+
+            # Imágenes inline (CID) para que Gmail y otros clientes las muestren sin bloquear
+            for cid_name, img_bytes in [
+                ("firma", firma_cid_bytes),
+                ("logo", logo_cid_bytes),
+                ("file_icon", file_icon_cid_bytes),
+            ]:
+                if not img_bytes:
+                    continue
+                try:
+                    img = MIMEImage(img_bytes, _subtype="png")
+                    img.add_header("Content-ID", f"<{cid_name}>")
+                    img.add_header("Content-Disposition", "inline", filename=f"{cid_name}.png")
+                    message.attach(img)
+                except Exception as e:
+                    logger.warning("No se pudo adjuntar imagen inline %s: %s", cid_name, e)
 
             # Conectar y enviar
             if config.usar_ssl:
@@ -233,6 +323,74 @@ class EmailService:
         return asunto, cuerpo_html, cuerpo_texto
 
     @staticmethod
+    def _firma_to_bytes_and_src(firma_digital: str) -> tuple:
+        """
+        Devuelve (bytes_para_cid, src_para_html).
+        Si es data URL se extrae base64 a bytes y src='cid:firma'.
+        Si es solo base64 se decodifica a bytes y src='cid:firma'.
+        Si es ruta de archivo existente se lee y se devuelve bytes y cid.
+        """
+        import base64
+        import os
+        raw = (firma_digital or "").strip()
+        if not raw:
+            return None, None
+        if raw.startswith("data:"):
+            # data:image/png;base64,XXXX
+            try:
+                comma = raw.find(",")
+                if comma == -1:
+                    return None, None
+                b64 = raw[comma + 1 :]
+                data = base64.b64decode(b64)
+                return data, "cid:firma"
+            except Exception:
+                return None, None
+        if os.path.sep in raw or (len(raw) < 300 and (raw.startswith("/") or ":" in raw[:5])):
+            # posible ruta
+            if os.path.isfile(raw):
+                try:
+                    with open(raw, "rb") as f:
+                        return f.read(), "cid:firma"
+                except Exception:
+                    pass
+        # base64 puro
+        try:
+            data = base64.b64decode(raw)
+            return data, "cid:firma"
+        except Exception:
+            return None, None
+
+    @staticmethod
+    def get_firma_for_template(
+        db: Session,
+        usuario: Any,
+    ) -> Tuple[Optional[str], Optional[bytes]]:
+        """
+        Obtiene la firma digital del usuario para usarla dentro de la plantilla.
+        Devuelve (firma_url_para_template, firma_bytes_o_none_para_cid).
+        Si firma_bytes no es None, se recomienda usar src=\"cid:firma\" en la plantilla
+        y adjuntar la imagen con Content-ID: <firma>.
+        """
+        if not usuario or not getattr(usuario, "id", None):
+            return None, None
+        from app.models.user import UsuarioPerfil
+        perfil = db.query(UsuarioPerfil).filter(UsuarioPerfil.usuario_id == usuario.id).first()
+        if not perfil:
+            return None, None
+        firma_digital = getattr(perfil, "firma_digital", None) or getattr(perfil, "firma", None)
+        if not firma_digital or not isinstance(firma_digital, str) or not firma_digital.strip():
+            return None, None
+        firma_bytes, src = EmailService._firma_to_bytes_and_src(firma_digital)
+        if firma_bytes and src == "cid:firma":
+            # Dentro de la plantilla se usará src=\"cid:firma\"
+            return "cid:firma", firma_bytes
+        # Fallback data URL (algunos clientes lo bloquean, pero se respeta)
+        raw = firma_digital.strip()
+        src = raw if raw.startswith("data:") else f"data:image/png;base64,{raw}"
+        return src, None
+
+    @staticmethod
     def guardar_historial(
         db: Session,
         empresa_id: str,
@@ -261,4 +419,122 @@ class EmailService:
         db.commit()
         db.refresh(historial)
         return historial
+
+    # Nombres de plantillas de correo (tabla plantillas_correo)
+    NOMBRE_PLANTILLA_NUEVO_SINIESTRO = "Nuevo siniestro"
+    NOMBRE_PLANTILLA_TE_ENVIAN_ARCHIVO = "Envió de archivo"
+
+    @staticmethod
+    def enviar_notificacion_nuevo_siniestro(
+        db: Session,
+        siniestro: Any,
+        current_user: Any,
+        destinatarios: List[str],
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Envía correo de notificación al crear un nuevo siniestro usando la plantilla de correo
+        de la base de datos (plantillas_correo) con nombre "Nuevo siniestro".
+        Si no hay SMTP, no existe la plantilla o falla el envío, retorna (False, mensaje) sin lanzar excepción.
+        """
+        if not destinatarios:
+            return False, "Sin destinatarios"
+
+        # Obtener primera configuración SMTP activa de la empresa
+        config_smtp = db.query(ConfiguracionSMTP).filter(
+            ConfiguracionSMTP.empresa_id == current_user.empresa_id,
+            ConfiguracionSMTP.activo == True,
+        ).first()
+        if not config_smtp:
+            logger.warning("No hay configuración SMTP activa para la empresa: no se envía correo de nuevo siniestro")
+            return False, "Sin configuración SMTP activa"
+
+        # Obtener plantilla de correo desde la base de datos (nombre "Nuevo siniestro")
+        plantilla = db.query(PlantillaCorreo).filter(
+            PlantillaCorreo.empresa_id == current_user.empresa_id,
+            PlantillaCorreo.activo == True,
+            PlantillaCorreo.nombre == EmailService.NOMBRE_PLANTILLA_NUEVO_SINIESTRO,
+        ).first()
+        if not plantilla:
+            logger.warning(
+                "Plantilla de correo '%s' no encontrada o inactiva para la empresa: no se envía correo",
+                EmailService.NOMBRE_PLANTILLA_NUEVO_SINIESTRO,
+            )
+            return False, f"Plantilla de correo '{EmailService.NOMBRE_PLANTILLA_NUEVO_SINIESTRO}' no encontrada o inactiva"
+
+        # Áreas del siniestro (SiniestroArea + Area)
+        from app.models.legal import SiniestroArea, Area
+        areas_rel = db.query(SiniestroArea).filter(
+            SiniestroArea.siniestro_id == siniestro.id,
+            SiniestroArea.activo == True,
+        ).all()
+        area_ids = [r.area_id for r in areas_rel if r.area_id]
+        areas_nombres = []
+        if area_ids:
+            areas_nombres = [
+                a.nombre for a in db.query(Area).filter(Area.id.in_(area_ids)).all()
+            ]
+
+        # Fechas formateadas
+        fecha_reg = getattr(siniestro, "fecha_registro", None) or datetime.now()
+        if hasattr(fecha_reg, "strftime"):
+            fecha_creacion_str = fecha_reg.strftime("%d/%m/%Y %H:%M")
+        else:
+            fecha_creacion_str = str(fecha_reg)
+        fecha_asig = getattr(siniestro, "fecha_siniestro", None) or fecha_reg
+        if hasattr(fecha_asig, "strftime"):
+            fecha_asignacion_str = fecha_asig.strftime("%d/%m/%Y %H:%M")
+        else:
+            fecha_asignacion_str = str(fecha_asig)
+
+        base_url = getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
+        base_for_assets = base_url.rstrip("/")
+        enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
+        id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
+
+        # Logo e icono como CID (como la firma) para que Gmail muestre las imágenes
+        logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
+        logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
+        file_icon_url = "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png"))
+        if not logo_cid_bytes and current_user.empresa_id:
+            from app.models.user import Empresa
+            emp = db.query(Empresa).filter(Empresa.id == current_user.empresa_id).first()
+            if emp and getattr(emp, "logo_url", None) and str(emp.logo_url).strip():
+                logo_url = (emp.logo_url or "").strip()
+
+        # Firma para usar dentro de la plantilla
+        firma_url, firma_cid_bytes = EmailService.get_firma_for_template(db, current_user)
+
+        variables = {
+            "id": id_display,
+            "enlace_ver_id": enlace_ver_id,
+            "areas": areas_nombres,
+            "fecha_creacion": fecha_creacion_str,
+            "fecha_asignacion": fecha_asignacion_str,
+            "logo_url": logo_url,
+            "file_icon_url": file_icon_url,
+            "base_url": base_url,
+            "firma_url": firma_url,
+            "ano_actual": str(datetime.now().year),
+        }
+
+        try:
+            asunto, cuerpo_html, cuerpo_texto = EmailService.render_template(plantilla, variables)
+        except Exception as e:
+            logger.exception("Error renderizando plantilla de correo")
+            return False, str(e)
+
+        success, error = EmailService.send_email_sync(
+            config_smtp,
+            destinatarios,
+            asunto,
+            cuerpo_html=cuerpo_html,
+            cuerpo_texto=cuerpo_texto,
+            firma_cid_bytes=firma_cid_bytes,
+            logo_cid_bytes=logo_cid_bytes,
+            file_icon_cid_bytes=file_icon_cid_bytes,
+        )
+        if not success:
+            return False, error
+        logger.info("Correo de nuevo siniestro enviado a %s", destinatarios)
+        return True, None
 

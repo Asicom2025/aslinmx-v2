@@ -18,6 +18,8 @@ import {
 import { format, parse, startOfWeek, getDay } from "date-fns";
 import { es } from "date-fns/locale";
 import { FiPlus, FiLogOut, FiCheckCircle } from "react-icons/fi";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 import CreateEventModal from "./components/CreateEventModal";
 import DeleteEventModal from "./components/DeleteEventModal";
 import {
@@ -65,6 +67,7 @@ const GOOGLE_CALENDAR_DISCOVERY_DOCS = [
 ];
 
 export default function AgendaPage() {
+  useTour("tour-agenda", { autoStart: true });
   useEffect(() => {
     console.log("CLIENT_ID frontend:", GOOGLE_CALENDAR_CLIENT_ID);
     console.log("API_KEY frontend:", GOOGLE_CALENDAR_API_KEY);
@@ -411,10 +414,11 @@ export default function AgendaPage() {
   const hasEnvConfig = !!GOOGLE_CALENDAR_CLIENT_ID && !!GOOGLE_CALENDAR_API_KEY;
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="w-full p-6 space-y-4">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 mb-1">Agenda</h1>
+          <TourButton tour="tour-agenda" label="Ver guía" />
           <p className="text-sm text-gray-600">
             Visualiza tus próximas citas sincronizadas con Google Calendar.
           </p>
@@ -445,6 +449,7 @@ export default function AgendaPage() {
             )}
             {!isConnected && (
               <button
+                data-tour="agenda-conectar"
                 type="button"
                 onClick={handleConnectGoogle}
                 disabled={loadingCalendar || !hasEnvConfig}
@@ -493,7 +498,7 @@ export default function AgendaPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-lg shadow p-4 h-[70vh]">
+      <div data-tour="agenda-calendario" className="bg-white rounded-lg shadow p-4 h-[70vh]">
         <Calendar
           localizer={localizer}
           events={events}

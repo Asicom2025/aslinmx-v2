@@ -4,7 +4,7 @@ Define los modelos Pydantic para validación y serialización
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, Literal
+from typing import Optional, Literal, List, Dict, Any
 from datetime import datetime, date
 from uuid import UUID
 from decimal import Decimal
@@ -21,7 +21,7 @@ class AreaBase(BaseModel):
 
 class AreaCreate(AreaBase):
     """Schema para crear área"""
-    pass
+    usuario_id: Optional[UUID] = None  # Jefe de área (opcional)
 
 
 class AreaUpdate(BaseModel):
@@ -30,15 +30,18 @@ class AreaUpdate(BaseModel):
     descripcion: Optional[str] = None
     codigo: Optional[str] = Field(None, max_length=20)
     activo: Optional[bool] = None
+    usuario_id: Optional[UUID] = None  # Jefe de área (opcional)
 
 
 class AreaResponse(AreaBase):
     """Schema de respuesta de área"""
     id: UUID
     empresa_id: UUID
+    usuario_id: Optional[UUID] = None  # Jefe de área
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
+    jefe_nombre: Optional[str] = None  # Nombre del jefe (para mostrar en UI)
 
     class Config:
         from_attributes = True
@@ -391,6 +394,22 @@ class CategoriaDocumentoResponse(CategoriaDocumentoBase):
         from_attributes = True
 
 
+# ===== CAMPOS DE FORMULARIO PERSONALIZADO =====
+TipoCampoFormulario = Literal["text", "number", "currency", "date", "datetime", "email", "tel", "textarea", "select"]
+TamañoCampoFormulario = Literal["full", "half", "third"]
+
+class CampoFormulario(BaseModel):
+    """Definición de un campo del formulario personalizado de una plantilla"""
+    clave: str = Field(..., description="Nombre clave único para el campo (usado como variable en el HTML)")
+    tipo: TipoCampoFormulario = Field("text", description="Tipo de dato del campo")
+    titulo: str = Field(..., description="Etiqueta visible del campo")
+    placeholder: Optional[str] = None
+    tamano: TamañoCampoFormulario = Field("full", description="Ancho del campo en la cuadrícula")
+    requerido: bool = False
+    opciones: Optional[List[str]] = Field(None, description="Solo para tipo 'select': lista de opciones")
+    orden: int = Field(0, description="Orden de aparición en el formulario")
+
+
 # ===== PLANTILLAS DE DOCUMENTO =====
 class PlantillaDocumentoBase(BaseModel):
     """Schema base de plantilla de documento"""
@@ -399,6 +418,7 @@ class PlantillaDocumentoBase(BaseModel):
     contenido: Optional[str] = None  # Contenido HTML de la plantilla
     formato: Optional[str] = Field(None, max_length=50)
     logo_url: Optional[str] = None  # URL o base64 del logo de la plantilla
+    campos_formulario: Optional[List[CampoFormulario]] = None  # Definición de campos del formulario personalizado
     activo: bool = True
 
 
@@ -417,6 +437,7 @@ class PlantillaDocumentoUpdate(BaseModel):
     contenido: Optional[str] = None
     formato: Optional[str] = Field(None, max_length=50)
     logo_url: Optional[str] = None  # URL o base64 del logo de la plantilla
+    campos_formulario: Optional[List[CampoFormulario]] = None
     categoria_id: Optional[UUID] = None
     header_plantilla_id: Optional[UUID] = None  # Header opcional (auto-referencia)
     plantilla_continuacion_id: Optional[UUID] = None  # Segunda sección
@@ -441,6 +462,33 @@ class PlantillaDocumentoResponse(PlantillaDocumentoBase):
 class PlantillaDocumentoConHeaderResponse(PlantillaDocumentoResponse):
     """Schema de respuesta de plantilla con datos del header expandidos"""
     header_plantilla: Optional[PlantillaDocumentoResponse] = None
+
+
+# ===== RESPUESTAS FORMULARIO PLANTILLA =====
+class RespuestaFormularioCreate(BaseModel):
+    """Schema para crear/actualizar respuesta de formulario de plantilla"""
+    plantilla_id: UUID
+    siniestro_id: UUID
+    valores: Dict[str, Any] = Field(default_factory=dict, description="Mapa clave→valor de los campos del formulario")
+
+
+class RespuestaFormularioUpdate(BaseModel):
+    """Schema para actualizar parcialmente los valores de una respuesta"""
+    valores: Dict[str, Any]
+
+
+class RespuestaFormularioResponse(BaseModel):
+    """Schema de respuesta"""
+    id: UUID
+    plantilla_id: UUID
+    siniestro_id: UUID
+    usuario_id: Optional[UUID] = None
+    valores: Dict[str, Any]
+    creado_en: datetime
+    actualizado_en: datetime
+
+    class Config:
+        from_attributes = True
 
     class Config:
         from_attributes = True
@@ -642,6 +690,9 @@ class DocumentoCreate(DocumentoBase):
     flujo_trabajo_id: Optional[UUID] = None  # Flujo de trabajo específico del documento
     usuario_subio: Optional[UUID] = None
     version: int = 1
+    # Campos para bitácora al crear documento (carga de informe)
+    horas_trabajadas_bitacora: Optional[Decimal] = Field(None, ge=0, le=24)
+    comentarios_bitacora: Optional[str] = None
 
 
 class DocumentoUpdate(BaseModel):
@@ -659,6 +710,9 @@ class DocumentoUpdate(BaseModel):
     area_id: Optional[UUID] = None
     flujo_trabajo_id: Optional[UUID] = None
     activo: Optional[bool] = None
+    # Campos para bitácora al actualizar documento (actualización de informe)
+    horas_trabajadas_bitacora: Optional[Decimal] = Field(None, ge=0, le=24)
+    comentarios_bitacora: Optional[str] = None
 
 
 class DocumentoResponse(DocumentoBase):
@@ -676,6 +730,7 @@ class DocumentoResponse(DocumentoBase):
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
+    plantilla_tiene_continuacion: Optional[bool] = None  # True si la plantilla tiene segunda parte con formulario
 
     class Config:
         from_attributes = True

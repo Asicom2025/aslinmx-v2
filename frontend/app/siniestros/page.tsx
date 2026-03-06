@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
+import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -18,6 +19,8 @@ import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
 import { Siniestro } from "@/types/siniestros";
 import { FiEdit2, FiTrash2, FiEye } from "react-icons/fi";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 import {
   PersonaLigera,
   CatalogOption,
@@ -139,6 +142,12 @@ const mapUserToPersona = (usuario: any): PersonaLigera => {
 export default function SiniestrosPage() {
   const router = useRouter();
   const { user, loading } = useUser();
+  const { can } = usePermisos();
+  const canCrearSiniestro = can("siniestros", "crear");
+  const canVerDetalle = can("siniestros", "ver_detalle");
+  const canActualizarSiniestro = can("siniestros", "actualizar");
+  const canEliminarSiniestro = can("siniestros", "eliminar");
+  useTour("tour-siniestros", { autoStart: true });
   const [siniestros, setSiniestros] = useState<Siniestro[]>([]);
   const [siniestrosLoading, setSiniestrosLoading] = useState(false);
   const [areas, setAreas] = useState<any[]>([]);
@@ -1043,27 +1052,33 @@ export default function SiniestrosPage() {
       header: "Acciones",
       cell: ({ row }) => (
         <div className="flex gap-2">
-          <button
-            onClick={() => router.push(`/siniestros/${row.original.id}`)}
-            className="text-blue-600 hover:text-blue-800"
-            title="Ver detalle"
-          >
-            <FiEye className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => openEdit(row.original)}
-            className="text-primary-600 hover:text-primary-800"
-            title="Editar"
-          >
-            <FiEdit2 className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => deleteSiniestro(row.original.id)}
-            className="text-red-600 hover:text-red-800"
-            title="Eliminar"
-          >
-            <FiTrash2 className="w-5 h-5" />
-          </button>
+          {canVerDetalle && (
+            <button
+              onClick={() => router.push(`/siniestros/${row.original.id}`)}
+              className="text-blue-600 hover:text-blue-800"
+              title="Ver detalle"
+            >
+              <FiEye className="w-5 h-5" />
+            </button>
+          )}
+          {canActualizarSiniestro && (
+            <button
+              onClick={() => openEdit(row.original)}
+              className="text-primary-600 hover:text-primary-800"
+              title="Editar"
+            >
+              <FiEdit2 className="w-5 h-5" />
+            </button>
+          )}
+          {canEliminarSiniestro && (
+            <button
+              onClick={() => deleteSiniestro(row.original.id)}
+              className="text-red-600 hover:text-red-800"
+              title="Eliminar"
+            >
+              <FiTrash2 className="w-5 h-5" />
+            </button>
+          )}
         </div>
       ),
     },
@@ -1275,15 +1290,20 @@ export default function SiniestrosPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen w-full bg-gray-50 p-6">
+      <div className="w-full">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Siniestros</h1>
-          <Button onClick={() => router.push("/siniestros/nuevo")}>Nuevo Siniestro</Button>
+          <div className="flex items-center gap-3">
+            <TourButton tour="tour-siniestros" label="Ver guía" />
+            {canCrearSiniestro && (
+              <Button data-tour="siniestros-nuevo" onClick={() => router.push("/siniestros/nuevo")}>Nuevo Siniestro</Button>
+            )}
+          </div>
         </div>
 
         {/* Filtros */}
-        <div className="bg-white p-4 rounded-lg shadow mb-6">
+        <div data-tour="siniestros-filtros" className="bg-white p-4 rounded-lg shadow mb-6">
           <h2 className="text-lg font-semibold mb-4">Filtros</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <CustomSelect
@@ -1400,7 +1420,7 @@ export default function SiniestrosPage() {
         </div>
 
         {/* Tabla */}
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <div data-tour="siniestros-tabla" className="bg-white rounded-lg shadow overflow-x-auto">
           {siniestrosLoading ? (
             <div className="p-8 text-center text-gray-500">
               Cargando siniestros...

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useUser } from "@/context/UserContext";
+import { usePermisos } from "@/hooks/usePermisos";
 import LogoDx from "@/assets/logos/logo_dx-legal.png";
 import {
   FiHome,
@@ -14,6 +15,7 @@ import {
   FiClock,
   FiHelpCircle,
 } from "react-icons/fi";
+import TourButton from "@/components/ui/TourButton";
 import { FaFileContract } from "react-icons/fa";
 
 const baseLinks = [
@@ -43,6 +45,7 @@ const iconMap: Record<string, JSX.Element> = {
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const { activeEmpresa } = useUser();
+  const { canAccessRoute } = usePermisos();
 
   const gradientStyle = useMemo(() => {
     const primary = activeEmpresa?.color_secundario || "#0A2E5C";
@@ -52,10 +55,11 @@ export default function Sidebar() {
   }, [activeEmpresa]);
 
   const logoSrc = activeEmpresa?.logo_url || LogoDx.src;
-  const links = useMemo(
-    () => baseLinks.filter((link) => link.href !== "/empresas"),
-    []
-  );
+  const links = useMemo(() => {
+    return baseLinks
+      .filter((link) => link.href !== "/empresas")
+      .filter((link) => canAccessRoute(link.href));
+  }, [canAccessRoute]);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -70,6 +74,7 @@ export default function Sidebar() {
 
   return (
     <aside
+      data-tour="sidebar"
       style={gradientStyle}
       className={`fixed z-40 inset-y-0 left-0 h-screen w-64 transform transition-transform duration-200 ease-in-out text-white lg:translate-x-0 ${
         open ? "translate-x-0" : "-translate-x-full"
@@ -85,7 +90,7 @@ export default function Sidebar() {
           className="h-full w-full object-contain"
         />
       </div>
-      <nav className="py-4">
+      <nav className="py-4 flex-1">
         {links.map((item) => (
           <Link
             key={item.href}
@@ -97,6 +102,14 @@ export default function Sidebar() {
           </Link>
         ))}
       </nav>
+      {/* Botón de tour general en el pie del sidebar */}
+      <div className="px-4 pb-4 border-t border-white/10 pt-3">
+        <TourButton
+          tour="tour-general"
+          label="Tour de bienvenida"
+          className="flex items-center gap-2 text-sm text-white/70 hover:text-white transition-colors w-full"
+        />
+      </div>
     </aside>
   );
 }

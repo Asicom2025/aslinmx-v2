@@ -8,7 +8,27 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.models.user import Rol
+from app.models.permiso import RolPermiso, Accion, Modulo
 from app.schemas.rol_schema import RolCreate, RolUpdate
+
+
+def _asignar_modulos_por_defecto(db: Session, rol_id: str) -> None:
+    """
+    Asigna al rol nuevo el permiso 'leer' en todos los módulos activos.
+    """
+    accion_leer = db.query(Accion).filter(Accion.nombre_tecnico == "leer", Accion.activo == True).first()
+    if not accion_leer:
+        return
+    modulos = db.query(Modulo).filter(Modulo.activo == True, Modulo.eliminado_en.is_(None)).all()
+    for m in modulos:
+        existente = db.query(RolPermiso).filter(
+            RolPermiso.rol_id == rol_id,
+            RolPermiso.modulo_id == m.id,
+            RolPermiso.accion_id == accion_leer.id,
+        ).first()
+        if not existente:
+            db.add(RolPermiso(rol_id=rol_id, modulo_id=m.id, accion_id=accion_leer.id, activo=True))
+    db.commit()
 
 
 class RolService:
@@ -50,19 +70,14 @@ class RolService:
     @staticmethod
     def create_rol(db: Session, rol: RolCreate) -> Rol:
         """
-        Crea un nuevo rol
-        
-        Args:
-            db: Sesión de base de datos
-            rol: Datos del rol a crear
-        
-        Returns:
-            Rol creado
+        Crea un nuevo rol y le asigna automáticamente el permiso 'leer'
+        en todos los módulos disponibles.
         """
         db_rol = Rol(**rol.model_dump())
         db.add(db_rol)
         db.commit()
         db.refresh(db_rol)
+        _asignar_modulos_por_defecto(db, str(db_rol.id))
         return db_rol
     
     @staticmethod

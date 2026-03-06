@@ -4,6 +4,7 @@
  */
 
 import axios from "axios";
+import { getApiErrorMessage } from "./parseApiError";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -39,6 +40,13 @@ api.interceptors.response.use(
       url.includes("/users/login") ||
       url.includes("/users/register") ||
       url.includes("/users/2fa/verify");
+
+    // Homologar: siempre dejar response.data.detail como string legible para el usuario
+    const data = error.response?.data;
+    if (data) {
+      const message = getApiErrorMessage(data, "Ha ocurrido un error. Intente de nuevo.");
+      error.response.data.detail = message;
+    }
 
     // Solo redirigir en 401 cuando el usuario tenía un token (sesión) y no es una ruta de auth
     if (status === 401) {
@@ -133,6 +141,7 @@ const userService = {
     empresa_id?: string;
     empresa_ids?: string[];
     rol_id?: string;
+    area_ids?: string[];
     is_active?: boolean;
     password?: string;
     perfil?: {
@@ -200,14 +209,53 @@ const rolService = {
 
 // Servicios de permisos
 const permisoService = {
+  /** Permisos del usuario actual (según su rol). También vienen en getCurrentUser().permisos */
+  getMisPermisos: async (): Promise<{ modulo: string; accion: string }[]> => {
+    const response = await api.get("/permisos/mis-permisos");
+    return response.data;
+  },
   getModulos: async (activo?: boolean) => {
     const params = activo !== undefined ? `?activo=${activo}` : "";
     const response = await api.get(`/permisos/modulos${params}`);
     return response.data;
   },
+  createModulo: async (data: {
+    nombre: string;
+    nombre_tecnico: string;
+    descripcion?: string;
+    icono?: string;
+    ruta?: string;
+    orden?: number;
+    activo?: boolean;
+  }) => {
+    const response = await api.post("/permisos/modulos", data);
+    return response.data;
+  },
   getAcciones: async (activo?: boolean) => {
     const params = activo !== undefined ? `?activo=${activo}` : "";
     const response = await api.get(`/permisos/acciones${params}`);
+    return response.data;
+  },
+  createAccion: async (data: {
+    nombre: string;
+    nombre_tecnico: string;
+    descripcion?: string;
+    activo?: boolean;
+  }) => {
+    const response = await api.post("/permisos/acciones", data);
+    return response.data;
+  },
+  getAccionesPorModulo: async (moduloId: string, activo?: boolean) => {
+    const params = activo !== undefined ? `?activo=${activo}` : "";
+    const response = await api.get(`/permisos/modulos/${moduloId}/acciones${params}`);
+    return response.data;
+  },
+  asignarAccionModulo: async (rolId: string, moduloId: string, accionId: string) => {
+    const response = await api.post(`/permisos/roles/${rolId}/modulos/${moduloId}/acciones/${accionId}`);
+    return response.data;
+  },
+  desasignarAccionModulo: async (rolId: string, moduloId: string, accionId: string) => {
+    const response = await api.delete(`/permisos/roles/${rolId}/modulos/${moduloId}/acciones/${accionId}`);
     return response.data;
   },
   getPermisosRol: async (rolId: string, activo?: boolean) => {
@@ -404,11 +452,11 @@ const catalogService = {
     const res = await api.get(`/catalogos/areas${params}`);
     return res.data;
   },
-  createArea: async (data: { nombre: string; descripcion?: string; codigo?: string; activo?: boolean }) => {
+  createArea: async (data: { nombre: string; descripcion?: string; codigo?: string; activo?: boolean; usuario_id?: string | null }) => {
     const res = await api.post(`/catalogos/areas`, data);
     return res.data;
   },
-  updateArea: async (areaId: string, data: { nombre?: string; descripcion?: string; codigo?: string; activo?: boolean }) => {
+  updateArea: async (areaId: string, data: { nombre?: string; descripcion?: string; codigo?: string; activo?: boolean; usuario_id?: string | null }) => {
     const res = await api.put(`/catalogos/areas/${areaId}`, data);
     return res.data;
   },
@@ -669,6 +717,31 @@ const catalogService = {
   },
   deletePlantillaDocumento: async (id: string) => {
     const res = await api.delete(`/catalogos/plantillas-documento/${id}`);
+    return res.data;
+  },
+
+  // ─── Respuestas de formulario personalizado ───────────────────────────────
+  getRespuestaFormulario: async (plantillaId: string, siniestroId: string) => {
+    const res = await api.get(
+      `/catalogos/plantillas-documento/${plantillaId}/respuesta/${siniestroId}`
+    );
+    return res.data;
+  },
+
+  upsertRespuestaFormulario: async (
+    plantillaId: string,
+    siniestroId: string,
+    valores: Record<string, any>
+  ) => {
+    const res = await api.put(
+      `/catalogos/plantillas-documento/${plantillaId}/respuesta/${siniestroId}`,
+      { valores }
+    );
+    return res.data;
+  },
+
+  getRespuestasByPosSiniestro: async (siniestroId: string) => {
+    const res = await api.get(`/catalogos/respuestas-formulario/siniestro/${siniestroId}`);
     return res.data;
   },
 };
@@ -973,6 +1046,8 @@ const documentoService = {
     es_principal?: boolean;
     es_adicional?: boolean;
     activo?: boolean;
+    horas_trabajadas_bitacora?: number;
+    comentarios_bitacora?: string;
   }) => {
     const response = await api.post("/documentos", data);
     return response.data;
@@ -991,6 +1066,8 @@ const documentoService = {
     area_id?: string;
     flujo_trabajo_id?: string;
     activo?: boolean;
+    horas_trabajadas_bitacora?: number;
+    comentarios_bitacora?: string;
   }) => {
     const response = await api.put(`/documentos/${documentoId}`, data);
     return response.data;
@@ -999,6 +1076,50 @@ const documentoService = {
   deleteDocumento: async (documentoId: string) => {
     const response = await api.delete(`/documentos/${documentoId}`);
     return response.data;
+  },
+
+  /** Sube un archivo (foto, PDF, etc.) como documento del siniestro. */
+  uploadDocumento: async (
+    siniestroId: string,
+    file: File,
+    options?: {
+      descripcion?: string;
+      area_id?: string;
+      flujo_trabajo_id?: string;
+      tipo_documento_id?: string;
+      plantilla_documento_id?: string;
+      horas_trabajadas?: number;
+      comentarios?: string;
+    }
+  ) => {
+    const form = new FormData();
+    form.append("siniestro_id", siniestroId);
+    form.append("file", file);
+    if (options?.descripcion) form.append("descripcion", options.descripcion);
+    if (options?.area_id) form.append("area_id", options.area_id);
+    if (options?.flujo_trabajo_id) form.append("flujo_trabajo_id", options.flujo_trabajo_id);
+    if (options?.tipo_documento_id) form.append("tipo_documento_id", options.tipo_documento_id);
+    if (options?.plantilla_documento_id) form.append("plantilla_documento_id", options.plantilla_documento_id);
+    if (options?.horas_trabajadas != null && !Number.isNaN(Number(options.horas_trabajadas))) form.append("horas_trabajadas", String(options.horas_trabajadas));
+    if (options?.comentarios != null && String(options.comentarios).trim() !== "") form.append("comentarios", options.comentarios);
+    const response = await api.post("/documentos/upload", form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return response.data;
+  },
+
+  /** Descarga o abre el archivo de un documento (documentos subidos). */
+  downloadDocumentoArchivo: async (documentoId: string, nombreArchivo?: string) => {
+    const response = await api.get(`/documentos/${documentoId}/archivo`, {
+      responseType: "blob",
+    });
+    const blob = response.data as Blob;
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombreArchivo || "archivo";
+    a.click();
+    window.URL.revokeObjectURL(url);
   },
 };
 
@@ -1124,6 +1245,7 @@ const pdfService = {
   generatePDF: async (data: {
     html_content: string;
     plantilla_id?: string;
+    siniestro_id?: string;
     page_size?: "A4" | "Letter" | "Legal" | "A3" | "A5";
     orientation?: "portrait" | "landscape";
     margin_top?: string;
@@ -1243,6 +1365,19 @@ const configService = {
   },
   enviarCorreo: async (data: any) => {
     const response = await api.post("/configuracion/enviar-correo", data);
+    return response.data;
+  },
+  /** Envío con plantilla "Te envían un archivo". Si documento_id es un informe, se adjunta PDF. */
+  enviarArchivoCorreo: async (data: {
+    siniestro_id: string;
+    configuracion_smtp_id: string;
+    destinatarios: string[];
+    mensaje: string;
+    documento_id?: string | null;
+    tipo_documento_nombre?: string;
+    categoria_nombre?: string;
+  }) => {
+    const response = await api.post("/configuracion/enviar-archivo-correo", data);
     return response.data;
   },
 

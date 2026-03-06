@@ -7,10 +7,11 @@ import Modal from "@/components/ui/Modal";
 import DataTable from "@/components/ui/DataTable";
 import JoditEditor from "@/components/ui/JoditEditor";
 import PDFPreviewModal from "./PDFPreviewModal";
+import FormularioDesigner, { CampoFormulario } from "@/components/plantillas/FormularioDesigner";
 import { ColumnDef } from "@tanstack/react-table";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
-import { FiEye } from "react-icons/fi";
+import { FiEye, FiList } from "react-icons/fi";
 
 interface PlantillasCategoriaModalProps {
   open: boolean;
@@ -40,6 +41,9 @@ export default function PlantillasCategoriaModal({
   const [editing, setEditing] = useState<any | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewPlantilla, setPreviewPlantilla] = useState<any | null>(null);
+  const [formularioModalOpen, setFormularioModalOpen] = useState(false);
+  const [formularioPlantilla, setFormularioPlantilla] = useState<any | null>(null);
+  const [formularioCampos, setFormularioCampos] = useState<CampoFormulario[]>([]);
   const [form, setForm] = useState({
     nombre: "",
     descripcion: "",
@@ -185,6 +189,36 @@ export default function PlantillasCategoriaModal({
     setPreviewModalOpen(true);
   };
 
+  const openFormulario = (plantilla: any) => {
+    setFormularioPlantilla(plantilla);
+    // Asignar _id estable a cada campo proveniente del servidor para evitar re-renders al editar
+    const camposConId = (plantilla.campos_formulario ?? []).map((c: any, i: number) => ({
+      ...c,
+      _id: c._id ?? `f_${Date.now()}_${i}`,
+    }));
+    setFormularioCampos(camposConId);
+    setFormularioModalOpen(true);
+  };
+
+  const saveFormulario = async () => {
+    if (!formularioPlantilla) return;
+    try {
+      await apiService.updatePlantillaDocumento(formularioPlantilla.id, {
+        campos_formulario: formularioCampos,
+      });
+      await swalSuccess("Formulario guardado");
+      setFormularioModalOpen(false);
+      loadPlantillas();
+      if (onSuccess) onSuccess();
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al guardar el formulario");
+    }
+  };
+
+  /** Muestra el formulario solo si la plantilla tiene una segunda sección de contenido */
+  const tieneMultiplesPartes = (plantilla: any) =>
+    !!plantilla.plantilla_continuacion_id;
+
   const columns: ColumnDef<any>[] = [
     {
       header: "Nombre",
@@ -221,7 +255,7 @@ export default function PlantillasCategoriaModal({
         const canPreview = plantilla.contenido && plantilla.contenido.trim() !== "";
 
         return (
-          <div className="flex gap-2 justify-end">
+          <div className="flex gap-2 justify-end flex-wrap">
             {canPreview && (
               <Button
                 variant="secondary"
@@ -231,6 +265,22 @@ export default function PlantillasCategoriaModal({
               >
                 <FiEye className="w-4 h-4 mr-1" />
                 Vista Previa
+              </Button>
+            )}
+            {tieneMultiplesPartes(plantilla) && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => openFormulario(plantilla)}
+                title="Diseñar formulario de captura de datos"
+              >
+                <FiList className="w-4 h-4 mr-1" />
+                Formulario
+                {plantilla.campos_formulario?.length > 0 && (
+                  <span className="ml-1 bg-primary-100 text-primary-700 text-xs rounded-full px-1.5">
+                    {plantilla.campos_formulario.length}
+                  </span>
+                )}
               </Button>
             )}
             <Button variant="secondary" size="sm" onClick={() => openEdit(plantilla)}>
@@ -395,6 +445,32 @@ export default function PlantillasCategoriaModal({
               setPreviewPlantilla(null);
             }}
           />
+        </Modal>
+      )}
+
+      {/* Modal de diseño de formulario */}
+      {formularioPlantilla && (
+        <Modal
+          open={formularioModalOpen}
+          onClose={() => setFormularioModalOpen(false)}
+          title={`Formulario de captura — ${formularioPlantilla.nombre}`}
+          maxWidthClass="max-w-3xl"
+          maxHeightClass="max-h-[95vh]"
+        >
+          <div className="space-y-4">
+            <FormularioDesigner
+              campos={formularioCampos}
+              onChange={setFormularioCampos}
+            />
+            <div className="flex justify-end gap-3 pt-2 border-t">
+              <Button variant="secondary" onClick={() => setFormularioModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button variant="primary" onClick={saveFormulario}>
+                Guardar formulario
+              </Button>
+            </div>
+          </div>
         </Modal>
       )}
     </>

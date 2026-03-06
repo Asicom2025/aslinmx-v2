@@ -13,7 +13,7 @@ from app.schemas.permiso_schema import (
     ModuloCreate, ModuloUpdate,
     AccionCreate,
     RolPermisoCreate, RolPermisoUpdate,
-    PermisoConfig, RolPermisosConfigResponse
+    PermisoConfig, AccionConfigItem, ModuloConfigItem, RolPermisosConfigResponse
 )
 
 
@@ -49,6 +49,36 @@ class ModuloService:
             and_(Modulo.nombre_tecnico == nombre_tecnico, Modulo.eliminado_en.is_(None))
         ).first()
 
+    @staticmethod
+    def create_modulo(db: Session, modulo: ModuloCreate) -> Modulo:
+        """Crea un nuevo módulo"""
+        db_modulo = Modulo(
+            nombre=modulo.nombre,
+            descripcion=modulo.descripcion,
+            nombre_tecnico=modulo.nombre_tecnico,
+            icono=modulo.icono,
+            ruta=modulo.ruta,
+            orden=modulo.orden if modulo.orden is not None else 0,
+            activo=modulo.activo if modulo.activo is not None else True,
+        )
+        db.add(db_modulo)
+        db.commit()
+        db.refresh(db_modulo)
+        return db_modulo
+
+    @staticmethod
+    def update_modulo(db: Session, modulo_id: str, modulo_update: ModuloUpdate) -> Optional[Modulo]:
+        """Actualiza un módulo existente"""
+        db_modulo = ModuloService.get_modulo_by_id(db, modulo_id)
+        if not db_modulo:
+            return None
+        update_data = modulo_update.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(db_modulo, field, value)
+        db.commit()
+        db.refresh(db_modulo)
+        return db_modulo
+
 
 class AccionService:
     """Servicio para operaciones CRUD de acciones"""
@@ -77,6 +107,40 @@ class AccionService:
         return db.query(Accion).filter(
             and_(Accion.nombre_tecnico == nombre_tecnico, Accion.activo == True)
         ).first()
+
+    @staticmethod
+    def get_acciones_por_modulo(db: Session, modulo_id: str, activo: Optional[bool] = True) -> List[Accion]:
+        """Obtiene las acciones asignadas a un módulo (desde rol_permisos)"""
+        accion_ids = (
+            db.query(RolPermiso.accion_id)
+            .filter(
+                RolPermiso.modulo_id == modulo_id,
+                RolPermiso.activo == True,
+            )
+            .distinct()
+            .all()
+        )
+        ids = [a[0] for a in accion_ids]
+        if not ids:
+            return []
+        query = db.query(Accion).filter(Accion.id.in_(ids))
+        if activo is not None:
+            query = query.filter(Accion.activo == activo)
+        return query.order_by(Accion.nombre).all()
+
+    @staticmethod
+    def create_accion(db: Session, accion: AccionCreate) -> Accion:
+        """Crea una nueva acción"""
+        db_accion = Accion(
+            nombre=accion.nombre,
+            descripcion=accion.descripcion,
+            nombre_tecnico=accion.nombre_tecnico,
+            activo=accion.activo if accion.activo is not None else True,
+        )
+        db.add(db_accion)
+        db.commit()
+        db.refresh(db_accion)
+        return db_accion
 
 
 class RolPermisoService:
@@ -173,46 +237,61 @@ class RolPermisoService:
         rol_id: str
     ) -> RolPermisosConfigResponse:
         """
-        Obtiene la configuración completa de permisos de un rol
-        Retorna una estructura con todos los módulos y acciones, marcando cuáles tiene el rol
+        Obtiene la configuración completa de permisos de un rol.
+        Retorna TODOS los módulos. Las acciones de cada módulo vienen de rol_permisos
+        para este rol (rol_id). Sin dependencia de ningún rol de referencia.
+        Agregar acción = insert en rol_permisos. Quitar = delete.
         """
-        # Obtener el rol
         rol = db.query(Rol).filter(Rol.id == rol_id).first()
         if not rol:
             raise ValueError("Rol no encontrado")
-        
-        # Obtener todos los módulos activos
-        modulos = ModuloService.get_modulos(db, activo=True, limit=1000)
-        
-        # Obtener todas las acciones activas
-        acciones = AccionService.get_acciones(db, activo=True)
-        
-        # Obtener permisos del rol
-        permisos_rol = RolPermisoService.get_permisos_por_rol(db, rol_id, activo=True)
-        
-        # Crear un set de permisos para búsqueda rápida
-        permisos_set = {
-            (str(p.modulo_id), str(p.accion_id)) for p in permisos_rol
-        }
-        
-        # Construir la lista de configuración
-        permisos_config = []
+
+        # Todos los módulos activos (ordenados)
+        modulos = ModuloService.get_modulos(db, limit=500, activo=True)
+
+        # Permisos de ESTE rol: mapa (modulo_id, accion) -> permiso
+        permisos_rol = (
+            db.query(RolPermiso)
+            .join(Accion, RolPermiso.accion_id == Accion.id)
+            .filter(
+                RolPermiso.rol_id == rol_id,
+                RolPermiso.activo == True,
+                Accion.activo == True,
+            )
+            .all()
+        )
+        # Mapa modulo_id -> [accion, ...]
+        por_modulo: Dict[str, List] = {}
+        for p in permisos_rol:
+            mid = str(p.modulo_id)
+            if mid not in por_modulo:
+                por_modulo[mid] = []
+            por_modulo[mid].append(p.accion)
+
+        modulos_config = []
         for modulo in modulos:
-            for accion in acciones:
-                tiene_permiso = (str(modulo.id), str(accion.id)) in permisos_set
-                permisos_config.append(PermisoConfig(
-                    modulo_id=modulo.id,
-                    modulo_nombre=modulo.nombre,
-                    accion_id=accion.id,
-                    accion_nombre=accion.nombre,
-                    accion_tecnica=accion.nombre_tecnico,
-                    tiene_permiso=tiene_permiso
-                ))
-        
+            mid = str(modulo.id)
+            acciones_rol = por_modulo.get(mid, [])
+            acciones_config = [
+                AccionConfigItem(
+                    accion_id=a.id,
+                    accion_nombre=a.nombre,
+                    accion_tecnica=a.nombre_tecnico,
+                    tiene_permiso=True,  # Si está en la lista, tiene permiso
+                )
+                for a in sorted(acciones_rol, key=lambda x: x.nombre)
+            ]
+            modulos_config.append(ModuloConfigItem(
+                modulo_id=modulo.id,
+                modulo_nombre=modulo.nombre,
+                orden=modulo.orden or 0,
+                acciones=acciones_config,
+            ))
+
         return RolPermisosConfigResponse(
             rol_id=rol.id,
             rol_nombre=rol.nombre,
-            permisos=permisos_config
+            modulos=modulos_config,
         )
     
     @staticmethod
@@ -256,4 +335,64 @@ class RolPermisoService:
             "actualizados": actualizados,
             "total": len(permisos)
         }
+
+    @staticmethod
+    def asignar_accion_modulo(
+        db: Session, rol_id: str, modulo_id: str, accion_id: str
+    ) -> bool:
+        """
+        Asigna una acción a un módulo para un rol. Inserta en rol_permisos.
+        """
+        existente = RolPermisoService.get_permiso_especifico(
+            db, rol_id, modulo_id, accion_id
+        )
+        if existente:
+            return True
+        RolPermisoService.create_permiso(
+            db,
+            RolPermisoCreate(
+                rol_id=rol_id,
+                modulo_id=modulo_id,
+                accion_id=accion_id,
+                activo=True,
+            ),
+        )
+        return True
+
+    @staticmethod
+    def desasignar_accion_modulo(
+        db: Session, rol_id: str, modulo_id: str, accion_id: str
+    ) -> bool:
+        """Quita una acción de un módulo para un rol (elimina de rol_permisos)."""
+        permiso = RolPermisoService.get_permiso_especifico(
+            db, rol_id, modulo_id, accion_id
+        )
+        if not permiso:
+            return False
+        return RolPermisoService.delete_permiso(db, str(permiso.id))
+
+    @staticmethod
+    def get_permisos_por_rol_nombres(
+        db: Session, rol_id: str, activo: Optional[bool] = True
+    ) -> List[Dict[str, str]]:
+        """
+        Obtiene los permisos de un rol como lista de { modulo, accion } (nombres técnicos).
+        Útil para el frontend y para validar permisos.
+        """
+        if not rol_id:
+            return []
+        query = (
+            db.query(Modulo.nombre_tecnico, Accion.nombre_tecnico)
+            .join(RolPermiso, RolPermiso.modulo_id == Modulo.id)
+            .join(Accion, RolPermiso.accion_id == Accion.id)
+            .filter(
+                RolPermiso.rol_id == rol_id,
+                RolPermiso.activo == True,
+                Modulo.activo == True,
+                Modulo.eliminado_en.is_(None),
+                Accion.activo == True,
+            )
+        )
+        rows = query.all()
+        return [{"modulo": r[0], "accion": r[1]} for r in rows]
 

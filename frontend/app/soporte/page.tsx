@@ -34,7 +34,7 @@ export default function SoportePage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="w-full p-6">
       <h1 className="text-3xl font-bold text-gray-900 mb-6">Ayuda y Soporte</h1>
       <div className="bg-white rounded-lg shadow p-8">
         <div className="space-y-6">
