@@ -263,11 +263,9 @@ export default function Navbar() {
                     <div className="px-4 py-2 border-t border-gray-100 first:border-t-0">
                       <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Áreas asignadas</p>
                       {user?.areas && user.areas.length > 0 ? (
-                        <ul className="text-sm text-gray-700 flex flex-wrap gap-1">
-                          {user.areas.map((a) => (
-                            <li key={a.id}>{a.nombre}</li>
-                          )).reduce((acc, curr) => acc.concat(curr, " · "), []).slice(0, -1)}
-                        </ul>
+                        <p className="text-sm text-gray-700">
+                          {user.areas.map((a) => a.nombre).join(" · ")}
+                        </p>
                       ) : (
                         <p className="text-sm text-gray-500">Sin áreas asignadas</p>
                       )}
