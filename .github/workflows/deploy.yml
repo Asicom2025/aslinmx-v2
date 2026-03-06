@@ -30,7 +30,9 @@ jobs:
 
       - name: Build & Push Frontend
         run: |
-          docker build -t $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:latest ./frontend
+          docker build -t $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:latest \
+            --build-arg NEXT_PUBLIC_API_URL=https://app.aslin.online \
+            ./frontend
           docker push $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:latest
 
       - name: Deploy on Server
@@ -42,5 +44,5 @@ jobs:
           passphrase: ${{ secrets.SERVER_SSH_PASSPHRASE }}
           script: |
             cd /opt/app
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker compose -f docker-compose.prod.yml pull --ignore-pull-failures
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
