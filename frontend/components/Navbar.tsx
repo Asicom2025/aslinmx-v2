@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { swalSuccess } from "@/lib/swal";
 import { useUser } from "@/context/UserContext";
@@ -10,12 +10,26 @@ import { FiBell, FiMenu, FiSearch, FiChevronDown } from "react-icons/fi";
 import apiService from "@/lib/apiService";
 import { Notificacion } from "@/types/notificaciones";
 
+type BusquedaTab = "id" | "numero_siniestro" | "asegurado";
+
+/**
+ * ID = clave proveniente - consecutivo - anualidad (ej. 102-001-25 o 1-001-25).
+ * Acepta con guiones o sin ellos; el backend parsea ambos.
+ */
+
 export default function Navbar() {
   const router = useRouter();
   const [profileOpen, setProfileOpen] = useState(false);
   const [notificacionesOpen, setNotificacionesOpen] = useState(false);
   const [notificaciones, setNotificaciones] = useState<Notificacion[]>([]);
   const [notificacionesNoLeidas, setNotificacionesNoLeidas] = useState(0);
+  const [searchValue, setSearchValue] = useState("");
+  const [activeSearchTab, setActiveSearchTab] = useState<BusquedaTab>("id");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   const { user, logout, activeEmpresa, setActiveEmpresa } = useUser();
   const empresasDisponibles = useMemo<EmpresaSummary[]>(() => {
     const lista = user?.empresas ?? [];
@@ -76,6 +90,70 @@ export default function Navbar() {
     }
   };
 
+  const runSearch = useCallback(async () => {
+    const q = searchValue.trim();
+    if (!q) {
+      setSearchResults([]);
+      setShowSearchDropdown(true);
+      return;
+    }
+    setSearchLoading(true);
+    try {
+      const filters: any = { limit: 15 };
+      if (activeSearchTab === "id") filters.busqueda_id = q;
+      else if (activeSearchTab === "numero_siniestro") filters.numero_siniestro = q;
+      else if (activeSearchTab === "asegurado") filters.asegurado_nombre = q;
+      const data = await apiService.getSiniestros(filters);
+      setSearchResults(Array.isArray(data) ? data : []);
+      setShowSearchDropdown(true);
+    } catch (e) {
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [searchValue, activeSearchTab]);
+
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!searchValue.trim()) {
+      setSearchResults([]);
+      setShowSearchDropdown(false);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(runSearch, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [searchValue, activeSearchTab, runSearch]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowSearchDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchValue(e.target.value);
+  };
+
+  const handleSelectResult = (siniestroId: string) => {
+    setShowSearchDropdown(false);
+    setSearchValue("");
+    setSearchResults([]);
+    router.push(`/siniestros/${siniestroId}`);
+  };
+
+  const placeholderByTab =
+    activeSearchTab === "id"
+      ? "Ej. 102-001-25 (proveniente-consecutivo-año)"
+      : activeSearchTab === "numero_siniestro"
+        ? "Núm. siniestro..."
+        : "Nombre del asegurado...";
+
   return (
     <header
       className="fixed top-0 left-0 right-0 lg:left-64 z-30 text-white h-16"
@@ -117,18 +195,78 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div data-tour="navbar-busqueda" className="hidden md:flex items-center flex-1 mx-4 max-w-xl">
+        <div data-tour="navbar-busqueda" className="hidden md:flex items-center flex-1 mx-4 max-w-xl" ref={searchContainerRef}>
           <div className="relative w-full">
             <input
               type="text"
-              placeholder={`Buscar siniestros en ${(
-                activeEmpresa?.nombre || "Aslin México"
-              ).toLowerCase()}...`}
-              className="w-full rounded-md bg-white/15 placeholder-white/70 text-white pl-10 pr-4 py-2 outline-none ring-1 ring-white/20 focus:ring-2 focus:ring-white/40"
+              value={searchValue}
+              onChange={handleSearchInputChange}
+              onFocus={() => searchValue.trim() && setShowSearchDropdown(true)}
+              placeholder={placeholderByTab}
+              className={`w-full bg-white/15 placeholder-white/70 text-white pl-10 pr-4 py-2 outline-none ring-1 ring-white/20 focus:ring-2 focus:ring-white/40 ${showSearchDropdown ? "rounded-t-md" : "rounded-md"}`}
             />
-            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-white/80">
+            <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-white/80 pointer-events-none">
               <FiSearch className="w-5 h-5" />
             </span>
+            {showSearchDropdown && (
+              <div className="absolute top-full left-0 right-0 mt-0 bg-white text-gray-800 rounded-b-md shadow-lg ring-1 ring-black/10 z-50 max-h-[360px] flex flex-col">
+                <div className="flex border-b border-gray-200 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSearchTab("id")}
+                    className={`px-4 py-2.5 text-sm font-medium ${activeSearchTab === "id" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                  >
+                    Por ID
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSearchTab("numero_siniestro")}
+                    className={`px-4 py-2.5 text-sm font-medium ${activeSearchTab === "numero_siniestro" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                  >
+                    Num. Siniestro
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSearchTab("asegurado")}
+                    className={`px-4 py-2.5 text-sm font-medium ${activeSearchTab === "asegurado" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                  >
+                    Asegurado
+                  </button>
+                </div>
+                <div className="overflow-y-auto min-h-0 p-1">
+                  {searchLoading ? (
+                    <div className="flex items-center justify-center py-8 text-gray-500">
+                      <FaSpinner className="animate-spin w-6 h-6" />
+                    </div>
+                  ) : searchResults.length === 0 ? (
+                    <div className="py-6 text-center text-gray-500 text-sm">
+                      {searchValue.trim() ? "Sin resultados" : "Escribe para buscar"}
+                    </div>
+                  ) : (
+                    <ul className="py-1">
+                      {searchResults.map((s: any) => (
+                        <li key={s.id}>
+                          <button
+                            type="button"
+                            className="w-full text-left px-3 py-2.5 rounded hover:bg-gray-100 flex flex-col gap-0.5"
+                            onClick={() => handleSelectResult(s.id)}
+                          >
+                            <span className="font-medium text-gray-900">
+                              {s.id_formato || s.numero_reporte || s.numero_siniestro || s.id}
+                            </span>
+                            {(s.numero_siniestro || s.numero_reporte) && (
+                              <span className="text-xs text-gray-500">
+                                {s.numero_siniestro ? `Núm. siniestro: ${s.numero_siniestro}` : s.numero_reporte}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

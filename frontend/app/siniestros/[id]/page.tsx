@@ -60,6 +60,7 @@ import {
   FiCornerDownRight,
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
+import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
 import type { Siniestro } from "@/types/siniestros";
 import type {
   SiniestroArea,
@@ -255,7 +256,10 @@ export default function SiniestroDetailPage() {
     forma_contacto: "correo" as "correo" | "telefono" | "directa",
     numero_reporte: "",
     observaciones: "",
+    asegurado_id: "" as string,
   });
+  const [editModalAsegurados, setEditModalAsegurados] = useState<any[]>([]);
+  const [crearAseguradoDesdeEditModal, setCrearAseguradoDesdeEditModal] = useState(false);
 
   // Estados para administrar áreas e involucrados
   const [areasAdicionales, setAreasAdicionales] = useState<SiniestroArea[]>([]);
@@ -281,6 +285,13 @@ export default function SiniestroDetailPage() {
   // Estados para log de auditoría
   const [logsAuditoria, setLogsAuditoria] = useState<any[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
+
+  // Modal agregar/cambiar asegurado
+  const [showModalAsegurado, setShowModalAsegurado] = useState(false);
+  const [aseguradosCatalogo, setAseguradosCatalogo] = useState<any[]>([]);
+  const [aseguradoSeleccionadoModal, setAseguradoSeleccionadoModal] = useState<string>("");
+  const [showCrearAseguradoModal, setShowCrearAseguradoModal] = useState(false);
+  const [asignandoAsegurado, setAsignandoAsegurado] = useState(false);
 
   // Autenticación
   useEffect(() => {
@@ -585,13 +596,6 @@ export default function SiniestroDetailPage() {
       const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
         activo: true,
       });
-      console.log("📄 Documentos cargados:", documentos.map((d: any) => ({
-        id: d.id,
-        nombre: d.nombre_archivo,
-        etapa_flujo_id: d.etapa_flujo_id,
-        flujo_trabajo_id: d.flujo_trabajo_id,
-        area_id: d.area_id,
-      })));
       setDocumentosExistentes(documentos);
     } catch (error: any) {
       console.error("Error al cargar documentos:", error);
@@ -603,32 +607,25 @@ export default function SiniestroDetailPage() {
     try {
       setLoadingInfoAdicional(true);
 
-      // Cargar información del asegurado
+      // Cargar información del asegurado (tabla asegurados)
       if (siniestroData.asegurado_id) {
         try {
-          console.log("Cargando asegurado con ID:", siniestroData.asegurado_id);
           const asegurado = await apiService.getAseguradoById(
             siniestroData.asegurado_id
           );
-          console.log("Asegurado cargado:", asegurado);
           setAseguradoInfo(asegurado);
         } catch (e: any) {
-          console.error("Error al cargar asegurado:", e);
-          console.error("Detalles del error:", {
-            message: e.message,
-            response: e.response?.data,
-            status: e.response?.status,
-            asegurado_id: siniestroData.asegurado_id,
-          });
-          // Establecer un objeto con información de error para mostrar algo al usuario
-          setAseguradoInfo({
-            nombre: "Error al cargar",
-            email: "",
-            error: true,
-          });
+          // Cualquier fallo (404 = ID de usuario antiguo, 500, red, etc.): mostrar "Sin asegurado" y limpiar
+          setAseguradoInfo(null);
+          try {
+            await apiService.updateSiniestro(siniestroData.id, { asegurado_id: null as any });
+            setSiniestro((prev) => (prev ? { ...prev, asegurado_id: undefined } : null));
+          } catch (_) {
+            // Si falla el update (ej. permisos), al menos la UI ya muestra "Sin asegurado"
+          }
         }
       } else {
-        console.log("Siniestro sin asegurado_id");
+        setAseguradoInfo(null);
       }
 
       // Cargar información de institución
@@ -675,6 +672,74 @@ export default function SiniestroDetailPage() {
       setLoadingInfoAdicional(false);
     }
   };
+
+  // Abrir modal de asegurado y cargar catálogo
+  const abrirModalAsegurado = useCallback(async () => {
+    setShowModalAsegurado(true);
+    setAseguradoSeleccionadoModal("");
+    try {
+      const data = await apiService.getAsegurados(true);
+      setAseguradosCatalogo(data || []);
+    } catch (e) {
+      console.error("Error al cargar asegurados:", e);
+      setAseguradosCatalogo([]);
+    }
+  }, []);
+
+  // Asignar asegurado al siniestro
+  const asignarAsegurado = useCallback(async () => {
+    if (!aseguradoSeleccionadoModal || !siniestroId) return;
+    setAsignandoAsegurado(true);
+    try {
+      await apiService.updateSiniestro(siniestroId, {
+        asegurado_id: aseguradoSeleccionadoModal,
+      });
+      const asegurado = await apiService.getAseguradoById(aseguradoSeleccionadoModal);
+      setAseguradoInfo(asegurado);
+      setSiniestro((prev) => (prev ? { ...prev, asegurado_id: aseguradoSeleccionadoModal } : null));
+      setShowModalAsegurado(false);
+      swalSuccess("Asegurado asignado correctamente");
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al asignar asegurado");
+    } finally {
+      setAsignandoAsegurado(false);
+    }
+  }, [aseguradoSeleccionadoModal, siniestroId]);
+
+  // Tras crear nuevo asegurado: si viene del modal Editar, solo actualizar form y lista; si no, asignar al siniestro y cerrar modal Asignar
+  const onAseguradoCreadoDesdeModal = useCallback(
+    async (nuevoId: string) => {
+      setShowCrearAseguradoModal(false);
+      const data = await apiService.getAsegurados(true);
+      const list = data || [];
+
+      if (crearAseguradoDesdeEditModal) {
+        setCrearAseguradoDesdeEditModal(false);
+        setEditModalAsegurados(list);
+        setEditForm((prev) => ({ ...prev, asegurado_id: nuevoId }));
+        swalSuccess("Asegurado creado. Selecciónalo en el listado y guarda los cambios.");
+        return;
+      }
+
+      setAseguradosCatalogo(list);
+      setAseguradoSeleccionadoModal(nuevoId);
+      if (!siniestroId) return;
+      setAsignandoAsegurado(true);
+      try {
+        await apiService.updateSiniestro(siniestroId, { asegurado_id: nuevoId });
+        const asegurado = await apiService.getAseguradoById(nuevoId);
+        setAseguradoInfo(asegurado);
+        setSiniestro((prev) => (prev ? { ...prev, asegurado_id: nuevoId } : null));
+        setShowModalAsegurado(false);
+        swalSuccess("Asegurado creado y asignado correctamente");
+      } catch (e: any) {
+        swalError(e.response?.data?.detail || "Error al asignar asegurado");
+      } finally {
+        setAsignandoAsegurado(false);
+      }
+    },
+    [siniestroId, crearAseguradoDesdeEditModal]
+  );
 
   // Cargar documentos filtrados por área y flujo (solo si tiene permiso)
   const loadDocumentosFiltrados = async (
@@ -746,8 +811,6 @@ export default function SiniestroDetailPage() {
       setLoadingEstados(true);
       // Cargar todos los estados activos
       const estados = await apiService.getEstadosSiniestro(true);
-      console.log("Estados cargados:", estados);
-      console.log("Estado actual del siniestro:", siniestro?.estado_id);
       setEstadosSiniestro(estados);
     } catch (error: any) {
       console.error("Error al cargar estados de siniestro:", error);
@@ -766,11 +829,6 @@ export default function SiniestroDetailPage() {
       setLoadingCalificaciones(true);
       // Cargar todas las calificaciones activas
       const calificaciones = await apiService.getCalificacionesSiniestro(true);
-      console.log("Calificaciones cargadas:", calificaciones);
-      console.log(
-        "Calificación actual del siniestro:",
-        siniestro?.calificacion_id
-      );
       setCalificacionesSiniestro(calificaciones);
     } catch (error: any) {
       console.error("Error al cargar calificaciones de siniestro:", error);
@@ -828,10 +886,9 @@ export default function SiniestroDetailPage() {
   };
 
   // Abrir modal de edición
-  const handleOpenEditModal = () => {
+  const handleOpenEditModal = async () => {
     if (!siniestro) return;
 
-    // Formatear fecha para el input de tipo date
     const fechaSiniestro = siniestro.fecha_siniestro
       ? new Date(siniestro.fecha_siniestro).toISOString().split("T")[0]
       : "";
@@ -849,8 +906,15 @@ export default function SiniestroDetailPage() {
       forma_contacto: siniestro.forma_contacto || "correo",
       numero_reporte: siniestro.numero_reporte || "",
       observaciones: siniestro.observaciones || "",
+      asegurado_id: siniestro.asegurado_id || "",
     });
     setShowEditModal(true);
+    try {
+      const data = await apiService.getAsegurados(true);
+      setEditModalAsegurados(data || []);
+    } catch (_) {
+      setEditModalAsegurados([]);
+    }
   };
 
   // Guardar cambios del siniestro
@@ -860,10 +924,15 @@ export default function SiniestroDetailPage() {
     try {
       setSavingSiniestro(true);
 
-      // Preparar datos para actualizar
+      // Preparar datos para actualizar (fecha_siniestro debe ser ISO datetime con "T", no solo YYYY-MM-DD)
+      const fechaSiniestroIso = editForm.fecha_siniestro
+        ? (editForm.fecha_siniestro.includes("T")
+            ? editForm.fecha_siniestro
+            : `${editForm.fecha_siniestro}T00:00:00`)
+        : undefined;
       const updateData: any = {
         numero_siniestro: editForm.numero_siniestro && editForm.numero_siniestro.trim() ? editForm.numero_siniestro : null,
-        fecha_siniestro: editForm.fecha_siniestro || undefined,
+        fecha_siniestro: fechaSiniestroIso,
         ubicacion: editForm.ubicacion || undefined,
         numero_poliza: editForm.numero_poliza || undefined,
         deducible: editForm.deducible || undefined,
@@ -874,6 +943,7 @@ export default function SiniestroDetailPage() {
         forma_contacto: editForm.forma_contacto || undefined,
         numero_reporte: editForm.numero_reporte && editForm.numero_reporte.trim() ? editForm.numero_reporte : null,
         observaciones: editForm.observaciones || undefined,
+        asegurado_id: editForm.asegurado_id && editForm.asegurado_id.trim() ? editForm.asegurado_id : null,
       };
 
       await apiService.updateSiniestro(siniestroId, updateData);
@@ -2019,14 +2089,19 @@ export default function SiniestroDetailPage() {
                   );
                 }
 
-                // Nombre del asegurado
-                if (aseguradoInfo?.nombre) {
+                // Nombre completo del asegurado
+                const nombreCompletoAsegurado = aseguradoInfo
+                  ? [aseguradoInfo.nombre, aseguradoInfo.apellido_paterno, aseguradoInfo.apellido_materno]
+                      .filter(Boolean)
+                      .join(" ")
+                  : "";
+                if (nombreCompletoAsegurado) {
                   elementos.push(
                     <span
                       key="asegurado"
                       className="font-semibold text-gray-800"
                     >
-                      {aseguradoInfo.nombre}
+                      {nombreCompletoAsegurado}
                     </span>
                   );
                 }
@@ -2539,31 +2614,71 @@ export default function SiniestroDetailPage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {/* Información del Asegurado */}
-                  {aseguradoInfo && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
-                        <FiUser
-                          className="w-5 h-5"
-                          style={{ color: empresaColors.primary }}
-                        />
-                        <h3 className="font-semibold text-gray-700">
-                          Asegurado
-                        </h3>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        <span className="font-medium">Nombre:</span>{" "}
-                        {aseguradoInfo.nombre ||
-                          aseguradoInfo.email ||
-                          "N/A"}
-                      </p>
-                      {aseguradoInfo.email && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Email:</span>{" "}
-                          {aseguradoInfo.email}
-                        </p>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FiUser
+                        className="w-5 h-5"
+                        style={{ color: empresaColors.primary }}
+                      />
+                      <h3 className="font-semibold text-gray-700 flex-1">
+                        Asegurado
+                      </h3>
+                      {aseguradoInfo && !aseguradoInfo.error && (
+                        <EmpresaButton
+                          size="sm"
+                          variant="outline"
+                          onClick={abrirModalAsegurado}
+                          className="text-xs"
+                        >
+                          Cambiar
+                        </EmpresaButton>
                       )}
                     </div>
-                  )}
+                    {aseguradoInfo && !aseguradoInfo.error ? (
+                      <>
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Nombre:</span>{" "}
+                          {[
+                            aseguradoInfo.nombre,
+                            aseguradoInfo.apellido_paterno,
+                            aseguradoInfo.apellido_materno,
+                          ]
+                            .filter(Boolean)
+                            .join(" ") || "N/A"}
+                        </p>
+                        {(aseguradoInfo.telefono || aseguradoInfo.tel_casa || aseguradoInfo.tel_oficina) && (
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Teléfono:</span>{" "}
+                            {aseguradoInfo.telefono ||
+                              aseguradoInfo.tel_oficina ||
+                              aseguradoInfo.tel_casa}
+                          </p>
+                        )}
+                        {(aseguradoInfo.ciudad || aseguradoInfo.estado) && (
+                          <p className="text-sm text-gray-600">
+                            <span className="font-medium">Ubicación:</span>{" "}
+                            {[aseguradoInfo.ciudad, aseguradoInfo.estado].filter(Boolean).join(", ")}
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <div>
+                        <p className="text-sm text-gray-500 mb-2">
+                          {aseguradoInfo?.error
+                            ? "No se pudo cargar el asegurado."
+                            : "Sin asegurado asignado."}
+                        </p>
+                        <EmpresaButton
+                          variant="primary"
+                          size="sm"
+                          onClick={abrirModalAsegurado}
+                        >
+                          <FiPlus className="w-4 h-4 mr-2" />
+                          Agregar asegurado
+                        </EmpresaButton>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Información de Póliza */}
                   {(siniestro.numero_poliza || siniestro.suma_asegurada) && (
@@ -3909,6 +4024,46 @@ export default function SiniestroDetailPage() {
             </div>
           </div>
 
+          {/* Asegurado */}
+          <div>
+            <h3
+              className="text-lg font-semibold mb-4"
+              style={{ color: empresaColors.primary }}
+            >
+              Asegurado
+            </h3>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[200px]">
+                <CustomSelect
+                  label="Seleccionar asegurado"
+                  name="asegurado_id_edit"
+                  value={editForm.asegurado_id}
+                  onChange={(v) =>
+                    setEditForm((prev) => ({ ...prev, asegurado_id: (v as string) || "" }))
+                  }
+                  options={editModalAsegurados.map((a: any) => ({
+                    value: a.id,
+                    label: [a.nombre, a.apellido_paterno, a.apellido_materno].filter(Boolean).join(" ") || "Sin nombre",
+                  }))}
+                  placeholder="Buscar asegurado..."
+                  isSearchable
+                  isClearable
+                />
+              </div>
+              <EmpresaButton
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setCrearAseguradoDesdeEditModal(true);
+                  setShowCrearAseguradoModal(true);
+                }}
+              >
+                <FiPlus className="w-4 h-4 mr-2" />
+                Crear nuevo asegurado
+              </EmpresaButton>
+            </div>
+          </div>
+
           {/* Información de Póliza */}
           <div>
             <h3
@@ -4130,6 +4285,66 @@ export default function SiniestroDetailPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Modal Agregar / Cambiar Asegurado */}
+      <Modal
+        open={showModalAsegurado}
+        onClose={() => !asignandoAsegurado && setShowModalAsegurado(false)}
+        title="Asignar Asegurado"
+        maxWidthClass="max-w-lg"
+      >
+        <div className="space-y-4">
+          <CustomSelect
+            label="Seleccionar asegurado"
+            name="asegurado_modal"
+            value={aseguradoSeleccionadoModal}
+            onChange={(v) => setAseguradoSeleccionadoModal(v as string)}
+            options={aseguradosCatalogo.map((a: any) => ({
+              value: a.id,
+              label: [a.nombre, a.apellido_paterno, a.apellido_materno].filter(Boolean).join(" ") || "Sin nombre",
+            }))}
+            placeholder="Buscar por nombre..."
+            isSearchable
+            isClearable
+          />
+          <div className="flex flex-wrap gap-2">
+            <EmpresaButton
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setShowCrearAseguradoModal(true);
+              }}
+            >
+              <FiPlus className="w-4 h-4 mr-2" />
+              Crear nuevo asegurado
+            </EmpresaButton>
+            <EmpresaButton
+              variant="primary"
+              size="sm"
+              onClick={asignarAsegurado}
+              disabled={!aseguradoSeleccionadoModal || asignandoAsegurado}
+            >
+              {asignandoAsegurado ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2 inline-block" />
+                  Asignando...
+                </>
+              ) : (
+                "Asignar"
+              )}
+            </EmpresaButton>
+          </div>
+        </div>
+      </Modal>
+
+      <CrearAseguradoModal
+        open={showCrearAseguradoModal}
+        onClose={() => {
+          setCrearAseguradoDesdeEditModal(false);
+          setShowCrearAseguradoModal(false);
+        }}
+        onAseguradoCreado={onAseguradoCreadoDesdeModal}
+      />
     </div>
   );
 }
