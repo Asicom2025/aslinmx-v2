@@ -979,7 +979,10 @@ export default function SiniestrosPage() {
       // Si no se encuentra, intentar buscar directamente en el catálogo original
       const aseguradoOriginal = aseguradosCatalogo.find((a: any) => String(a.id).trim() === normalizedId);
       if (aseguradoOriginal) {
-        return aseguradoOriginal.nombre || aseguradoOriginal.email || "-";
+        const full = [aseguradoOriginal.nombre, aseguradoOriginal.apellido_paterno, aseguradoOriginal.apellido_materno]
+          .filter(Boolean)
+          .join(" ");
+        return full || aseguradoOriginal.email || "-";
       }
       // Debug: solo loguear si hay asegurados cargados pero no se encuentra el ID
       if (aseguradosCatalogo.length > 0) {
