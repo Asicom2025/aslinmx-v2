@@ -14,6 +14,7 @@ from app.models.user import (
     UsuarioPerfil,
     UsuarioContactos,
     UsuarioDireccion,
+    UsuarioArea,
     Empresa,
 )
 from app.schemas.user_schema import (
@@ -200,6 +201,20 @@ class UserService:
         db.flush()
 
     @staticmethod
+    def sync_user_areas(db: Session, db_user: User, area_ids: Optional[List[UUID]]) -> None:
+        """
+        Sincroniza las áreas asignadas a un usuario (multiárea).
+        """
+        if area_ids is None:
+            return
+        area_ids = list(dict.fromkeys(area_ids))
+        # Eliminar asignaciones actuales
+        db.query(UsuarioArea).filter(UsuarioArea.usuario_id == db_user.id).delete(synchronize_session=False)
+        for aid in area_ids:
+            db.add(UsuarioArea(usuario_id=db_user.id, area_id=aid))
+        db.flush()
+
+    @staticmethod
     def set_active_empresa(db: Session, db_user: User, empresa_id: UUID) -> User:
         empresa_id_str = str(empresa_id)
         pertenece = any(str(emp.id) == empresa_id_str for emp in db_user.empresas)
@@ -240,7 +255,7 @@ class UserService:
         # Actualizar campos básicos (full_name es propiedad de solo lectura, se actualiza vía perfil)
         update_data = user_update.model_dump(
             exclude_unset=True,
-            exclude={"password", "empresa_id", "empresa_ids", "rol_id", "perfil", "contactos", "direccion", "full_name"},
+            exclude={"password", "empresa_id", "empresa_ids", "rol_id", "area_ids", "perfil", "contactos", "direccion", "full_name"},
         )
         
         if user_update.password is not None:
@@ -259,7 +274,10 @@ class UserService:
 
         if empresa_ids is not None:
             UserService.sync_user_empresas(db, db_user, empresa_ids)
-            db.refresh(db_user)
+
+        # Sincronizar áreas (multiárea)
+        if user_update.area_ids is not None:
+            UserService.sync_user_areas(db, db_user, user_update.area_ids)
         
         # Actualizar campos básicos
         for field, value in update_data.items():

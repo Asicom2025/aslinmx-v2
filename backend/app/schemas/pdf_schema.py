@@ -27,6 +27,7 @@ class PDFGenerateRequest(BaseModel):
     """Schema para generar PDF desde HTML"""
     html_content: str = Field(..., min_length=1, description="Contenido HTML a convertir a PDF")
     plantilla_id: Optional[str] = Field(None, description="ID de plantilla asociada: si se envía, se antepone header+logo al contenido")
+    siniestro_id: Optional[str] = Field(None, description="ID del siniestro: si se envía con plantilla_id, las respuestas del formulario se inyectan como variables en la continuación")
     page_size: PageSize = Field(PageSize.A4, description="Tamaño de página")
     orientation: PageOrientation = Field(PageOrientation.PORTRAIT, description="Orientación de página")
     margin_top: Optional[str] = Field("1cm", description="Margen superior (ej: '1cm', '20px')")
@@ -41,6 +42,7 @@ class PDFGenerateRequest(BaseModel):
 class PDFGenerateFromTemplateRequest(BaseModel):
     """Schema para generar PDF desde una plantilla"""
     plantilla_id: str = Field(..., description="ID de la plantilla de documento a usar")
+    siniestro_id: Optional[str] = Field(None, description="ID del siniestro: si se envía, las respuestas del formulario se inyectan automáticamente como variables")
     variables: Optional[Dict[str, Any]] = Field(None, description="Variables para reemplazar en la plantilla (opcional)")
     page_size: PageSize = Field(PageSize.A4, description="Tamaño de página")
     orientation: PageOrientation = Field(PageOrientation.PORTRAIT, description="Orientación de página")

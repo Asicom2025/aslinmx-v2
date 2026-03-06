@@ -95,6 +95,24 @@ class Usuario(Base):
         back_populates="usuarios",
         lazy="selectin",
     )
+    areas = relationship(
+        "Area",
+        secondary="usuario_areas",
+        back_populates="usuarios",
+        lazy="selectin",
+    )
+    areas_como_jefe = relationship(
+        "Area",
+        back_populates="jefe",
+        foreign_keys="Area.usuario_id",
+        lazy="select",
+    )
+    usuario_areas = relationship(
+        "UsuarioArea",
+        back_populates="usuario",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     # Compatibilidad hacia el resto del código existente
     email = synonym("correo")
@@ -183,6 +201,18 @@ class UsuarioEmpresa(Base):
 
     usuario = relationship("Usuario", back_populates="usuario_empresas")
     empresa = relationship("Empresa")
+
+
+class UsuarioArea(Base):
+    """Asignación de múltiples áreas a un usuario."""
+    __tablename__ = "usuario_areas"
+
+    usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="CASCADE"), primary_key=True)
+    area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="CASCADE"), primary_key=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    usuario = relationship("Usuario", back_populates="usuario_areas")
+    area = relationship("Area", back_populates="usuario_areas")
 
 # Alias para compatibilidad con imports existentes
 User = Usuario

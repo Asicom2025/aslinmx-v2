@@ -1,6 +1,7 @@
 """
 Rutas API para gestión de siniestros
 """
+import logging
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -8,11 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
+from app.core.permisos import require_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
     SiniestroCreate, SiniestroUpdate, SiniestroResponse,
 )
 from app.services.legal_service import SiniestroService
+from app.services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/siniestros", tags=["Siniestros"])
 
@@ -28,7 +33,7 @@ def list_siniestros(
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(1000, ge=1, le=10000, description="Número máximo de registros a retornar"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "leer")),
 ):
     """
     Lista todos los siniestros con filtros opcionales.
@@ -67,7 +72,7 @@ def get_siniestro(
 def create_siniestro(
     payload: SiniestroCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "crear")),
 ):
     """
     Crea un nuevo siniestro.
@@ -75,7 +80,7 @@ def create_siniestro(
     El campo creado_por se establece automáticamente con el usuario actual.
     """
     try:
-        return SiniestroService.create(db, current_user.empresa_id, payload, current_user.id)
+        siniestro = SiniestroService.create(db, current_user.empresa_id, payload, current_user.id)
     except HTTPException:
         raise
     except Exception as e:
@@ -84,13 +89,29 @@ def create_siniestro(
             detail=f"Error al crear siniestro: {str(e)}"
         )
 
+    # Enviar correo de notificación (plantilla nuevo_id) al creador, sin fallar la petición si falla el envío
+    try:
+        destinatarios = [current_user.email] if getattr(current_user, "email", None) else []
+        if not destinatarios and getattr(current_user, "correo", None):
+            destinatarios = [current_user.correo]
+        if destinatarios:
+            ok, err = EmailService.enviar_notificacion_nuevo_siniestro(
+                db, siniestro, current_user, destinatarios
+            )
+            if not ok:
+                logger.warning("Correo de nuevo siniestro no enviado: %s", err)
+    except Exception as e:
+        logger.exception("Error al enviar correo de nuevo siniestro: %s", e)
+
+    return siniestro
+
 
 @router.put("/{siniestro_id}", response_model=SiniestroResponse)
 def update_siniestro(
     siniestro_id: UUID,
     payload: SiniestroUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "actualizar")),
 ):
     """
     Actualiza un siniestro existente.
@@ -115,7 +136,7 @@ def update_siniestro(
 def delete_siniestro(
     siniestro_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "eliminar")),
 ):
     """
     Elimina lógicamente un siniestro (soft delete).

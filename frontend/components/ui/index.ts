@@ -19,8 +19,14 @@ export { default as Modal } from "./Modal";
 export { default as DataTable } from "./DataTable";
 export { default as Select } from "./Select";
 export { default as Switch } from "./Switch";
+export { default as Checkbox } from "./Checkbox";
 export { default as JoditEditor } from "./JoditEditor";
 export { default as TiptapEditor } from "./TiptapEditor"; // Mantener para compatibilidad temporal
+
+// Tour guiado
+export { default as TourButton } from "./TourButton";
+export { useTour, resetAllTours } from "@/hooks/useTour";
+export type { TourName } from "@/hooks/useTour";
 
 // Hook para colores de empresa
 export { useEmpresaColors } from "@/hooks/useEmpresaColors";

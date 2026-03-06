@@ -11,11 +11,12 @@ from app.db.base import Base
 
 
 class Area(Base):
-    """Áreas organizacionales"""
+    """Áreas organizacionales. usuario_id = jefe de área."""
     __tablename__ = "areas"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     empresa_id = Column(UUID(as_uuid=True), ForeignKey("empresas.id", ondelete="CASCADE"), nullable=False)
+    usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)  # Jefe de área
     nombre = Column(String(100), nullable=False)
     descripcion = Column(Text)
     codigo = Column(String(20))
@@ -23,6 +24,10 @@ class Area(Base):
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+    jefe = relationship("Usuario", foreign_keys=[usuario_id], lazy="select", back_populates="areas_como_jefe")
+    usuarios = relationship("Usuario", secondary="usuario_areas", back_populates="areas", lazy="select")
+    usuario_areas = relationship("UsuarioArea", back_populates="area", cascade="all, delete-orphan", lazy="select")
 
 
 class EstadoSiniestro(Base):
@@ -223,6 +228,7 @@ class PlantillaDocumento(Base):
     contenido = Column(Text)  # Contenido HTML de la plantilla
     formato = Column(String(50))  # Ej: 'A4', 'oficio', 'carta', etc.
     logo_url = Column(Text)  # URL o base64 del logo de la plantilla
+    campos_formulario = Column(JSONB, nullable=True)  # Definición de campos del formulario personalizado
     activo = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -233,6 +239,25 @@ class PlantillaDocumento(Base):
     categoria = relationship("CategoriaDocumento", back_populates="plantillas")
     header_plantilla = relationship("PlantillaDocumento", remote_side=[id], foreign_keys=[header_plantilla_id])
     plantilla_continuacion = relationship("PlantillaDocumento", remote_side=[id], foreign_keys=[plantilla_continuacion_id])
+    respuestas = relationship("RespuestaFormularioPlantilla", back_populates="plantilla", cascade="all, delete-orphan")
+
+
+class RespuestaFormularioPlantilla(Base):
+    """Respuestas capturadas del formulario personalizado de una plantilla por siniestro"""
+    __tablename__ = "respuestas_formulario_plantilla"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    plantilla_id = Column(UUID(as_uuid=True), ForeignKey("plantillas_documento.id", ondelete="CASCADE"), nullable=False)
+    siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)
+    usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
+    valores = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))  # {clave: valor, ...}
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relaciones
+    plantilla = relationship("PlantillaDocumento", back_populates="respuestas")
+    siniestro = relationship("Siniestro", foreign_keys=[siniestro_id])
+    usuario = relationship("Usuario", foreign_keys=[usuario_id])
 
 
 class Siniestro(Base):

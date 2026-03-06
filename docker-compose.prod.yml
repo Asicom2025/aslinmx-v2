@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:15-alpine
+    container_name: aslin_db
     restart: unless-stopped
     env_file: .env
     volumes:
@@ -9,6 +10,11 @@ services:
       - "127.0.0.1:5432:5432"
     networks:
       - aslin_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build: ./backend
@@ -18,7 +24,8 @@ services:
     volumes:
       - ./db:/app/db:ro
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"
     networks:

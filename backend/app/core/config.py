@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
     DEBUG: bool = False
+
+    # URL del frontend (para enlaces en correos, ej. ver siniestro)
+    FRONTEND_URL: str = "http://localhost:3000"
+    BACKEND_URL: str = "http://localhost:8000"  # URL base del API (para enlaces de descarga en correos)
+    # Rutas de assets para plantillas de correo (servidos por el frontend en /assets/...)
+    EMAIL_LOGO_PATH: str = "/assets/logos/logo_dx-legal.png"
+    EMAIL_FILE_ICON_PATH: str = "/assets/icons/file2.png"
     
     class Config:
         env_file = ".env"

@@ -32,6 +32,7 @@ export interface CurrentUser {
     nivel?: number | null;
   } | null;
   perfil?: {
+    foto_de_perfil?: string | null;
     nombre?: string | null;
     apellido_paterno?: string | null;
     apellido_materno?: string | null;
@@ -53,6 +54,10 @@ export interface CurrentUser {
   } | null;
   two_factor_enabled?: boolean | null;
   two_factor_verified_at?: string | null;
+  /** Permisos del rol (modulo_tecnico, accion_tecnico). Viene de /users/me */
+  permisos?: { modulo: string; accion: string }[] | null;
+  /** Áreas asignadas al usuario (multiárea). Viene de /users/me */
+  areas?: { id: string; nombre: string }[] | null;
 }
 
 interface UserContextValue {

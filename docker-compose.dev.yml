@@ -1,16 +1,13 @@
 services:
-  # Base de datos PostgreSQL
   db:
     image: postgres:15-alpine
     container_name: aslin_db
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: .env
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Script de inicialización: estructura y datos según aslin_completo.sql (solo se ejecuta si el volumen está vacío)
       - ./db/aslin_completo.sql:/docker-entrypoint-initdb.d/01_aslin_completo.sql
     networks:
       - aslin_network
@@ -20,39 +17,34 @@ services:
       timeout: 5s
       retries: 5
 
-  # Backend FastAPI
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: aslin_backend
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: .env
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - ./db:/app/db:ro
     networks:
       - aslin_network
     environment:
       - WATCHFILES_FORCE_POLLING=true
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: sh -c "python init_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
-  # Frontend Next.js
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: aslin_frontend
     restart: unless-stopped
-    env_file:
-      - .env
+    env_file: .env
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - backend
     volumes:

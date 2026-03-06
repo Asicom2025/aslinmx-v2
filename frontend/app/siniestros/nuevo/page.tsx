@@ -24,6 +24,8 @@ import {
   PolizaDraft,
 } from "@/components/siniestros/SiniestroWizard";
 import { FiArrowLeft, FiPlus, FiTrash2, FiUser } from "react-icons/fi";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 const CALIFICACIONES_DEFAULT = ["Excelente", "Bueno", "Regular", "Malo"];
@@ -150,6 +152,7 @@ const mapUserToPersona = (usuario: any): PersonaLigera => {
 export default function NuevoSiniestroPage() {
   const router = useRouter();
   const { user, loading: userLoading } = useUser();
+  useTour("tour-nuevo-siniestro", { autoStart: true });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showCrearAseguradoModal, setShowCrearAseguradoModal] = useState(false);
@@ -465,11 +468,7 @@ export default function NuevoSiniestroPage() {
     }
 
     try {
-      const userDetails = await apiService.getUserById(id);
-      const perfil = userDetails?.perfil || {};
-      const direccion = userDetails?.direccion || {};
-      const contactos = userDetails?.contactos || {};
-
+      const asegurado = await apiService.getAseguradoById(id);
       setExtendedForm((prev) => ({
         ...prev,
         asegurado: {
@@ -478,21 +477,15 @@ export default function NuevoSiniestroPage() {
         },
       }));
 
-      if (direccion?.direccion || direccion?.direccion_completa) {
-        const direccionCompleta = [
-          direccion.calle || direccion.direccion_completa,
-          direccion.colonia,
-          direccion.municipio || direccion.delegacion,
-          direccion.estado,
-          direccion.codigo_postal,
-        ]
-          .filter(Boolean)
-          .join(", ");
-
-        setForm((prev) => ({
-          ...prev,
-          ubicacion: direccionCompleta,
-        }));
+      // La tabla asegurados tiene ciudad, estado; no tiene direccion. Armamos ubicación si hay datos.
+      if (asegurado?.ciudad || asegurado?.estado) {
+        const ubicacionPartes = [asegurado.ciudad, asegurado.estado].filter(Boolean);
+        if (ubicacionPartes.length > 0) {
+          setForm((prev) => ({
+            ...prev,
+            ubicacion: ubicacionPartes.join(", "),
+          }));
+        }
       }
     } catch (error: any) {
       console.error("Error al obtener datos del asegurado:", error);
@@ -507,9 +500,8 @@ export default function NuevoSiniestroPage() {
   };
 
   const handleAseguradoCreado = async (aseguradoId: string) => {
+    await loadAsegurados();
     await handleSelectAsegurado(aseguradoId);
-    // Recargar usuarios para incluir el nuevo asegurado
-    await loadUsuarios();
   };
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -802,17 +794,20 @@ export default function NuevoSiniestroPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen w-full bg-gray-50 p-6">
+      <div className="w-full">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Nuevo Siniestro</h1>
             <p className="text-gray-600 mt-2">Completa el formulario para crear un nuevo siniestro</p>
           </div>
-          <Button variant="secondary" onClick={() => router.push("/siniestros")}>
-            <FiArrowLeft className="w-4 h-4 mr-2" />
-            Volver
-          </Button>
+          <div className="flex items-center gap-3">
+            <TourButton tour="tour-nuevo-siniestro" label="Ver guía" />
+            <Button variant="secondary" onClick={() => router.push("/siniestros")}>
+              <FiArrowLeft className="w-4 h-4 mr-2" />
+              Volver
+            </Button>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -823,7 +818,7 @@ export default function NuevoSiniestroPage() {
           )}
 
           {/* Sección: Asegurado */}
-          <div className="bg-white rounded-lg shadow p-6">
+          <div data-tour="nuevo-sin-asegurado" className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Datos del Asegurado</h2>
             <div className="space-y-4">
               <div className="flex items-end gap-3">
@@ -871,7 +866,7 @@ export default function NuevoSiniestroPage() {
           </div>
 
           {/* Sección: Datos Generales */}
-          <div className="bg-white rounded-lg shadow p-6">
+          <div data-tour="nuevo-sin-generales" className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-4">Datos Generales</h2>
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
@@ -1234,7 +1229,7 @@ export default function NuevoSiniestroPage() {
           </div>
 
           {/* Botones de acción */}
-          <div className="flex items-center justify-end gap-3 bg-white rounded-lg shadow p-6">
+          <div data-tour="nuevo-sin-guardar" className="flex items-center justify-end gap-3 bg-white rounded-lg shadow p-6">
             <Button type="button" variant="secondary" onClick={() => router.push("/siniestros")}>
               Cancelar
             </Button>
@@ -1250,9 +1245,6 @@ export default function NuevoSiniestroPage() {
         open={showCrearAseguradoModal}
         onClose={() => setShowCrearAseguradoModal(false)}
         onAseguradoCreado={handleAseguradoCreado}
-        aseguradoRolId={
-          roles?.find((rol: any) => rol.nombre === "Asegurado")?.id
-        }
       />
     </div>
   );

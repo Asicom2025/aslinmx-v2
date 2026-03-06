@@ -5,17 +5,24 @@
 
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
+import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
+import { getRecentVisitedSiniestros } from "@/lib/recentSiniestrosStorage";
 import { FiAlertTriangle, FiCheckCircle, FiClock, FiBarChart2, FiTrendingUp, FiUsers, FiFileText, FiBell, FiMap } from "react-icons/fi";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 import { FaFileContract } from "react-icons/fa";
 import Highcharts from "highcharts";
 import HighchartsReact from "highcharts-react-official";
 
-// Variable para rastrear si el módulo de mapas está cargado
+// Variable para rastrear si el módulo de mapas está cargado (persiste entre montajes)
 let mapModuleLoaded = false;
+
+// Caché del mapa de México para evitar recargas (es estático)
+let mexicoMapCache: any = null;
 
 interface DashboardStats {
   total_siniestros: number;
@@ -40,32 +47,63 @@ interface RecentSiniestro {
 export default function DashboardPage() {
   const router = useRouter();
   const { user, loading } = useUser();
+  const { can } = usePermisos();
+  useTour("tour-dashboard", { autoStart: true });
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentSiniestros, setRecentSiniestros] = useState<RecentSiniestro[]>([]);
+  const [recentSiniestrosFromCache, setRecentSiniestrosFromCache] = useState(false);
   const [siniestrosByMonth, setSiniestrosByMonth] = useState<Array<{ mes: string; cantidad: number }>>([]);
   const [loadingStats, setLoadingStats] = useState(true);
   const [areas, setAreas] = useState<any[]>([]);
   const [estados, setEstados] = useState<any[]>([]);
-  const [mexicoMapData, setMexicoMapData] = useState<any>(null);
-  const [mapModuleReady, setMapModuleReady] = useState(false);
+  const [mexicoMapData, setMexicoMapData] = useState<any>(() => mexicoMapCache);
+  const [mapModuleReady, setMapModuleReady] = useState(mapModuleLoaded);
+  const [mapLoadError, setMapLoadError] = useState(false);
+  const isMountedRef = useRef(true);
 
-  // Inicializar módulo de mapas
+  // Cargar módulo de mapas y datos del mapa de México en paralelo al montar (sin depender del usuario)
   useEffect(() => {
-    if (typeof window !== "undefined" && !mapModuleLoaded) {
+    if (typeof window === "undefined") return;
+    isMountedRef.current = true;
+
+    // Si el módulo ya fue cargado (remount por Strict Mode), marcar como listo
+    if (mapModuleLoaded) {
+      setMapModuleReady(true);
+    } else {
       import("highcharts/modules/map")
         .then((HighchartsMapModule) => {
-          // El módulo puede exportarse de diferentes formas
           const mapModule = HighchartsMapModule.default || HighchartsMapModule;
           if (typeof mapModule === "function") {
             (mapModule as (h: typeof Highcharts) => void)(Highcharts);
           }
           mapModuleLoaded = true;
-          setMapModuleReady(true);
+          if (isMountedRef.current) setMapModuleReady(true);
         })
         .catch((error) => {
           console.error("Error al cargar el módulo de mapas de Highcharts:", error);
+          if (isMountedRef.current) setMapLoadError(true);
         });
     }
+
+    // Cargar mapa de México: usar caché si existe, si no fetch
+    if (mexicoMapCache) {
+      if (isMountedRef.current) setMexicoMapData(mexicoMapCache);
+    } else {
+      fetch("/mx-all.topo.json")
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(res.statusText))))
+        .then((mapData) => {
+          mexicoMapCache = mapData;
+          if (isMountedRef.current) setMexicoMapData(mapData);
+        })
+        .catch((error) => {
+          console.error("Error al cargar el mapa de México:", error);
+          if (isMountedRef.current) setMapLoadError(true);
+        });
+    }
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -76,32 +114,7 @@ export default function DashboardPage() {
       return;
     }
     loadDashboardData();
-    loadMexicoMap();
   }, [user, loading, router]);
-
-  // Función para cargar el mapa de México desde el repositorio de Highcharts Maps
-  const loadMexicoMap = async () => {
-    try {
-      // Cargar el mapa de México desde el repositorio oficial de Highcharts Maps
-      const response = await fetch(
-        "https://code.highcharts.com/mapdata/countries/mx/mx-all.topo.json"
-      );
-      if (response.ok) {
-        const mapData = await response.json();
-        console.log("Mapa cargado, estructura:", {
-          tieneFeatures: !!mapData.features,
-          tieneObjects: !!mapData.objects,
-          keys: Object.keys(mapData),
-          tipo: mapData.type,
-        });
-        setMexicoMapData(mapData);
-      } else {
-        console.error("Error al cargar el mapa de México:", response.status, response.statusText);
-      }
-    } catch (error) {
-      console.error("Error al cargar el mapa de México:", error);
-    }
-  };
 
   // Mapeo de nombres de estados mexicanos a códigos ISO o nombres del mapa
   // Este mapeo ayuda a relacionar los nombres de estados con los códigos del mapa
@@ -143,16 +156,32 @@ export default function DashboardPage() {
   const loadDashboardData = async () => {
     try {
       setLoadingStats(true);
+      const canRecent = can("dashboard", "ver_siniestros_recientes");
+      const canMes = can("dashboard", "ver_grafica_por_mes");
+
+      // Siniestros recientes: priorizar los últimos visitados por el usuario (localStorage)
+      const visited = getRecentVisitedSiniestros();
+      const recentFallback = canRecent ? apiService.getRecentSiniestros(5) : Promise.resolve([]);
+
       const [statsData, recentData, monthlyData, areasData, estadosData] = await Promise.all([
         apiService.getDashboardStats(),
-        apiService.getRecentSiniestros(5),
-        apiService.getSiniestrosByMonth(6),
+        recentFallback,
+        canMes ? apiService.getSiniestrosByMonth(6) : Promise.resolve([]),
         apiService.getAreas(true),
         apiService.getEstadosSiniestro(true),
       ]);
       setStats(statsData);
-      setRecentSiniestros(recentData);
-      setSiniestrosByMonth(monthlyData);
+      // Usar visitados recientes si hay; si no, usar los del API (recientes por fecha de registro)
+      if (canRecent) {
+        const fromCache = visited.length > 0;
+        const list = fromCache ? visited.slice(0, 5) : (Array.isArray(recentData) ? recentData : []);
+        setRecentSiniestros(list);
+        setRecentSiniestrosFromCache(fromCache);
+      } else {
+        setRecentSiniestros([]);
+        setRecentSiniestrosFromCache(false);
+      }
+      setSiniestrosByMonth(Array.isArray(monthlyData) ? monthlyData : []);
       setAreas(areasData);
       setEstados(estadosData);
     } catch (e: any) {
@@ -391,25 +420,18 @@ export default function DashboardPage() {
 
   // Configuración del mapa de México con siniestros por estado
   const mexicoMapChartOptions = useMemo((): Highcharts.Options => {
-    if (!mexicoMapData || !stats?.siniestros_por_estado) {
+    const siniestrosPorEstado = stats?.siniestros_por_estado ?? [];
+    if (!mexicoMapData) {
       return {
-        chart: {
-          type: "map",
-          height: 500,
-        },
-        accessibility: {
-          enabled: false,
-        },
-        title: {
-          text: "Cargando mapa...",
-        },
+        chart: { type: "map", height: 500 },
+        accessibility: { enabled: false },
+        title: { text: undefined },
       };
     }
 
     // Crear un mapa de códigos del mapa -> cantidad de siniestros
-    // Los datos del backend ya vienen normalizados (ej: "Ciudad de México", "Puebla")
     const codigoMapaToCantidad = new Map<string, number>();
-    stats.siniestros_por_estado.forEach((item) => {
+    siniestrosPorEstado.forEach((item) => {
       // Filtrar estados inválidos
       if (!item.nombre || item.nombre === "Sin estado") {
         return;
@@ -658,63 +680,72 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="w-full p-6 space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
           <p className="mt-1 text-sm text-gray-600">Bienvenido, {user?.full_name || user?.email}</p>
         </div>
-        <button
-          onClick={loadDashboardData}
-          className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
-        >
-          Actualizar
-        </button>
+        <div className="flex items-center gap-3">
+          <TourButton tour="tour-dashboard" label="Ver guía" />
+          <button
+            data-tour="dashboard-actualizar"
+            onClick={loadDashboardData}
+            className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+          >
+            Actualizar
+          </button>
+        </div>
       </div>
 
-      {/* Métricas principales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <MetricCard
-          title="Total Siniestros"
-          value={stats.total_siniestros}
-          icon={<FaFileContract className="w-6 h-6" />}
-          color="bg-blue-500"
-        />
-        <MetricCard
-          title="Siniestros Activos"
-          value={stats.siniestros_activos}
-          icon={<FiCheckCircle className="w-6 h-6" />}
-          color="bg-green-500"
-        />
-        <MetricCard
-          title="Siniestros Críticos"
-          value={stats.siniestros_criticos}
-          icon={<FiAlertTriangle className="w-6 h-6" />}
-          color="bg-red-500"
-        />
-        <MetricCard
-          title="Notificaciones"
-          value={stats.notificaciones_no_leidas}
-          icon={<FiBell className="w-6 h-6" />}
-          color="bg-yellow-500"
-        />
-      </div>
+      {/* Métricas principales (KPIs) */}
+      {can("dashboard", "ver_kpis") && (
+        <div data-tour="dashboard-metricas" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <MetricCard
+            title="Total Siniestros"
+            value={stats.total_siniestros}
+            icon={<FaFileContract className="w-6 h-6" />}
+            color="bg-blue-500"
+          />
+          <MetricCard
+            title="Siniestros Activos"
+            value={stats.siniestros_activos}
+            icon={<FiCheckCircle className="w-6 h-6" />}
+            color="bg-green-500"
+          />
+          <MetricCard
+            title="Siniestros Críticos"
+            value={stats.siniestros_criticos}
+            icon={<FiAlertTriangle className="w-6 h-6" />}
+            color="bg-red-500"
+          />
+          <MetricCard
+            title="Notificaciones"
+            value={stats.notificaciones_no_leidas}
+            icon={<FiBell className="w-6 h-6" />}
+            color="bg-yellow-500"
+          />
+        </div>
+      )}
 
       {/* Mapa de México - Siniestros por Estado */}
-      <div className="bg-white rounded-lg shadow p-6">
+      {can("dashboard", "ver_grafica_mapa") && (
+      <div data-tour="dashboard-mapa" className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <FiMap className="w-5 h-5" />
           Siniestros por Estado en México
         </h3>
-        {mapModuleReady && mexicoMapData && stats?.siniestros_por_estado.length > 0 ? (
+        {mapLoadError ? (
+          <p className="text-amber-600 text-sm py-8 text-center">
+            No se pudo cargar el mapa. Intenta recargar la página.
+          </p>
+        ) : mapModuleReady && mexicoMapData ? (
           <HighchartsReact
             highcharts={Highcharts}
             constructorType={"mapChart"}
             options={mexicoMapChartOptions}
           />
-        ) : mapModuleReady && mexicoMapData ? (
-          <p className="text-gray-500 text-sm">No hay datos de siniestros por estado disponibles</p>
         ) : (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
@@ -724,11 +755,13 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Gráficos principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros por Estado - Gráfico de Barras */}
-        <div className="bg-white rounded-lg shadow p-6">
+        {can("dashboard", "grafica_barras_por_estado") && (
+        <div data-tour="dashboard-grafica-estados" className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiBarChart2 className="w-5 h-5" />
             Siniestros por Estado (Gráfico de Barras)
@@ -739,9 +772,11 @@ export default function DashboardPage() {
             <p className="text-gray-500 text-sm">No hay datos disponibles</p>
           )}
         </div>
+        )}
 
         {/* Siniestros por Prioridad - Gráfico de Barras Horizontal */}
-        <div className="bg-white rounded-lg shadow p-6">
+        {can("dashboard", "ver_grafica_prioridad") && (
+        <div data-tour="dashboard-grafica-prioridades" className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiTrendingUp className="w-5 h-5" />
             Siniestros por Prioridad
@@ -752,11 +787,13 @@ export default function DashboardPage() {
             <p className="text-gray-500 text-sm">No hay datos disponibles</p>
           )}
         </div>
+        )}
       </div>
 
       {/* Gráficos secundarios */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros por Área - Gráfico de Dona */}
+        {can("dashboard", "ver_grafica_areas") && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiUsers className="w-5 h-5" />
@@ -768,8 +805,10 @@ export default function DashboardPage() {
             <p className="text-gray-500 text-sm">No hay datos disponibles</p>
           )}
         </div>
+        )}
 
         {/* Siniestros por Mes - Gráfico de Líneas */}
+        {can("dashboard", "ver_grafica_por_mes") && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiTrendingUp className="w-5 h-5" />
@@ -781,16 +820,23 @@ export default function DashboardPage() {
             <p className="text-gray-500 text-sm">No hay datos disponibles</p>
           )}
         </div>
+        )}
       </div>
 
       {/* Siniestros Recientes y Actividades */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros Recientes */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        {can("dashboard", "ver_siniestros_recientes") && (
+        <div data-tour="dashboard-recientes" className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
             <FiClock className="w-5 h-5" />
             Siniestros Recientes
           </h3>
+          <div className="mb-4">
+            {recentSiniestrosFromCache && (
+              <p className="text-sm text-gray-500 mt-1">Tus últimos visitados</p>
+            )}
+          </div>
           {recentSiniestros.length > 0 ? (
             <div className="space-y-3">
               {recentSiniestros.map((siniestro) => (
@@ -820,11 +866,15 @@ export default function DashboardPage() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500 text-sm">No hay siniestros recientes</p>
+            <p className="text-gray-500 text-sm">
+              {recentSiniestrosFromCache ? "Visita un siniestro para verlo aquí." : "No hay siniestros recientes."}
+            </p>
           )}
         </div>
+        )}
 
         {/* Actividades Recientes */}
+        {can("dashboard", "ver_actividad_reciente") && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiFileText className="w-5 h-5" />
@@ -835,6 +885,7 @@ export default function DashboardPage() {
             <p className="text-sm text-gray-600 mt-2">Actividades registradas en bitácora</p>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

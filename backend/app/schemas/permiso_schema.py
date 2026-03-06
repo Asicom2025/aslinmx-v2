@@ -130,11 +130,27 @@ class PermisoConfig(BaseModel):
     tiene_permiso: bool
 
 
+class AccionConfigItem(BaseModel):
+    """Acción dentro de un módulo con estado de permiso"""
+    accion_id: UUID
+    accion_nombre: str
+    accion_tecnica: str
+    tiene_permiso: bool
+
+
+class ModuloConfigItem(BaseModel):
+    """Módulo con sus acciones y estado de permiso (para configuración)"""
+    modulo_id: UUID
+    modulo_nombre: str
+    orden: int
+    acciones: List[AccionConfigItem]  # Acciones asignadas al módulo; vacío si no tiene
+
+
 class RolPermisosConfigResponse(BaseModel):
     """Schema de respuesta con configuración de permisos de un rol"""
     rol_id: UUID
     rol_nombre: str
-    permisos: List[PermisoConfig]
+    modulos: List[ModuloConfigItem]  # TODOS los módulos, cada uno con sus acciones (puede estar vacío)
     
     class Config:
         from_attributes = True

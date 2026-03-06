@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useUser } from "@/context/UserContext";
 import apiService from "@/lib/apiService";
 import Input from "@/components/ui/Input";
@@ -13,6 +13,7 @@ export default function PerfilPage() {
   const [savingSecurity, setSavingSecurity] = useState(false);
   const [form, setForm] = useState({
     perfil: {
+      foto_de_perfil: "",
       nombre: "",
       apellido_paterno: "",
       apellido_materno: "",
@@ -40,11 +41,13 @@ export default function PerfilPage() {
   });
   const [twoFA, setTwoFA] = useState({ enable: false, code: "", otpauth: "" });
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const inputFotoPerfilRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
     setForm({
       perfil: {
+        foto_de_perfil: user.perfil?.foto_de_perfil || "",
         nombre: user.perfil?.nombre || "",
         apellido_paterno: user.perfil?.apellido_paterno || "",
         apellido_materno: user.perfil?.apellido_materno || "",
@@ -106,6 +109,24 @@ export default function PerfilPage() {
     }));
   };
 
+  const handleFotoPerfilFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) {
+      swalError("Selecciona un archivo de imagen (PNG, JPG, etc.)");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result;
+      if (typeof result === "string") setForm((prev: any) => ({
+        ...prev,
+        perfil: { ...prev.perfil, foto_de_perfil: result },
+      }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const handleFirmaFile = (field: "firma" | "firma_digital", e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) {
@@ -128,6 +149,13 @@ export default function PerfilPage() {
     setForm((prev: any) => ({
       ...prev,
       perfil: { ...prev.perfil, [field]: "" },
+    }));
+  };
+
+  const clearFotoPerfil = () => {
+    setForm((prev: any) => ({
+      ...prev,
+      perfil: { ...prev.perfil, foto_de_perfil: "" },
     }));
   };
 
@@ -187,15 +215,36 @@ export default function PerfilPage() {
   if (!user) return null;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="w-full p-6 space-y-6">
       <div className="rounded-xl bg-degradado-primario text-white shadow">
         <div className="p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-white/25 grid place-items-center text-2xl font-semibold">
-              <span>
-                {(user.full_name || user.email || "?").charAt(0).toUpperCase()}
-              </span>
-            </div>
+            <button
+              type="button"
+              onClick={() => inputFotoPerfilRef.current?.click()}
+              className="w-16 h-16 rounded-full bg-white/25 overflow-hidden grid place-items-center text-2xl font-semibold shrink-0 cursor-pointer hover:ring-2 hover:ring-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 transition-shadow"
+              title="Cambiar foto de perfil"
+            >
+              {(form.perfil.foto_de_perfil || user.perfil?.foto_de_perfil) ? (
+                <img
+                  src={form.perfil.foto_de_perfil || user.perfil?.foto_de_perfil || ""}
+                  alt="Foto de perfil"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>
+                  {(user.full_name || user.email || "?").charAt(0).toUpperCase()}
+                </span>
+              )}
+            </button>
+            <input
+              ref={inputFotoPerfilRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              aria-label="Seleccionar foto de perfil"
+              onChange={handleFotoPerfilFile}
+            />
             <div>
               <h1 className="text-xl md:text-2xl font-bold leading-tight">
                 {user.full_name || user.email}
@@ -324,6 +373,45 @@ export default function PerfilPage() {
                 onChange("perfil", "cedula_profesional", e.target.value)
               }
             />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Foto de perfil</label>
+              <p className="text-sm text-gray-500 mb-2">
+                Se mostrará en el menú y en tu perfil. Formatos: PNG, JPG.
+              </p>
+              {form.perfil.foto_de_perfil ? (
+                <div className="flex items-center gap-3">
+                  <img
+                    src={form.perfil.foto_de_perfil}
+                    alt="Vista previa"
+                    className="w-20 h-20 rounded-full object-cover border border-gray-200"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => inputFotoPerfilRef.current?.click()}
+                      className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
+                    >
+                      Cambiar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearFotoPerfil}
+                      className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => inputFotoPerfilRef.current?.click()}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
+                >
+                  Seleccionar imagen
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="space-y-4">

@@ -11,6 +11,7 @@ import logging
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
+from app.core.permisos import require_permiso
 from app.models.user import User
 from app.models.legal import (
     Siniestro,
@@ -227,7 +228,7 @@ def normalizar_nombre_estado(nombre: str) -> str:
 @router.get("/stats")
 def get_dashboard_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("dashboard", "leer")),
 ):
     """
     Obtiene estadísticas generales para el dashboard
@@ -402,7 +403,7 @@ def get_dashboard_stats(
 def get_recent_siniestros(
     limit: int = Query(5, ge=1, le=20),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("dashboard", "ver_siniestros_recientes")),
 ):
     """
     Obtiene los siniestros más recientes
@@ -470,7 +471,7 @@ def get_recent_siniestros(
 def get_siniestros_by_month(
     months: int = Query(6, ge=1, le=12),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("dashboard", "ver_grafica_por_mes")),
 ):
     """
     Obtiene la cantidad de siniestros por mes

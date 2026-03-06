@@ -9,7 +9,9 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
+import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
+import { addRecentVisitedSiniestro } from "@/lib/recentSiniestrosStorage";
 import { swalError, swalSuccess, swalConfirm } from "@/lib/swal";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
@@ -27,6 +29,8 @@ import {
   EmpresaButton,
   EmpresaSelect,
 } from "@/components/ui";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 import type { EstadoSiniestro, CalificacionSiniestro } from "@/types/legal";
 import {
   FiArrowLeft,
@@ -53,7 +57,9 @@ import {
   FiList,
   FiActivity,
   FiPaperclip,
+  FiCornerDownRight,
 } from "react-icons/fi";
+import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import type { Siniestro } from "@/types/siniestros";
 import type {
   SiniestroArea,
@@ -90,6 +96,8 @@ interface PlantillaDocumento {
   contenido?: string;
   tipo_documento_id: string;
   categoria_id?: string;
+  plantilla_continuacion_id?: string | null;
+  campos_formulario?: Array<{ clave: string; tipo: string; titulo: string; placeholder?: string; tamano?: string; requerido?: boolean; opciones?: string[]; orden?: number }> | null;
 }
 
 interface DocumentoEtapa {
@@ -107,6 +115,7 @@ export default function SiniestroDetailPage() {
   const params = useParams();
   const { user, loading: userLoading } = useUser();
   const siniestroId = params.id as string;
+  useTour("tour-detalle-siniestro", { autoStart: true });
 
   // Obtener colores de la empresa usando el hook
   const empresaColors = useEmpresaColors();
@@ -122,6 +131,8 @@ export default function SiniestroDetailPage() {
 
   // Estado para el modal de edición de documento
   const [showEditorModal, setShowEditorModal] = useState(false);
+  const [docHorasBitacora, setDocHorasBitacora] = useState("");
+  const [docComentarioBitacora, setDocComentarioBitacora] = useState("");
   const [editorLoading, setEditorLoading] = useState(false);
   const [savingDocument, setSavingDocument] = useState(false);
   const [currentEtapa, setCurrentEtapa] = useState<EtapaFlujo | null>(null);
@@ -140,6 +151,26 @@ export default function SiniestroDetailPage() {
     DocumentoEtapa[]
   >([]);
 
+  // Estado para modal de formulario de continuación (llenar datos para documento de continuación)
+  const [showFormularioContinuacionModal, setShowFormularioContinuacionModal] = useState(false);
+  const [formularioContinuacionPlantillaId, setFormularioContinuacionPlantillaId] = useState<string>("");
+  const [formularioContinuacionPlantillaNombre, setFormularioContinuacionPlantillaNombre] = useState<string>("");
+
+  // Estado para subir archivo (fotos, PDF, etc.) como documento
+  const [showUploadDocModal, setShowUploadDocModal] = useState(false);
+  const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
+  const [uploadDocDescripcion, setUploadDocDescripcion] = useState("");
+  const [uploadDocSaving, setUploadDocSaving] = useState(false);
+  const [uploadDocTipoId, setUploadDocTipoId] = useState("");
+  const [uploadDocCategoriaId, setUploadDocCategoriaId] = useState("");
+  const [uploadDocPlantillaId, setUploadDocPlantillaId] = useState("");
+  const [uploadTiposDocumento, setUploadTiposDocumento] = useState<{ id: string; nombre: string }[]>([]);
+  const [uploadCategorias, setUploadCategorias] = useState<{ id: string; nombre: string }[]>([]);
+  const [uploadPlantillas, setUploadPlantillas] = useState<{ id: string; nombre: string }[]>([]);
+  const [uploadDocLoadingCatalogos, setUploadDocLoadingCatalogos] = useState(false);
+  const [uploadDocHoras, setUploadDocHoras] = useState("");
+  const [uploadDocComentario, setUploadDocComentario] = useState("");
+
   // Estado para envío de correo con documento
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
@@ -149,12 +180,18 @@ export default function SiniestroDetailPage() {
     asunto: string;
     mensaje: string;
     adjuntos: File[];
+    documento_id: string | null;
+    tipo_documento_nombre: string;
+    categoria_nombre: string;
   }>({
     configuracion_smtp_id: "",
     destinatarios: "",
     asunto: "",
     mensaje: "",
     adjuntos: [],
+    documento_id: null,
+    tipo_documento_nombre: "",
+    categoria_nombre: "",
   });
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
   const [emailDestinatariosUsuarios, setEmailDestinatariosUsuarios] = useState<
@@ -171,6 +208,17 @@ export default function SiniestroDetailPage() {
   const [bitacorasFiltradas, setBitacorasFiltradas] = useState<any[]>([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [loadingBitacoras, setLoadingBitacoras] = useState(false);
+
+  const { can } = usePermisos();
+  const canVerDocumentos = can("siniestros", "ver_documentos");
+  const canSubirArchivo = can("siniestros", "subir_archivo");
+  const canVerBitacora = can("siniestros", "ver_bitacora");
+  const canGenerarPdf = can("siniestros", "generar_pdf");
+  const canActualizarSiniestro = can("siniestros", "actualizar");
+  const canCrearSiniestro = can("siniestros", "crear");
+  const canAsignarAreas = can("siniestros", "asignar_areas");
+  const canEliminarSiniestro = can("siniestros", "eliminar");
+  const canVerInvolucrados = can("siniestros", "ver_involucrados");
 
   // Estados para status y calificación
   const [estadosSiniestro, setEstadosSiniestro] = useState<EstadoSiniestro[]>(
@@ -414,6 +462,8 @@ export default function SiniestroDetailPage() {
       fecha_asignacion: formatoFecha(siniestroData?.fecha_siniestro),
       fecha: formatoFecha(hoy),
       numero_reporte: siniestroData?.numero_reporte || "",
+      numero_siniestro: siniestroData?.numero_siniestro ?? "",
+      numero_poliza: siniestroData?.numero_poliza ?? "",
     };
   };
 
@@ -489,6 +539,22 @@ export default function SiniestroDetailPage() {
       const data = await apiService.getSiniestroById(siniestroId);
       setSiniestro(data);
 
+      // Registrar en "recientes visitados" para el dashboard
+      try {
+        const fecha = (data as any).fecha_siniestro ?? (data as any).fecha_registro ?? (data as any).creado_en;
+        const areaId = (data as any).siniestro_areas?.[0]?.area_id ?? (data as any).area_id ?? undefined;
+        addRecentVisitedSiniestro({
+          id: String((data as any).id),
+          numero_siniestro: (data as any).numero_siniestro ?? null,
+          fecha_siniestro: fecha ? (typeof fecha === "string" ? fecha : (fecha as Date).toISOString?.()) : null,
+          prioridad: (data as any).prioridad ?? "media",
+          estado_id: (data as any).estado_id ? String((data as any).estado_id) : null,
+          area_principal_id: areaId ? String(areaId) : null,
+        });
+      } catch {
+        // ignorar errores de almacenamiento
+      }
+
       // Cargar documentos del siniestro
       await loadDocumentosSiniestro();
 
@@ -511,6 +577,10 @@ export default function SiniestroDetailPage() {
   };
 
   const loadDocumentosSiniestro = async () => {
+    if (!canVerDocumentos) {
+      setDocumentosExistentes([]);
+      return;
+    }
     try {
       const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
         activo: true,
@@ -606,11 +676,15 @@ export default function SiniestroDetailPage() {
     }
   };
 
-  // Cargar documentos filtrados por área y flujo
+  // Cargar documentos filtrados por área y flujo (solo si tiene permiso)
   const loadDocumentosFiltrados = async (
     areaId?: string,
     flujoTrabajoId?: string
   ) => {
+    if (!canVerDocumentos) {
+      setDocumentosFiltrados([]);
+      return;
+    }
     try {
       setLoadingDocumentos(true);
       const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
@@ -626,11 +700,15 @@ export default function SiniestroDetailPage() {
     }
   };
 
-  // Cargar bitácoras filtradas por área y flujo
+  // Cargar bitácoras filtradas por área y flujo (solo si tiene permiso)
   const loadBitacorasFiltradas = async (
     areaId?: string,
     flujoTrabajoId?: string
   ) => {
+    if (!canVerBitacora) {
+      setBitacorasFiltradas([]);
+      return;
+    }
     try {
       setLoadingBitacoras(true);
       const bitacoras = await apiService.getBitacoraSiniestro(siniestroId, {
@@ -1212,7 +1290,7 @@ export default function SiniestroDetailPage() {
         (user as any)?.full_name ||
         (user as any)?.email ||
         "";
-      const variables = getVariablesForPdf(
+      let variables = getVariablesForPdf(
         siniestro,
         docExistente,
         areaNombre,
@@ -1224,12 +1302,26 @@ export default function SiniestroDetailPage() {
         docExistente.plantilla_documento_id ||
         etapa.plantilla_documento_id ||
         etapa.plantilla_documento?.id;
+
+      // Incluir respuestas del formulario de continuación para reemplazar {{clave}} en el HTML
+      if (plantillaId && siniestroId) {
+        try {
+          const respuesta = await apiService.getRespuestaFormulario(plantillaId, siniestroId);
+          if (respuesta?.valores && typeof respuesta.valores === "object") {
+            variables = { ...variables, ...respuesta.valores };
+          }
+        } catch {
+          // Sin respuesta de formulario, seguir con las variables base
+        }
+      }
+
       const filename =
         docExistente.nombre_archivo.replace(".html", ".pdf") ||
         `${etapa.nombre}.pdf`;
       const pdfResponse = await apiService.generatePDF({
         html_content: docExistente.contenido,
         plantilla_id: plantillaId || undefined,
+        siniestro_id: siniestroId,
         variables,
         page_size: "A4",
         orientation: "portrait",
@@ -1240,7 +1332,7 @@ export default function SiniestroDetailPage() {
       setPdfFilename(filename);
     } catch (error: any) {
       console.error("Error al generar PDF:", error);
-      swalError("Error al generar el PDF del documento");
+      swalError(error.response?.data?.detail || "Error al generar el PDF del documento");
       setShowPdfModal(false);
     } finally {
       setPdfLoading(false);
@@ -1269,7 +1361,7 @@ export default function SiniestroDetailPage() {
         (user as any)?.full_name ||
         (user as any)?.email ||
         "";
-      const variables = getVariablesForPdf(
+      let variables = getVariablesForPdf(
         siniestro,
         documento,
         areaNombre,
@@ -1277,11 +1369,25 @@ export default function SiniestroDetailPage() {
         autorNombre
       );
 
+      // Incluir respuestas del formulario de continuación para reemplazar {{clave}} en el HTML
+      const plantillaIdDoc = documento.plantilla_documento_id;
+      if (plantillaIdDoc && siniestroId) {
+        try {
+          const respuesta = await apiService.getRespuestaFormulario(plantillaIdDoc, siniestroId);
+          if (respuesta?.valores && typeof respuesta.valores === "object") {
+            variables = { ...variables, ...respuesta.valores };
+          }
+        } catch {
+          // Sin respuesta de formulario, seguir con las variables base
+        }
+      }
+
       const filename =
         documento.nombre_archivo.replace(".html", ".pdf") || "documento.pdf";
       const pdfResponse = await apiService.generatePDF({
         html_content: documento.contenido,
         plantilla_id: documento.plantilla_documento_id || undefined,
+        siniestro_id: siniestroId,
         variables,
         page_size: "A4",
         orientation: "portrait",
@@ -1292,14 +1398,14 @@ export default function SiniestroDetailPage() {
       setPdfFilename(filename);
     } catch (error: any) {
       console.error("Error al generar PDF:", error);
-      swalError("Error al generar el PDF del documento");
+      swalError(error.response?.data?.detail || "Error al generar el PDF del documento");
       setShowPdfModal(false);
     } finally {
       setPdfLoading(false);
     }
   };
 
-  // Abrir modal de envío de correo desde un documento (usando su contenido)
+  // Abrir modal de envío de correo desde un documento (plantilla "Te envían un archivo"; si es informe se adjunta PDF)
   const handleOpenEmailModalFromDocumento = (documento: any) => {
     if (!siniestro) return;
 
@@ -1313,10 +1419,23 @@ export default function SiniestroDetailPage() {
       siniestro.numero_siniestro || siniestro.codigo || siniestro.id
     }.\n\nSaludos cordiales.`;
 
+    const tipoNombre =
+      documento.tipo_documento?.nombre ||
+      documento.tipo_documento_principal?.nombre ||
+      "";
+    const categoriaNombre =
+      documento.categoria_documento?.nombre ||
+      documento.categoria?.nombre ||
+      (documento.plantilla_origen?.categoria?.nombre as string) ||
+      "";
+
     setEmailForm((prev) => ({
       ...prev,
       asunto: asuntoBase,
       mensaje: mensajeBase,
+      documento_id: documento.id ?? null,
+      tipo_documento_nombre: tipoNombre,
+      categoria_nombre: categoriaNombre,
     }));
 
     setShowEmailModal(true);
@@ -1366,20 +1485,30 @@ export default function SiniestroDetailPage() {
     try {
       setEmailSending(true);
 
-      const payload = {
-        configuracion_smtp_id: emailForm.configuracion_smtp_id,
-        destinatarios: destinatariosLimpios,
-        asunto: emailForm.asunto || undefined,
-        cuerpo_html: emailForm.mensaje
-          ? emailForm.mensaje.replace(/\n/g, "<br />")
-          : undefined,
-        variables: {
+      if (emailForm.documento_id) {
+        await apiService.enviarArchivoCorreo({
           siniestro_id: siniestro.id,
-        },
-        adjuntos: undefined,
-      };
+          configuracion_smtp_id: emailForm.configuracion_smtp_id,
+          destinatarios: destinatariosLimpios,
+          mensaje: emailForm.mensaje || "",
+          documento_id: emailForm.documento_id,
+          tipo_documento_nombre: emailForm.tipo_documento_nombre || undefined,
+          categoria_nombre: emailForm.categoria_nombre || undefined,
+        });
+      } else {
+        const payload = {
+          configuracion_smtp_id: emailForm.configuracion_smtp_id,
+          destinatarios: destinatariosLimpios,
+          asunto: emailForm.asunto || undefined,
+          cuerpo_html: emailForm.mensaje
+            ? emailForm.mensaje.replace(/\n/g, "<br />")
+            : undefined,
+          variables: { siniestro_id: siniestro.id },
+          adjuntos: undefined,
+        };
+        await apiService.enviarCorreo(payload);
+      }
 
-      await apiService.enviarCorreo(payload);
       swalSuccess("Correo enviado correctamente");
       setShowEmailModal(false);
     } catch (error: any) {
@@ -1439,6 +1568,133 @@ export default function SiniestroDetailPage() {
     await handleOpenDocumentEditor(etapaEncontrada);
   };
 
+  // Descargar archivo de un documento (documentos subidos: fotos, PDF, etc.)
+  const handleDownloadDocumento = async (documento: any) => {
+    try {
+      await apiService.downloadDocumentoArchivo(documento.id, documento.nombre_archivo);
+      swalSuccess("Descarga iniciada");
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al descargar el archivo");
+    }
+  };
+
+  // Abrir/cerrar modal de subir archivo
+  const handleOpenUploadDocModal = () => {
+    setUploadDocFile(null);
+    setUploadDocDescripcion("");
+    setShowUploadDocModal(true);
+  };
+  const handleCloseUploadDocModal = () => {
+    setShowUploadDocModal(false);
+    setUploadDocFile(null);
+    setUploadDocDescripcion("");
+    setUploadDocTipoId("");
+    setUploadDocCategoriaId("");
+    setUploadDocPlantillaId("");
+    setUploadCategorias([]);
+    setUploadPlantillas([]);
+    setUploadDocHoras("");
+    setUploadDocComentario("");
+  };
+
+  // Cargar tipos de documento al abrir el modal de subir archivo
+  useEffect(() => {
+    if (!showUploadDocModal) return;
+    setUploadDocLoadingCatalogos(true);
+    apiService
+      .getPlantillas(true)
+      .then((data: any[]) => {
+        setUploadTiposDocumento(Array.isArray(data) ? data.map((t: any) => ({ id: t.id, nombre: t.nombre || t.name || String(t.id) })) : []);
+      })
+      .catch(() => setUploadTiposDocumento([]))
+      .finally(() => setUploadDocLoadingCatalogos(false));
+  }, [showUploadDocModal]);
+
+  // Al elegir tipo de documento, cargar categorías de ese tipo
+  useEffect(() => {
+    if (!uploadDocTipoId) {
+      setUploadCategorias([]);
+      setUploadPlantillas([]);
+      setUploadDocCategoriaId("");
+      setUploadDocPlantillaId("");
+      return;
+    }
+    setUploadDocCategoriaId("");
+    setUploadDocPlantillaId("");
+    setUploadDocLoadingCatalogos(true);
+    apiService
+      .getCategoriasDocumento(uploadDocTipoId, true)
+      .then((cats: any[]) => {
+        setUploadCategorias(Array.isArray(cats) ? cats.map((c: any) => ({ id: c.id, nombre: c.nombre || c.name || String(c.id) })) : []);
+      })
+      .catch(() => setUploadCategorias([]))
+      .finally(() => setUploadDocLoadingCatalogos(false));
+  }, [uploadDocTipoId]);
+
+  // Al elegir o limpiar categoría, actualizar listado de plantillas (por categoría o solo por tipo)
+  useEffect(() => {
+    if (!uploadDocTipoId) return;
+    setUploadDocPlantillaId("");
+    setUploadDocLoadingCatalogos(true);
+    const categoriaId = uploadDocCategoriaId || undefined;
+    apiService
+      .getPlantillasDocumento(uploadDocTipoId, categoriaId, true)
+      .then((plants: any[]) => {
+        setUploadPlantillas(Array.isArray(plants) ? plants.map((p: any) => ({ id: p.id, nombre: p.nombre || p.name || String(p.id) })) : []);
+      })
+      .catch(() => setUploadPlantillas([]))
+      .finally(() => setUploadDocLoadingCatalogos(false));
+  }, [uploadDocTipoId, uploadDocCategoriaId]);
+
+  // Subir archivo (foto, PDF, etc.) como documento del siniestro
+  const handleSubmitUploadDoc = async () => {
+    if (!uploadDocFile || !siniestroId) return;
+    setUploadDocSaving(true);
+    try {
+      let flujoId: string | undefined;
+      if (activeFlujoTab?.startsWith("general-")) flujoId = activeFlujoTab.replace("general-", "");
+      else if (activeFlujoTab?.startsWith("area-")) flujoId = activeFlujoTab.replace("area-", "");
+      const horasNum = uploadDocHoras.trim() ? parseFloat(uploadDocHoras) : undefined;
+      await apiService.uploadDocumento(siniestroId, uploadDocFile, {
+        descripcion: uploadDocDescripcion.trim() || undefined,
+        area_id: activeAreaTab || undefined,
+        flujo_trabajo_id: flujoId,
+        tipo_documento_id: uploadDocTipoId || undefined,
+        plantilla_documento_id: uploadDocPlantillaId || undefined,
+        horas_trabajadas: horasNum != null && !Number.isNaN(horasNum) ? horasNum : undefined,
+        comentarios: uploadDocComentario.trim() || undefined,
+      });
+      await swalSuccess("Archivo subido correctamente");
+      handleCloseUploadDocModal();
+      await loadDocumentosSiniestro();
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al subir el archivo");
+    } finally {
+      setUploadDocSaving(false);
+    }
+  };
+
+  // Abrir modal de formulario de continuación (para llenar datos del documento de continuación)
+  const handleOpenFormularioContinuacion = async (plantillaId: string, plantillaNombre?: string) => {
+    if (!plantillaId || !siniestroId) return;
+    try {
+      const plantilla = await apiService.getPlantillaDocumentoById(plantillaId) as PlantillaDocumento;
+      const tieneForm =
+        plantilla?.plantilla_continuacion_id &&
+        Array.isArray(plantilla?.campos_formulario) &&
+        plantilla.campos_formulario.length > 0;
+      if (!tieneForm) {
+        swalError("Esta plantilla no tiene formulario de continuación configurado.");
+        return;
+      }
+      setFormularioContinuacionPlantillaId(plantillaId);
+      setFormularioContinuacionPlantillaNombre(plantilla?.nombre || plantillaNombre || "");
+      setShowFormularioContinuacionModal(true);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al cargar el formulario.");
+    }
+  };
+
   // Función para abrir el editor de documentos
   const handleOpenDocumentEditor = async (etapa: EtapaFlujo) => {
     setCurrentEtapa(etapa);
@@ -1464,18 +1720,6 @@ export default function SiniestroDetailPage() {
         (doc: any) => doc.etapa_flujo_id === etapa.id
       );
       
-      console.log("🔍 Buscando documento para etapa:", {
-        etapa_id: etapa.id,
-        etapa_nombre: etapa.nombre,
-        flujoTrabajoIdActual,
-        documentosEtapa: documentosEtapa.map((d: any) => ({
-          id: d.id,
-          nombre: d.nombre_archivo,
-          etapa_flujo_id: d.etapa_flujo_id,
-          flujo_trabajo_id: d.flujo_trabajo_id,
-        })),
-      });
-      
       // Buscar documento del flujo actual (debe coincidir exactamente)
       // Si no hay flujo específico activo, usar el más reciente
       let docExistente: any = null;
@@ -1492,12 +1736,6 @@ export default function SiniestroDetailPage() {
           )[0];
         }
       }
-      
-      console.log("✅ Documento encontrado:", docExistente ? {
-        id: docExistente.id,
-        nombre: docExistente.nombre_archivo,
-        flujo_trabajo_id: docExistente.flujo_trabajo_id,
-      } : "No encontrado");
 
       if (docExistente) {
         // Si existe, cargar el contenido existente
@@ -1584,6 +1822,9 @@ export default function SiniestroDetailPage() {
         areaId = activeAreaTab; // El área actual del tab
       }
 
+      const horasBita = docHorasBitacora.trim() ? parseFloat(docHorasBitacora) : undefined;
+      const comentarioBita = docComentarioBitacora.trim() || undefined;
+
       if (documentoExistente) {
         // Actualizar documento existente
         await apiService.updateDocumento(documentoExistente.id, {
@@ -1591,6 +1832,8 @@ export default function SiniestroDetailPage() {
           nombre_archivo: nombreArchivo,
           area_id: areaId,
           flujo_trabajo_id: flujoTrabajoId,
+          horas_trabajadas_bitacora: horasBita != null && !Number.isNaN(horasBita) ? horasBita : undefined,
+          comentarios_bitacora: comentarioBita,
         });
         await swalSuccess("Documento actualizado correctamente");
       } else {
@@ -1615,6 +1858,8 @@ export default function SiniestroDetailPage() {
           descripcion: `Documento generado para la etapa: ${currentEtapa.nombre}`,
           es_principal: currentEtapa.es_obligatoria,
           activo: true,
+          horas_trabajadas_bitacora: horasBita != null && !Number.isNaN(horasBita) ? horasBita : undefined,
+          comentarios_bitacora: comentarioBita,
         });
         await swalSuccess("Documento guardado correctamente");
       }
@@ -1622,6 +1867,19 @@ export default function SiniestroDetailPage() {
       // Recargar documentos después de guardar
       await loadDocumentosSiniestro();
       setShowEditorModal(false);
+      setDocHorasBitacora("");
+      setDocComentarioBitacora("");
+
+      // Si la plantilla tiene continuación con formulario, abrir el modal para llenar los datos
+      const tieneContinuacionYForm =
+        plantillaActual?.plantilla_continuacion_id &&
+        Array.isArray(plantillaActual?.campos_formulario) &&
+        plantillaActual.campos_formulario.length > 0;
+      if (tieneContinuacionYForm && plantillaActual) {
+        setFormularioContinuacionPlantillaId(plantillaActual.id);
+        setFormularioContinuacionPlantillaNombre(plantillaActual.nombre || "");
+        setShowFormularioContinuacionModal(true);
+      }
     } catch (error: any) {
       console.error("Error al guardar documento:", error);
       swalError(
@@ -1685,12 +1943,12 @@ export default function SiniestroDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-[1600px] mx-auto">
+    <div className="min-h-screen w-full bg-gray-50 p-6">
+      <div className="w-full">
         {/* Header */}
-        <div className="mb-6 flex items-start justify-between gap-6">
+        <div data-tour="detalle-header" className="mb-6 flex items-start justify-between gap-6">
           <div className="flex-1">
-            <div className="mb-4">
+            <div className="mb-4 flex items-center gap-3">
               <Button
                 variant="secondary"
                 onClick={() => router.push("/siniestros")}
@@ -1698,17 +1956,20 @@ export default function SiniestroDetailPage() {
                 <FiArrowLeft className="w-4 h-4 mr-2" />
                 Volver
               </Button>
+              <TourButton tour="tour-detalle-siniestro" label="Ver guía" />
             </div>
-            <div className="flex items-end justify-end gap-3">
-              <EmpresaButton
-                variant="primary"
-                size="sm"
-                onClick={() => handleOpenEditModal()}
-              >
-                <FiEdit3 className="w-4 h-4 mr-2" />
-                Editar
-              </EmpresaButton>
-            </div>
+            {canActualizarSiniestro && (
+              <div className="flex items-end justify-end gap-3">
+                <EmpresaButton
+                  variant="primary"
+                  size="sm"
+                  onClick={() => handleOpenEditModal()}
+                >
+                  <FiEdit3 className="w-4 h-4 mr-2" />
+                  Editar
+                </EmpresaButton>
+              </div>
+            )}
             <p className="text-gray-600 mt-2 flex flex-col">
               {(() => {
                 // Construir código completo: proveniente-consecutivo-añalidad
@@ -1775,7 +2036,7 @@ export default function SiniestroDetailPage() {
             </p>
           </div>
 
-          {/* Selectores de Status y Calificación */}
+          {/* Selectores de Status y Calificación (solo editables con permiso actualizar) */}
           <div className="grid grid-cols-2 gap-4 min-w-[500px]">
             <EmpresaSelect
               label="Status"
@@ -1787,7 +2048,7 @@ export default function SiniestroDetailPage() {
                 color: estado.color,
               }))}
               placeholder="Seleccionar estado"
-              disabled={loadingEstados || updatingStatus}
+              disabled={!canActualizarSiniestro || loadingEstados || updatingStatus}
             />
 
             <EmpresaSelect
@@ -1804,7 +2065,7 @@ export default function SiniestroDetailPage() {
                 color: calificacion.color,
               }))}
               placeholder="Seleccionar calificación"
-              disabled={loadingCalificaciones || updatingCalificacion}
+              disabled={!canActualizarSiniestro || loadingCalificaciones || updatingCalificacion}
             />
           </div>
         </div>
@@ -1812,7 +2073,7 @@ export default function SiniestroDetailPage() {
         {/* Layout de dos columnas */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
           {/* Columna izquierda - Contenido principal */}
-          <div className="lg:col-span-2 space-y-6">
+          <div data-tour="detalle-tabs" className="lg:col-span-2 space-y-6">
             {/* Pestañas estilo Chrome - Dos niveles */}
             {loadingFlujos ? (
               <div className="bg-white rounded-lg shadow p-6">
@@ -1994,7 +2255,7 @@ export default function SiniestroDetailPage() {
                                         )}
                                       </div>
 
-                                      {/* Tabs internos: Etapas, Documentos, Bitácora */}
+                                      {/* Tabs internos: Etapas, Documentos, Bitácora (según permisos) */}
                                       <div className="mb-6">
                                         <EmpresaTabs
                                           tabs={[
@@ -2005,22 +2266,30 @@ export default function SiniestroDetailPage() {
                                                 <FiLayers className="w-4 h-4" />
                                               ),
                                             },
-                                            {
-                                              id: "documentos",
-                                              label: "Documentos",
-                                              icon: (
-                                                <FiFileText className="w-4 h-4" />
-                                              ),
-                                              count: documentosFiltrados.length,
-                                            },
-                                            {
-                                              id: "bitacora",
-                                              label: "Bitácora",
-                                              icon: (
-                                                <FiClock className="w-4 h-4" />
-                                              ),
-                                              count: bitacorasFiltradas.length,
-                                            },
+                                            ...(canVerDocumentos
+                                              ? [
+                                                  {
+                                                    id: "documentos" as const,
+                                                    label: "Documentos",
+                                                    icon: (
+                                                      <FiFileText className="w-4 h-4" />
+                                                    ),
+                                                    count: documentosFiltrados.length,
+                                                  },
+                                                ]
+                                              : []),
+                                            ...(canVerBitacora
+                                              ? [
+                                                  {
+                                                    id: "bitacora" as const,
+                                                    label: "Bitácora",
+                                                    icon: (
+                                                      <FiClock className="w-4 h-4" />
+                                                    ),
+                                                    count: bitacorasFiltradas.length,
+                                                  },
+                                                ]
+                                              : []),
                                           ]}
                                           activeTab={activeContentTab}
                                           onTabChange={(tabId) =>
@@ -2045,24 +2314,36 @@ export default function SiniestroDetailPage() {
                                             handleOpenDocumentEditor
                                           }
                                           onViewDocument={handleViewDocument}
+                                          onContinuar={(_, doc) =>
+                                            doc?.plantilla_documento_id &&
+                                            handleOpenFormularioContinuacion(
+                                              doc.plantilla_documento_id,
+                                              doc.nombre_archivo
+                                            )
+                                          }
                                           empresaColors={empresaColors}
                                           flujoTrabajoId={flujoConEtapas.flujo.id}
+                                          canVerPdf={canGenerarPdf}
+                                          canEditarDocumento={canActualizarSiniestro}
+                                          canCrearDocumento={canCrearSiniestro}
                                         />
                                       )}
 
-                                      {activeContentTab === "documentos" && (
+                                      {activeContentTab === "documentos" && canVerDocumentos && (
                                         <DocumentosList
                                           documentos={documentosFiltrados}
                                           loading={loadingDocumentos}
                                           onViewDocument={handleViewDocumento}
                                           onEditDocument={handleEditDocumento}
                                           onSendByEmail={handleOpenEmailModalFromDocumento}
+                                          onDownloadDocument={handleDownloadDocumento}
+                                          onUploadClick={canSubirArchivo ? handleOpenUploadDocModal : undefined}
                                           siniestroId={siniestroId}
                                           empresaColors={empresaColors}
                                         />
                                       )}
 
-                                      {activeContentTab === "bitacora" && (
+                                      {activeContentTab === "bitacora" && canVerBitacora && (
                                         <BitacoraList
                                           bitacoras={bitacorasFiltradas}
                                           loading={loadingBitacoras}
@@ -2116,7 +2397,7 @@ export default function SiniestroDetailPage() {
                                       )}
                                     </div>
 
-                                    {/* Tabs internos: Etapas, Documentos, Bitácora */}
+                                    {/* Tabs internos: Etapas, Documentos, Bitácora (según permisos) */}
                                     <div className="mb-6">
                                       <div className="flex border-b border-gray-200">
                                         <button
@@ -2132,33 +2413,37 @@ export default function SiniestroDetailPage() {
                                           <FiLayers className="w-4 h-4 inline mr-2" />
                                           Etapas
                                         </button>
-                                        <button
-                                          onClick={() =>
-                                            setActiveContentTab("documentos")
-                                          }
-                                          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                                            activeContentTab === "documentos"
-                                              ? "border-blue-500 text-blue-600"
-                                              : "border-transparent text-gray-600 hover:text-gray-900"
-                                          }`}
-                                        >
-                                          <FiFileText className="w-4 h-4 inline mr-2" />
-                                          Documentos (
-                                          {documentosFiltrados.length})
-                                        </button>
-                                        <button
-                                          onClick={() =>
-                                            setActiveContentTab("bitacora")
-                                          }
-                                          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                                            activeContentTab === "bitacora"
-                                              ? "border-blue-500 text-blue-600"
-                                              : "border-transparent text-gray-600 hover:text-gray-900"
-                                          }`}
-                                        >
-                                          <FiClock className="w-4 h-4 inline mr-2" />
-                                          Bitácora ({bitacorasFiltradas.length})
-                                        </button>
+                                        {canVerDocumentos && (
+                                          <button
+                                            onClick={() =>
+                                              setActiveContentTab("documentos")
+                                            }
+                                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                                              activeContentTab === "documentos"
+                                                ? "border-blue-500 text-blue-600"
+                                                : "border-transparent text-gray-600 hover:text-gray-900"
+                                            }`}
+                                          >
+                                            <FiFileText className="w-4 h-4 inline mr-2" />
+                                            Documentos (
+                                            {documentosFiltrados.length})
+                                          </button>
+                                        )}
+                                        {canVerBitacora && (
+                                          <button
+                                            onClick={() =>
+                                              setActiveContentTab("bitacora")
+                                            }
+                                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                                              activeContentTab === "bitacora"
+                                                ? "border-blue-500 text-blue-600"
+                                                : "border-transparent text-gray-600 hover:text-gray-900"
+                                            }`}
+                                          >
+                                            <FiClock className="w-4 h-4 inline mr-2" />
+                                            Bitácora ({bitacorasFiltradas.length})
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
 
@@ -2171,24 +2456,36 @@ export default function SiniestroDetailPage() {
                                         }
                                         onOpenEditor={handleOpenDocumentEditor}
                                         onViewDocument={handleViewDocument}
+                                        onContinuar={(_, doc) =>
+                                          doc?.plantilla_documento_id &&
+                                          handleOpenFormularioContinuacion(
+                                            doc.plantilla_documento_id,
+                                            doc.nombre_archivo
+                                          )
+                                        }
                                         empresaColors={empresaColors}
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
+                                        canVerPdf={canGenerarPdf}
+                                        canEditarDocumento={canActualizarSiniestro}
+                                        canCrearDocumento={canCrearSiniestro}
                                       />
                                     )}
 
-                                    {activeContentTab === "documentos" && (
+                                    {activeContentTab === "documentos" && canVerDocumentos && (
                                       <DocumentosList
                                         documentos={documentosFiltrados}
                                         loading={loadingDocumentos}
                                         onViewDocument={handleViewDocumento}
                                         onEditDocument={handleEditDocumento}
-                                          onSendByEmail={handleOpenEmailModalFromDocumento}
+                                        onSendByEmail={handleOpenEmailModalFromDocumento}
+                                        onDownloadDocument={handleDownloadDocumento}
+                                        onUploadClick={canSubirArchivo ? handleOpenUploadDocModal : undefined}
                                         siniestroId={siniestroId}
                                         empresaColors={empresaColors}
                                       />
                                     )}
 
-                                    {activeContentTab === "bitacora" && (
+                                    {activeContentTab === "bitacora" && canVerBitacora && (
                                       <BitacoraList
                                         bitacoras={bitacorasFiltradas}
                                         loading={loadingBitacoras}
@@ -2555,7 +2852,7 @@ export default function SiniestroDetailPage() {
           </div>
 
           {/* Columna derecha - Administración */}
-          <div className="lg:col-span-1 space-y-6">
+          <div data-tour="detalle-panel-lateral" className="lg:col-span-1 space-y-6">
             {/* Sección: Administrar Áreas */}
             <EmpresaCard className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -2596,54 +2893,59 @@ export default function SiniestroDetailPage() {
                             <span className="text-sm font-medium text-gray-700 flex-1">
                               {area?.nombre || "Área desconocida"}
                             </span>
-                            <button
-                              onClick={() => handleRemoveArea(areaRelacion.id)}
-                              className="p-1 text-red-600 hover:text-red-800 transition-colors"
-                              title="Eliminar área"
-                            >
-                              <FiTrash2 className="w-4 h-4" />
-                            </button>
+                            {canAsignarAreas && (
+                              <button
+                                onClick={() => handleRemoveArea(areaRelacion.id)}
+                                className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                                title="Eliminar área"
+                              >
+                                <FiTrash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         );
                       })
                     )}
                   </div>
 
-                  {/* Agregar nueva área */}
-                  <div className="pt-4 border-t border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Agregar Área
-                    </label>
-                    <select
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleAddArea(e.target.value);
-                          e.target.value = "";
-                        }
-                      }}
-                      value=""
-                    >
-                      <option value="">Seleccionar área...</option>
-                      {todasLasAreas
-                        .filter(
-                          (area) =>
-                            !areasAdicionales.some(
-                              (ar) => ar.area_id === area.id
-                            )
-                        )
-                        .map((area) => (
-                          <option key={area.id} value={area.id}>
-                            {area.nombre}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
+                  {/* Agregar nueva área (solo con permiso asignar_areas) */}
+                  {canAsignarAreas && (
+                    <div className="pt-4 border-t border-gray-200">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Agregar Área
+                      </label>
+                      <select
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            handleAddArea(e.target.value);
+                            e.target.value = "";
+                          }
+                        }}
+                        value=""
+                      >
+                        <option value="">Seleccionar área...</option>
+                        {todasLasAreas
+                          .filter(
+                            (area) =>
+                              !areasAdicionales.some(
+                                (ar) => ar.area_id === area.id
+                              )
+                          )
+                          .map((area) => (
+                            <option key={area.id} value={area.id}>
+                              {area.nombre}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               )}
             </EmpresaCard>
 
-            {/* Sección: Administrar Involucrados */}
+            {/* Sección: Administrar Involucrados (visible solo con ver_involucrados) */}
+            {canVerInvolucrados && (
             <EmpresaCard className="p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2
@@ -2706,15 +3008,17 @@ export default function SiniestroDetailPage() {
                                   )}
                                 </p>
                               </div>
-                              <button
-                                onClick={() =>
-                                  handleRemoveInvolucrado(involucrado.id)
-                                }
-                                className="p-1 text-red-600 hover:text-red-800 transition-colors ml-2 flex-shrink-0"
-                                title="Eliminar involucrado"
-                              >
-                                <FiTrash2 className="w-4 h-4" />
-                              </button>
+                              {canActualizarSiniestro && (
+                                <button
+                                  onClick={() =>
+                                    handleRemoveInvolucrado(involucrado.id)
+                                  }
+                                  className="p-1 text-red-600 hover:text-red-800 transition-colors ml-2 flex-shrink-0"
+                                  title="Eliminar involucrado"
+                                >
+                                  <FiTrash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -2722,60 +3026,60 @@ export default function SiniestroDetailPage() {
                     )}
                   </div>
 
-                  {/* Agregar nuevo involucrado */}
-                  <div className="pt-4 border-t border-gray-200 space-y-3">
-                    <label className="block text-sm font-medium text-gray-700">
-                      Agregar Involucrado
-                    </label>
-                    <div className="flex flex-col md:flex-row gap-2">
-                      {/* Lista solo de usuarios permitidos */}
-                      <select
-                        className="w-full md:flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                        value={nuevoInvolucradoUsuarioId}
-                        onChange={(e) =>
-                          setNuevoInvolucradoUsuarioId(e.target.value)
-                        }
-                      >
-                        <option value="">Seleccionar usuario...</option>
-                        {todosLosUsuarios
-                          .filter(
-                            (usuario) =>
-                              !involucrados.some(
-                                (inv) => inv.usuario_id === usuario.id
-                              )
-                          )
-                          .map((usuario) => (
-                            <option key={usuario.id} value={usuario.id}>
-                              {usuario.full_name ||
-                                usuario.email ||
-                                "Usuario"}
-                            </option>
-                          ))}
-                      </select>
+                  {/* Agregar nuevo involucrado (solo con permiso actualizar) */}
+                  {canActualizarSiniestro && (
+                    <div className="pt-4 border-t border-gray-200 space-y-3">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Agregar Involucrado
+                      </label>
+                      <div className="flex flex-col md:flex-row gap-2">
+                        <select
+                          className="w-full md:flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                          value={nuevoInvolucradoUsuarioId}
+                          onChange={(e) =>
+                            setNuevoInvolucradoUsuarioId(e.target.value)
+                          }
+                        >
+                          <option value="">Seleccionar usuario...</option>
+                          {todosLosUsuarios
+                            .filter(
+                              (usuario) =>
+                                !involucrados.some(
+                                  (inv) => inv.usuario_id === usuario.id
+                                )
+                            )
+                            .map((usuario) => (
+                              <option key={usuario.id} value={usuario.id}>
+                                {usuario.full_name ||
+                                  usuario.email ||
+                                  "Usuario"}
+                              </option>
+                            ))}
+                        </select>
 
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="sm"
-                        disabled={!nuevoInvolucradoUsuarioId}
-                        onClick={async () => {
-                          if (!nuevoInvolucradoUsuarioId) return;
-                          // Relación interna en BD se mantendrá como 'tercero' por defecto,
-                          // pero al usuario solo le importa seleccionar la persona.
-                          await handleAddInvolucrado(
-                            nuevoInvolucradoUsuarioId,
-                            "tercero"
-                          );
-                          setNuevoInvolucradoUsuarioId("");
-                        }}
-                      >
-                        Agregar
-                      </Button>
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="sm"
+                          disabled={!nuevoInvolucradoUsuarioId}
+                          onClick={async () => {
+                            if (!nuevoInvolucradoUsuarioId) return;
+                            await handleAddInvolucrado(
+                              nuevoInvolucradoUsuarioId,
+                              "tercero"
+                            );
+                            setNuevoInvolucradoUsuarioId("");
+                          }}
+                        >
+                          Agregar
+                        </Button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
             </EmpresaCard>
+            )}
 
             {/* Sección: Información de Póliza */}
             <EmpresaCard className="p-6">
@@ -2791,13 +3095,15 @@ export default function SiniestroDetailPage() {
                     className="w-5 h-5"
                     style={{ color: empresaColors.primary }}
                   />
-                  <button
-                    onClick={handleOpenPolizaModal}
-                    className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
-                    title="Editar póliza"
-                  >
-                    <FiEdit3 className="w-4 h-4" />
-                  </button>
+                  {canActualizarSiniestro && (
+                    <button
+                      onClick={handleOpenPolizaModal}
+                      className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
+                      title="Editar póliza"
+                    >
+                      <FiEdit3 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -3045,7 +3351,13 @@ export default function SiniestroDetailPage() {
       {/* Modal de Edición de Documento */}
       <Modal
         open={showEditorModal}
-        onClose={() => !savingDocument && setShowEditorModal(false)}
+        onClose={() => {
+          if (!savingDocument) {
+            setShowEditorModal(false);
+            setDocHorasBitacora("");
+            setDocComentarioBitacora("");
+          }
+        }}
         title={`${
           documentoExistente ? "Editar Documento" : "Generar Documento"
         }${currentEtapa ? ` - ${currentEtapa.nombre}` : ""}`}
@@ -3103,6 +3415,35 @@ export default function SiniestroDetailPage() {
                 disabled={savingDocument}
               />
 
+              {/* Bitácora: horas y comentario (carga/actualización de informe) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Horas (para bitácora)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={24}
+                    step={0.25}
+                    value={docHorasBitacora}
+                    onChange={(e) => setDocHorasBitacora(e.target.value)}
+                    placeholder="Ej: 1.5"
+                    disabled={savingDocument}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Comentario (para bitácora)</label>
+                  <input
+                    type="text"
+                    value={docComentarioBitacora}
+                    onChange={(e) => setDocComentarioBitacora(e.target.value)}
+                    placeholder="Comentario que se registrará en la bitácora..."
+                    disabled={savingDocument}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
               {/* Botones de acción */}
               <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button
@@ -3136,6 +3477,148 @@ export default function SiniestroDetailPage() {
           )}
         </div>
       </Modal>
+
+      {/* Modal para subir archivo (solo archivos, no editables) */}
+      <Modal
+        open={showUploadDocModal}
+        onClose={handleCloseUploadDocModal}
+        title="Subir archivo"
+        maxWidthClass="max-w-lg"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Sube imágenes, PDFs u otros archivos. Se asociarán al siniestro y aparecerán en la lista de documentos. Clasifica el archivo por tipo y, si aplica, por categoría o plantilla.
+          </p>
+
+          {/* Tipo de documento */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de documento</label>
+            <select
+              value={uploadDocTipoId}
+              onChange={(e) => setUploadDocTipoId(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              disabled={uploadDocLoadingCatalogos}
+            >
+              <option value="">Seleccionar tipo...</option>
+              {uploadTiposDocumento.map((t) => (
+                <option key={t.id} value={t.id}>{t.nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Categoría (se lista al elegir tipo) */}
+          {uploadDocTipoId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Categoría (opcional)</label>
+              <select
+                value={uploadDocCategoriaId}
+                onChange={(e) => setUploadDocCategoriaId(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                disabled={uploadDocLoadingCatalogos}
+              >
+                <option value="">Sin categoría</option>
+                {uploadCategorias.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Plantilla (se lista según tipo y categoría) */}
+          {uploadDocTipoId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Plantilla (opcional)</label>
+              <select
+                value={uploadDocPlantillaId}
+                onChange={(e) => setUploadDocPlantillaId(e.target.value)}
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                disabled={uploadDocLoadingCatalogos}
+              >
+                <option value="">Ninguna</option>
+                {uploadPlantillas.map((p) => (
+                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Archivo *</label>
+            <input
+              type="file"
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:cursor-pointer"
+              onChange={(e) => setUploadDocFile(e.target.files?.[0] || null)}
+            />
+            {uploadDocFile && (
+              <p className="mt-1 text-xs text-gray-500">{uploadDocFile.name} ({(uploadDocFile.size / 1024).toFixed(1)} KB)</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Descripción (opcional)</label>
+            <input
+              type="text"
+              value={uploadDocDescripcion}
+              onChange={(e) => setUploadDocDescripcion(e.target.value)}
+              placeholder="Ej: Foto del daño, contrato firmado..."
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Horas (para bitácora)</label>
+            <input
+              type="number"
+              min={0}
+              max={24}
+              step={0.25}
+              value={uploadDocHoras}
+              onChange={(e) => setUploadDocHoras(e.target.value)}
+              placeholder="Ej: 1.5"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Comentario (para bitácora)</label>
+            <textarea
+              value={uploadDocComentario}
+              onChange={(e) => setUploadDocComentario(e.target.value)}
+              placeholder="Comentario que se registrará en la bitácora..."
+              rows={2}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={handleCloseUploadDocModal}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSubmitUploadDoc}
+              disabled={!uploadDocFile || uploadDocSaving}
+            >
+              {uploadDocSaving ? "Subiendo…" : "Subir archivo"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal de formulario de continuación (llenar datos para documento de continuación) */}
+      <FormularioContinuacionModal
+        open={showFormularioContinuacionModal}
+        onClose={() => {
+          setShowFormularioContinuacionModal(false);
+          setFormularioContinuacionPlantillaId("");
+          setFormularioContinuacionPlantillaNombre("");
+        }}
+        plantillaId={formularioContinuacionPlantillaId}
+        plantillaNombre={formularioContinuacionPlantillaNombre}
+        siniestroId={siniestroId}
+        onSaved={() => {
+          loadDocumentosSiniestro();
+          swalSuccess("Datos de continuación guardados correctamente.");
+        }}
+        empresaColors={empresaColors}
+      />
 
       {/* Modal de Visualización de PDF */}
       <Modal
@@ -3659,15 +4142,23 @@ function EtapasTimeline({
   documentosExistentes,
   onOpenEditor,
   onViewDocument,
+  onContinuar,
   empresaColors,
   flujoTrabajoId,
+  canVerPdf = true,
+  canEditarDocumento = true,
+  canCrearDocumento = true,
 }: {
   etapas: EtapaFlujo[];
   documentosExistentes: DocumentoEtapa[];
   onOpenEditor: (etapa: EtapaFlujo) => void;
   onViewDocument: (etapa: EtapaFlujo) => void;
+  onContinuar?: (etapa: EtapaFlujo, docExistente: any) => void;
   empresaColors: { primary: string; secondary: string; tertiary: string };
   flujoTrabajoId?: string;
+  canVerPdf?: boolean;
+  canEditarDocumento?: boolean;
+  canCrearDocumento?: boolean;
 }) {
   if (!etapas || etapas.length === 0) {
     return (
@@ -3680,7 +4171,7 @@ function EtapasTimeline({
 
   // Ordenar etapas por orden
   const etapasOrdenadas = [...etapas].sort((a, b) => a.orden - b.orden);
-
+  
   // Determinar si una etapa tiene plantilla/documento disponible
   const tieneDocumentoDisponible = (etapa: EtapaFlujo) => {
     return (
@@ -3804,18 +4295,6 @@ function EtapasTimeline({
                           (doc: any) => doc.etapa_flujo_id === etapa.id
                         );
                         
-                        console.log("🔍 EtapasTimeline - Buscando documento:", {
-                          etapa_id: etapa.id,
-                          etapa_nombre: etapa.nombre,
-                          flujoTrabajoId,
-                          documentosEtapa: documentosEtapa.map((d: any) => ({
-                            id: d.id,
-                            nombre: d.nombre_archivo,
-                            etapa_flujo_id: d.etapa_flujo_id,
-                            flujo_trabajo_id: d.flujo_trabajo_id,
-                          })),
-                        });
-                        
                         // Buscar documento del flujo actual (debe coincidir exactamente)
                         // Si no hay flujo específico, usar el más reciente
                         let docExistente: any = null;
@@ -3832,50 +4311,69 @@ function EtapasTimeline({
                             )[0];
                           }
                         }
-                        
-                        console.log("✅ EtapasTimeline - Documento encontrado:", docExistente ? {
-                          id: docExistente.id,
-                          nombre: docExistente.nombre_archivo,
-                          flujo_trabajo_id: docExistente.flujo_trabajo_id,
-                        } : "No encontrado");
                         if (docExistente) {
-                          // Si existe documento, mostrar botones "Ver" y "Editar"
+                          // Si existe documento: Ver, Continuar (solo si la plantilla tiene continuación), Editar (según permisos)
+                          const plantillaId = docExistente.plantilla_documento_id;
+                          const puedeContinuar = !!onContinuar && !!plantillaId && docExistente.plantilla_tiene_continuacion === true;
                           return (
                             <>
-                              <button
-                                onClick={() => onViewDocument(etapa)}
-                                className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                                style={{
-                                  backgroundColor: empresaColors.tertiary,
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.opacity = "0.9";
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.opacity = "1";
-                                }}
-                                title="Ver documento como PDF"
-                              >
-                                <FiEye className="w-4 h-4" />
-                                Ver
-                              </button>
-                              <button
-                                onClick={() => onOpenEditor(etapa)}
-                                className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                                style={{
-                                  backgroundColor: empresaColors.primary,
-                                }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.opacity = "0.9";
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.opacity = "1";
-                                }}
-                                title="Editar documento"
-                              >
-                                <FiEdit3 className="w-4 h-4" />
-                                Editar
-                              </button>
+                              {canVerPdf && (
+                                <button
+                                  onClick={() => onViewDocument(etapa)}
+                                  className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                                  style={{
+                                    backgroundColor: empresaColors.tertiary,
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.opacity = "0.9";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.opacity = "1";
+                                  }}
+                                  title="Ver documento como PDF"
+                                >
+                                  <FiEye className="w-4 h-4" />
+                                  Ver
+                                </button>
+                              )}
+                              {puedeContinuar && canEditarDocumento && (
+                                <button
+                                  onClick={() => onContinuar(etapa, docExistente)}
+                                  className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                                  style={{
+                                    backgroundColor: empresaColors.secondary,
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.opacity = "0.9";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.opacity = "1";
+                                  }}
+                                  title="Llenar formulario de continuación"
+                                >
+                                  <FiCornerDownRight className="w-4 h-4" />
+                                  Continuar
+                                </button>
+                              )}
+                              {canEditarDocumento && (
+                                <button
+                                  onClick={() => onOpenEditor(etapa)}
+                                  className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                                  style={{
+                                    backgroundColor: empresaColors.primary,
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.opacity = "0.9";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.opacity = "1";
+                                  }}
+                                  title="Editar documento"
+                                >
+                                  <FiEdit3 className="w-4 h-4" />
+                                  Editar
+                                </button>
+                              )}
                             </>
                           );
                         } else {
@@ -3908,7 +4406,7 @@ function EtapasTimeline({
                             return `Cargar informe ${etapaNombre.toLowerCase()}`;
                           };
 
-                          return (
+                          return canCrearDocumento ? (
                             <EmpresaButton
                               variant="primary"
                               size="sm"
@@ -3917,7 +4415,7 @@ function EtapasTimeline({
                               <FiEdit3 className="w-4 h-4 mr-2" />
                               {getDocumentoButtonText(etapa.nombre)}
                             </EmpresaButton>
-                          );
+                          ) : null;
                         }
                       })()
                     ) : (
@@ -3948,6 +4446,8 @@ function DocumentosList({
   onViewDocument,
   onEditDocument,
   onSendByEmail,
+  onDownloadDocument,
+  onUploadClick,
   siniestroId,
   empresaColors,
 }: {
@@ -3956,6 +4456,8 @@ function DocumentosList({
   onViewDocument: (documento: any) => void;
   onEditDocument: (documento: any) => void;
   onSendByEmail: (documento: any) => void;
+  onDownloadDocument?: (documento: any) => void;
+  onUploadClick?: () => void;
   siniestroId: string;
   empresaColors: { primary: string; secondary: string; tertiary: string };
 }) {
@@ -4097,6 +4599,15 @@ function DocumentosList({
                     Enviar
                   </button>
                 </>
+              ) : documento.ruta_archivo && onDownloadDocument ? (
+                <button
+                  onClick={() => onDownloadDocument(documento)}
+                  className="flex items-center gap-1 px-2 py-1 text-white text-xs font-medium rounded transition-colors bg-gray-600 hover:bg-gray-700"
+                  title="Descargar archivo"
+                >
+                  <FiFile className="w-3 h-3" />
+                  Descargar
+                </button>
               ) : (
                 <span className="text-xs text-gray-400">Sin contenido</span>
               )}
@@ -4105,7 +4616,7 @@ function DocumentosList({
         },
       },
     ],
-    [onViewDocument, onEditDocument, empresaColors]
+    [onViewDocument, onEditDocument, onSendByEmail, onDownloadDocument, empresaColors]
   );
 
   if (loading) {
@@ -4119,18 +4630,46 @@ function DocumentosList({
 
   if (documentos.length === 0) {
     return (
-      <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-        <FiFileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-        <p className="text-gray-500 font-medium">No hay documentos generados</p>
-        <p className="text-sm text-gray-400 mt-1">
-          Los documentos generados desde las etapas aparecerán aquí
-        </p>
+      <div className="space-y-4">
+        {onUploadClick && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={onUploadClick}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+              style={{ backgroundColor: empresaColors.primary }}
+            >
+              <FiPaperclip className="w-4 h-4" />
+              Subir archivo (fotos, PDF, etc.)
+            </button>
+          </div>
+        )}
+        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+          <FiFileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+          <p className="text-gray-500 font-medium">No hay documentos generados</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Los documentos generados desde las etapas o archivos subidos aparecerán aquí
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="space-y-4">
+      {onUploadClick && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onUploadClick}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors"
+            style={{ backgroundColor: empresaColors.primary }}
+          >
+            <FiPaperclip className="w-4 h-4" />
+            Subir archivo (fotos, PDF, etc.)
+          </button>
+        </div>
+      )}
       <DataTable
         columns={columns}
         data={documentos}

@@ -18,6 +18,7 @@ from app.models.legal import (
     Asegurado,
     Proveniente,
     TipoDocumento,
+    RespuestaFormularioPlantilla,
     CategoriaDocumento,
     PlantillaDocumento,
     Siniestro,
@@ -74,14 +75,10 @@ from app.schemas.legal_schema import (
 class AreaService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Area]:
-        q = db.query(Area).filter(Area.empresa_id == empresa_id)
+        q = db.query(Area).options(joinedload(Area.jefe)).filter(Area.empresa_id == empresa_id)
         if activo is not None:
             q = q.filter(Area.activo == activo)
         return q.order_by(Area.nombre).all()
-
-    @staticmethod
-    def create(db: Session, empresa_id: UUID, payload: AreaCreate) -> Area:
-        area = Area(empresa_id=empresa_id, **payload.model_dump())
         db.add(area)
         db.commit()
         db.refresh(area)
@@ -599,6 +596,60 @@ class PlantillaDocumentoService:
         if not plantilla:
             return False
         plantilla.eliminado_en = func.now()
+        db.commit()
+        return True
+
+
+class RespuestaFormularioService:
+    """CRUD para respuestas del formulario personalizado de plantillas"""
+
+    @staticmethod
+    def get_or_none(db: Session, plantilla_id: UUID, siniestro_id: UUID) -> Optional[RespuestaFormularioPlantilla]:
+        return db.query(RespuestaFormularioPlantilla).filter(
+            RespuestaFormularioPlantilla.plantilla_id == plantilla_id,
+            RespuestaFormularioPlantilla.siniestro_id == siniestro_id,
+        ).first()
+
+    @staticmethod
+    def upsert(
+        db: Session,
+        plantilla_id: UUID,
+        siniestro_id: UUID,
+        valores: dict,
+        usuario_id: Optional[UUID] = None,
+    ) -> RespuestaFormularioPlantilla:
+        """Crea o actualiza la respuesta de formulario para una plantilla+siniestro."""
+        respuesta = RespuestaFormularioService.get_or_none(db, plantilla_id, siniestro_id)
+        if respuesta:
+            respuesta.valores = {**respuesta.valores, **valores}
+            if usuario_id:
+                respuesta.usuario_id = usuario_id
+        else:
+            respuesta = RespuestaFormularioPlantilla(
+                plantilla_id=plantilla_id,
+                siniestro_id=siniestro_id,
+                usuario_id=usuario_id,
+                valores=valores,
+            )
+            db.add(respuesta)
+        db.commit()
+        db.refresh(respuesta)
+        return respuesta
+
+    @staticmethod
+    def list_by_siniestro(db: Session, siniestro_id: UUID) -> List[RespuestaFormularioPlantilla]:
+        return db.query(RespuestaFormularioPlantilla).filter(
+            RespuestaFormularioPlantilla.siniestro_id == siniestro_id,
+        ).all()
+
+    @staticmethod
+    def delete(db: Session, respuesta_id: UUID) -> bool:
+        respuesta = db.query(RespuestaFormularioPlantilla).filter(
+            RespuestaFormularioPlantilla.id == respuesta_id
+        ).first()
+        if not respuesta:
+            return False
+        db.delete(respuesta)
         db.commit()
         return True
 

@@ -18,6 +18,8 @@ import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
 import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings } from "react-icons/fi";
+import { useTour } from "@/hooks/useTour";
+import TourButton from "@/components/ui/TourButton";
 
 interface User {
   id: string;
@@ -34,6 +36,7 @@ interface User {
 export default function UsuariosPage() {
   const router = useRouter();
   const { user, loading } = useUser();
+  useTour("tour-usuarios", { autoStart: true });
   const [activeTab, setActiveTab] = useState<"usuarios" | "roles">("usuarios");
   const [usuarios, setUsuarios] = useState<User[]>([]);
   const [usuariosLoading, setUsuariosLoading] = useState(false);
@@ -397,13 +400,14 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="w-full p-6 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Usuarios y Roles</h1>
+        <TourButton tour="tour-usuarios" label="Ver guía" />
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div data-tour="usuarios-tabs" className="border-b border-gray-200">
         <nav className="-mb-px flex gap-6" aria-label="Tabs">
           <button
             className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
@@ -432,10 +436,10 @@ export default function UsuariosPage() {
 
       {/* Contenido de pestañas */}
       {activeTab === "usuarios" && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div data-tour="usuarios-tabla" className="bg-white rounded-lg shadow p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold">Gestión de Usuarios</h2>
-            <Button onClick={openCreateUsuario}>
+            <Button data-tour="usuarios-nuevo" onClick={openCreateUsuario}>
               <FiPlus className="w-4 h-4 mr-2" />
               Nuevo Usuario
             </Button>

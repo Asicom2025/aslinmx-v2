@@ -8,7 +8,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen">
       <Sidebar />
       <Navbar />
-      <main className="!pt-16 lg:pl-64 p-4 lg:p-6 bg-gray-50 min-h-screen">{children}</main>
+      <main className="w-full min-w-0 !pt-16 lg:pl-64 bg-gray-50 min-h-screen">{children}</main>
     </div>
   );
 }
