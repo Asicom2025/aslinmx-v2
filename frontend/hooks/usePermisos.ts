@@ -55,7 +55,9 @@ export function usePermisos(): UsePermisosReturn {
 
   const canAccessRoute = useMemo(
     () => (pathname: string) => {
-      if (userLoading) return true;
+      // Mientras se cargan los datos del usuario, evitamos mostrar enlaces
+      // que luego puedan desaparecer por permisos, devolviendo false.
+      if (userLoading) return false;
       const path = pathname.split("?")[0].replace(/\/$/, "") || "/";
       const modulo = RUTA_A_MODULO[path];
       if (!modulo) return true;
