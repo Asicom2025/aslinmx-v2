@@ -1,5 +1,5 @@
 """
-Ejecuta el seed inicial (db/init.sql) si la base de datos está vacía.
+Ejecuta el seed inicial (db/data.sql) si la base de datos está vacía.
 Se invoca automáticamente al iniciar el backend.
 El rol Administrador se crea manualmente, no se genera aquí.
 """
@@ -11,12 +11,12 @@ from app.db.session import engine
 
 logger = logging.getLogger(__name__)
 
-INIT_SQL_PATH = "/app/db/init.sql"
-
+# Archivo único de datos iniciales (volcado de datos)
+INIT_SQL_PATH = "/app/db/data.sql"
 
 def run_seed_if_empty() -> bool:
     """
-    Ejecuta init.sql si no existe ninguna empresa.
+    Ejecuta data.sql si no existe ninguna empresa.
     Retorna True si se ejecutó el seed, False si no era necesario.
     """
     try:
@@ -27,14 +27,16 @@ def run_seed_if_empty() -> bool:
                 logger.info("Base de datos ya tiene datos, omitiendo seed")
                 return False
 
-            # Buscar init.sql: en /app/db (Docker) o en db/ relativo al proyecto
+            # Buscar data.sql: en /app/db (Docker) o en db/ relativo al proyecto
             sql_path = INIT_SQL_PATH
             if not os.path.exists(sql_path):
                 # Desarrollo local: db/ está en la raíz del proyecto
-                base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-                sql_path = os.path.join(base, "db", "init.sql")
+                base = os.path.dirname(
+                    os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                )
+                sql_path = os.path.join(base, "db", "data.sql")
             if not os.path.exists(sql_path):
-                logger.warning("No se encontró db/init.sql, omitiendo seed automático")
+                logger.warning("No se encontró db/data.sql, omitiendo seed automático")
                 return False
 
             with open(sql_path, "r", encoding="utf-8") as f:

@@ -9,6 +9,7 @@ from fastapi import HTTPException, status
 from uuid import UUID
 
 from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa
+from app.models.legal import TipoDocumento
 from app.schemas.flujo_trabajo_schema import (
     FlujoTrabajoCreate,
     FlujoTrabajoUpdate,
@@ -221,18 +222,16 @@ class EtapaFlujoService:
                 detail="El flujo de trabajo no existe"
             )
 
-        # Validar que el tipo de documento existe si se proporciona
+        # Validar que el tipo de documento existe si se proporciona (tipos_documento no tiene empresa_id)
         if etapa.tipo_documento_principal_id:
-            # Usar text() para evitar problemas de importación circular
-            from sqlalchemy import text
-            tipo_doc = db.execute(
-                text("SELECT id FROM tipos_documento WHERE id = :id AND empresa_id = :empresa_id AND eliminado_en IS NULL"),
-                {"id": str(etapa.tipo_documento_principal_id), "empresa_id": str(flujo.empresa_id)}
+            tipo_doc = db.query(TipoDocumento).filter(
+                TipoDocumento.id == etapa.tipo_documento_principal_id,
+                TipoDocumento.eliminado_en.is_(None),
             ).first()
             if not tipo_doc:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"El tipo de documento con ID {etapa.tipo_documento_principal_id} no existe o no pertenece a la empresa"
+                    detail=f"El tipo de documento con ID {etapa.tipo_documento_principal_id} no existe o está eliminado"
                 )
 
         db_etapa = EtapaFlujo(
