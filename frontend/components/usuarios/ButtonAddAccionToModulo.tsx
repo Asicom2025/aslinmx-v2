@@ -53,7 +53,7 @@ export default function ButtonAddAccionToModulo({
   useEffect(() => {
     if (open) {
       apiService.permiso
-        .getAcciones(true)
+        .getAccionesPorModulo(moduloId, true)
         .then((data: Accion[]) => setAcciones(data))
         .catch(() => setAcciones([]));
       setSelectedIds(new Set());

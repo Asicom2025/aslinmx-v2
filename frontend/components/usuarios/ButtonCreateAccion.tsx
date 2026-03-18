@@ -10,6 +10,7 @@ import { useState, useEffect } from "react";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
+import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError } from "@/lib/swal";
 import { FiPlus } from "react-icons/fi";
@@ -26,9 +27,7 @@ interface ButtonCreateAccionProps {
   size?: "sm" | "md" | "lg";
   children?: React.ReactNode;
   className?: string;
-  /** Rol al que asignar (requerido para asignar a módulos) */
-  rolId?: string;
-  /** Si se indica, la acción se asignará automáticamente a este módulo */
+  /** Si se indica, el formulario se bloquea a este módulo */
   moduloId?: string;
 }
 
@@ -38,7 +37,6 @@ export default function ButtonCreateAccion({
   size = "md",
   children,
   className = "",
-  rolId,
   moduloId,
 }: ButtonCreateAccionProps) {
   const [open, setOpen] = useState(false);
@@ -63,25 +61,28 @@ export default function ButtonCreateAccion({
       swalError("Nombre y nombre técnico son requeridos");
       return;
     }
+    // Determinar a qué módulos se asignará la acción
+    const moduloIdsDestino: string[] = moduloId
+      ? [String(moduloId)]
+      : form.moduloIds.map((id) => String(id));
+
+    if (moduloIdsDestino.length === 0) {
+      swalError("Selecciona al menos un módulo para la acción");
+      return;
+    }
     try {
       setLoading(true);
-      const nuevaAccion = await apiService.permiso.createAccion({
-        nombre: form.nombre.trim(),
-        nombre_tecnico: form.nombre_tecnico.trim().toLowerCase().replace(/\s+/g, "_"),
-        descripcion: form.descripcion || undefined,
-      });
-      if (rolId) {
-        const idsParaAsignar = moduloId
-          ? [String(moduloId)]
-          : form.moduloIds.map((id) => String(id));
-        for (const mid of idsParaAsignar) {
-          try {
-            await apiService.permiso.asignarAccionModulo(rolId, mid, String(nuevaAccion.id));
-          } catch {
-            // Ignorar si ya está asignada
-          }
-        }
-      }
+      // Crear una acción por cada módulo seleccionado (acciones "en común" por nombre/nombre_tecnico, pero registros separados)
+      await Promise.all(
+        moduloIdsDestino.map(async (mid) => {
+          await apiService.permiso.createAccion({
+            modulo_id: mid,
+            nombre: form.nombre.trim(),
+            nombre_tecnico: form.nombre_tecnico.trim().toLowerCase().replace(/\s+/g, "_"),
+            descripcion: form.descripcion || undefined,
+          });
+        })
+      );
       await swalSuccess("Acción creada correctamente");
       setOpen(false);
       setForm({ nombre: "", nombre_tecnico: "", descripcion: "", moduloIds: [] });
@@ -138,62 +139,20 @@ export default function ButtonCreateAccion({
             placeholder="Opcional"
           />
           {!moduloId && modulos.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">
-                  Asignar a módulos (opcional)
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setForm((p) => ({ ...p, moduloIds: modulos.map((m) => String(m.id)) }))
-                    }
-                    className="text-xs text-primary-600 hover:text-primary-700 font-medium"
-                  >
-                    Todos
-                  </button>
-                  <span className="text-gray-300">|</span>
-                  <button
-                    type="button"
-                    onClick={() => setForm((p) => ({ ...p, moduloIds: [] }))}
-                    className="text-xs text-gray-500 hover:text-gray-700 font-medium"
-                  >
-                    Ninguno
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-2 max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2">
-                {modulos.map((m) => {
-                  const mid = String(m.id);
-                  const checked = form.moduloIds.includes(mid);
-                  return (
-                    <label key={m.id} className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          const isChecked = e.target.checked;
-                          setForm((p) => ({
-                            ...p,
-                            moduloIds: isChecked
-                              ? [...p.moduloIds.filter((id) => id !== mid), mid]
-                              : p.moduloIds.filter((id) => id !== mid),
-                          }));
-                        }}
-                        className="rounded border-gray-300"
-                      />
-                      <span className="text-sm">{m.nombre}</span>
-                    </label>
-                  );
-                })}
-              </div>
-              {form.moduloIds.length > 0 && (
-                <p className="text-xs text-gray-500 mt-1">
-                  {form.moduloIds.length} módulo(s) seleccionado(s)
-                </p>
-              )}
-            </div>
+            <CustomSelect
+              label="Módulos donde aplica esta acción"
+              name="modulos"
+              value={form.moduloIds}
+              onChange={(value) =>
+                setForm((p) => ({ ...p, moduloIds: Array.isArray(value) ? (value as string[]) : [] }))
+              }
+              options={modulos.map<SelectableOption>((m) => ({
+                value: String(m.id),
+                label: m.nombre,
+              }))}
+              isMulti
+              placeholder="Selecciona uno o varios módulos"
+            />
           )}
           <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>

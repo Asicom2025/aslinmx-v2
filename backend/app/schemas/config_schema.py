@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from uuid import UUID
 
+from app.schemas.user_schema import UserResponse
 
 # ========== SMTP ==========
 class ConfiguracionSMTPBase(BaseModel):
@@ -107,6 +108,9 @@ class EnviarArchivoCorreoRequest(BaseModel):
     destinatarios: List[EmailStr]
     mensaje: str  # textMail: mensaje que coloca el usuario
     documento_id: Optional[UUID] = None  # Si es informe (tiene plantilla), se adjunta PDF
+    # Permite enviar varios documentos en el mismo correo.
+    # Para cada documento se intentará generar el PDF; si no es informe, se adjunta el archivo original.
+    documentos_ids: Optional[List[UUID]] = None
     tipo_documento_nombre: Optional[str] = None  # c1
     categoria_nombre: Optional[str] = None  # c2
     # c3 se puede dejar vacío o usar para otro dato si se desea
@@ -117,6 +121,7 @@ class AuditoriaResponse(BaseModel):
     id: UUID
     empresa_id: Optional[UUID]
     usuario_id: Optional[UUID]
+    usuario: Optional[UserResponse] = None
     accion: str
     modulo: str
     tabla: str

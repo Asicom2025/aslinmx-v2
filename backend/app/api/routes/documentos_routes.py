@@ -22,12 +22,13 @@ from app.schemas.legal_schema import (
     BitacoraActividadCreate,
     NotificacionCreate,
 )
-from app.models.legal import PlantillaDocumento
+from app.models.legal import PlantillaDocumento, Siniestro
 from app.services.legal_service import (
     DocumentoService,
     BitacoraActividadService,
     NotificacionService,
 )
+from app.services.auditoria_service import AuditoriaService
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
 
@@ -153,6 +154,21 @@ def create_documento(
         mensaje=f"Se guardó el documento «{documento.nombre_archivo}» en el siniestro.",
     ))
 
+    # Auditoría: documento creado
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == documento.siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="documento_creado",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=documento.siniestro_id,
+        descripcion=f"Documento creado: {documento.nombre_archivo}",
+        datos_nuevos={"nombre_archivo": documento.nombre_archivo, "documento_id": str(documento.id)},
+    )
+
     return documento
 
 
@@ -186,6 +202,21 @@ def update_documento(
         area_id=documento.area_id,
         flujo_trabajo_id=documento.flujo_trabajo_id,
     ))
+
+    # Auditoría: documento actualizado
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == documento.siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="documento_actualizado",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=documento.siniestro_id,
+        descripcion=f"Documento actualizado: {documento.nombre_archivo}",
+        datos_nuevos={"nombre_archivo": documento.nombre_archivo, "documento_id": str(documento.id)},
+    )
 
     return documento
 
@@ -286,6 +317,22 @@ def upload_documento_archivo(
         titulo="Archivo subido",
         mensaje=f"Se subió el archivo «{documento.nombre_archivo}» al siniestro.",
     ))
+
+    # Auditoría: documento subido
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == documento.siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="documento_subido",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=documento.siniestro_id,
+        descripcion=f"Archivo subido: {documento.nombre_archivo}",
+        datos_nuevos={"nombre_archivo": documento.nombre_archivo, "documento_id": str(documento.id)},
+    )
+
     return documento
 
 
@@ -296,8 +343,27 @@ def delete_documento(
     current_user: User = Depends(get_current_active_user),
 ):
     """Elimina lógicamente un documento"""
+    documento = DocumentoService.get_by_id(db, documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    siniestro_id = documento.siniestro_id
+    nombre_archivo = documento.nombre_archivo
     ok = DocumentoService.delete(db, documento_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+    # Auditoría: documento eliminado
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="documento_eliminado",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=siniestro_id,
+        descripcion=f"Documento eliminado: {nombre_archivo}",
+        datos_nuevos={"nombre_archivo": nombre_archivo, "documento_id": str(documento_id)},
+    )
     return None
 

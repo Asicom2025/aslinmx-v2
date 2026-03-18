@@ -112,84 +112,84 @@ export default function LoginPage() {
   return (
     <>
       <RecaptchaScript />
-      <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <div className="flex justify-center mb-6">
-            <Image
-              src={logoDxLegal}
-              alt="DX Legal"
-              width={180}
-              height={80}
-              className="h-auto w-auto object-contain"
-              priority
-            />
-          </div>
-          <p className="mt-2 text-center text-sm text-white/80">
-            Inicia sesión en tu cuenta
-          </p>
-        </div>
-
-        <form
-          className="mt-8 space-y-6 bg-white p-8 rounded-lg shadow-md"
-          onSubmit={handleSubmit}
-        >
-          <div className="space-y-4">
-            {!requires2FA && (
-              <>
-                <Input
-                  label="Usuario o Email"
-                  type="text"
-                  name="username"
-                  value={formData.username}
-                  onChange={handleChange}
-                  placeholder="usuario@ejemplo.com"
-                  required
-                />
-
-                <Input
-                  label="Contraseña"
-                  type="password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  placeholder="••••••••"
-                  required
-                />
-              </>
-            )}
-
-            {requires2FA && (
-              <Input
-                label="Código 2FA"
-                type="text"
-                name="code"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-                placeholder="123456"
-                required
+      <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-10 px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-sm sm:max-w-md space-y-6">
+          <div>
+            <div className="flex justify-center mb-4 sm:mb-6">
+              <Image
+                src={logoDxLegal}
+                alt="DX Legal"
+                width={180}
+                height={80}
+                className="h-auto w-auto object-contain"
+                priority
               />
-            )}
-          </div>
-
-          <Button type="submit" fullWidth variant="primary" loading={loading}>
-            {requires2FA ? "Verificar 2FA" : "Iniciar Sesión"}
-          </Button>
-
-          <div className="text-center">
-            <p className="text-sm">
-              ¿No tienes cuenta?{" "}
-              <a
-                href="/register"
-                className="text-azul hover:opacity-90 font-medium"
-              >
-                Regístrate aquí
-              </a>
+            </div>
+            <p className="mt-2 text-center text-sm text-white/80">
+              Inicia sesión en tu cuenta
             </p>
           </div>
-        </form>
+
+          <form
+            className="mt-4 sm:mt-6 space-y-6 bg-white p-6 sm:p-8 rounded-lg shadow-md"
+            onSubmit={handleSubmit}
+          >
+            <div className="space-y-4">
+              {!requires2FA && (
+                <>
+                  <Input
+                    label="Usuario o Email"
+                    type="text"
+                    name="username"
+                    value={formData.username}
+                    onChange={handleChange}
+                    placeholder="usuario@ejemplo.com"
+                    required
+                  />
+
+                  <Input
+                    label="Contraseña"
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleChange}
+                    placeholder="••••••••"
+                    required
+                  />
+                </>
+              )}
+
+              {requires2FA && (
+                <Input
+                  label="Código 2FA"
+                  type="text"
+                  name="code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="123456"
+                  required
+                />
+              )}
+            </div>
+
+            <Button type="submit" fullWidth variant="primary" loading={loading}>
+              {requires2FA ? "Verificar 2FA" : "Iniciar Sesión"}
+            </Button>
+
+            <div className="text-center">
+              <p className="text-sm">
+                ¿No tienes cuenta?{" "}
+                <a
+                  href="/register"
+                  className="text-azul hover:opacity-90 font-medium"
+                >
+                  Regístrate aquí
+                </a>
+              </p>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
     </>
   );
 }

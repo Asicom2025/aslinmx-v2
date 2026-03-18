@@ -143,10 +143,10 @@ export default function SiniestrosPage() {
   const router = useRouter();
   const { user, loading } = useUser();
   const { can } = usePermisos();
-  const canCrearSiniestro = can("siniestros", "crear");
-  const canVerDetalle = can("siniestros", "ver_detalle");
-  const canActualizarSiniestro = can("siniestros", "actualizar");
-  const canEliminarSiniestro = can("siniestros", "eliminar");
+  const canCrearSiniestro = can("siniestros", "create");
+  const canVerDetalle = can("siniestros", "read");
+  const canActualizarSiniestro = can("siniestros", "update");
+  const canEliminarSiniestro = can("siniestros", "delete");
   useTour("tour-siniestros", { autoStart: true });
   const [siniestros, setSiniestros] = useState<Siniestro[]>([]);
   const [siniestrosLoading, setSiniestrosLoading] = useState(false);
@@ -1293,22 +1293,35 @@ export default function SiniestrosPage() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Siniestros</h1>
-          <div className="flex items-center gap-3">
+    <div className="min-h-screen w-full bg-gray-50">
+      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 lg:mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            Siniestros
+          </h1>
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <TourButton tour="tour-siniestros" label="Ver guía" />
             {canCrearSiniestro && (
-              <Button data-tour="siniestros-nuevo" onClick={() => router.push("/siniestros/nuevo")}>Nuevo Siniestro</Button>
+              <Button
+                data-tour="siniestros-nuevo"
+                onClick={() => router.push("/siniestros/nuevo")}
+                className="w-full sm:w-auto"
+              >
+                Nuevo Siniestro
+              </Button>
             )}
           </div>
         </div>
 
         {/* Filtros */}
-        <div data-tour="siniestros-filtros" className="bg-white p-4 rounded-lg shadow mb-6">
-          <h2 className="text-lg font-semibold mb-4">Filtros</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div
+          data-tour="siniestros-filtros"
+          className="bg-white p-4 sm:p-5 rounded-lg shadow mb-4 lg:mb-6"
+        >
+          <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">
+            Filtros
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
             <CustomSelect
               label="Status"
               name="estado_id"
@@ -1400,22 +1413,24 @@ export default function SiniestrosPage() {
             </div>
           </div>
           {/* Selector de límite de registros */}
-          <div className="mt-4 flex items-center gap-4">
-            <label className="text-sm font-medium text-gray-700">
-              Límite de registros:
-            </label>
-            <select
-              value={limit}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value={100}>100</option>
-              <option value={250}>250</option>
-              <option value={500}>500</option>
-              <option value={1000}>1000</option>
-              <option value={2000}>2000</option>
-              <option value={5000}>5000</option>
-            </select>
+          <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">
+                Límite de registros:
+              </label>
+              <select
+                value={limit}
+                onChange={(e) => setLimit(Number(e.target.value))}
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+                <option value={500}>500</option>
+                <option value={1000}>1000</option>
+                <option value={2000}>2000</option>
+                <option value={5000}>5000</option>
+              </select>
+            </div>
             <span className="text-sm text-gray-500">
               (Total cargados: {siniestros.length})
             </span>
@@ -1423,7 +1438,10 @@ export default function SiniestrosPage() {
         </div>
 
         {/* Tabla */}
-        <div data-tour="siniestros-tabla" className="bg-white rounded-lg shadow overflow-x-auto">
+        <div
+          data-tour="siniestros-tabla"
+          className="bg-white rounded-lg shadow overflow-x-auto"
+        >
           {siniestrosLoading ? (
             <div className="p-8 text-center text-gray-500">
               Cargando siniestros...

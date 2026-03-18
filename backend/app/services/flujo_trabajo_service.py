@@ -9,7 +9,8 @@ from fastapi import HTTPException, status
 from uuid import UUID
 
 from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa
-from app.models.legal import TipoDocumento
+from app.models.legal import TipoDocumento, Siniestro
+from app.services.auditoria_service import AuditoriaService
 from app.schemas.flujo_trabajo_schema import (
     FlujoTrabajoCreate,
     FlujoTrabajoUpdate,
@@ -402,6 +403,25 @@ class SiniestroEtapaService:
 
         db.commit()
         db.refresh(siniestro_etapa)
+
+        # Log de auditoría
+        etapa = db.query(EtapaFlujo).filter(EtapaFlujo.id == etapa_flujo_id).first()
+        flujo = db.query(FlujoTrabajo).filter(FlujoTrabajo.id == etapa.flujo_trabajo_id).first() if etapa else None
+        etapa_nombre = etapa.nombre if etapa else ""
+        flujo_nombre = flujo.nombre if flujo else ""
+        siniestro = db.query(Siniestro).filter(Siniestro.id == siniestro_id).first()
+        empresa_id = siniestro.empresa_id if siniestro else None
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=usuario_id,
+            empresa_id=empresa_id,
+            accion="etapa_completada",
+            modulo="siniestros",
+            tabla="siniestros",
+            registro_id=siniestro_id,
+            datos_nuevos={"etapa_nombre": etapa_nombre, "flujo_nombre": flujo_nombre},
+            descripcion=f"Etapa completada: {etapa_nombre} (Flujo: {flujo_nombre})",
+        )
 
         return siniestro_etapa
 

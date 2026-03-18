@@ -16,6 +16,7 @@ from app.schemas.legal_schema import (
 )
 from app.services.legal_service import SiniestroUsuarioService, SiniestroAreaService, SiniestroService
 from app.services.email_service import EmailService
+from app.services.auditoria_service import AuditoriaService
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +45,24 @@ def add_involucrado(
     """Agrega un involucrado a un siniestro. Envía correo al involucrado si existe plantilla 'Nuevo involucrado'."""
     payload.siniestro_id = siniestro_id
     try:
-        relacion = SiniestroUsuarioService.create(db, payload)
+        relacion = SiniestroUsuarioService.create(db, payload, current_user.id)
     except HTTPException:
         raise
     except Exception as e:
+        try:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=current_user.id,
+                empresa_id=current_user.empresa_id,
+                accion="error",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                descripcion="Error al agregar involucrado",
+                datos_nuevos={"error": str(e), "tipo": type(e).__name__},
+            )
+        except Exception:
+            logger.exception("No se pudo registrar error en auditoría")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al agregar involucrado: {str(e)}"
@@ -87,7 +102,7 @@ def remove_involucrado(
     current_user: User = Depends(get_current_active_user),
 ):
     """Elimina un involucrado de un siniestro"""
-    ok = SiniestroUsuarioService.delete(db, relacion_id)
+    ok = SiniestroUsuarioService.delete(db, relacion_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
     return None
@@ -121,10 +136,24 @@ def add_area_adicional(
     payload_with_siniestro = SiniestroAreaCreate(**payload_dict)
     
     try:
-        return SiniestroAreaService.create(db, payload_with_siniestro)
+        return SiniestroAreaService.create(db, payload_with_siniestro, current_user.id)
     except HTTPException:
         raise
     except Exception as e:
+        try:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=current_user.id,
+                empresa_id=current_user.empresa_id,
+                accion="error",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                descripcion="Error al agregar área adicional",
+                datos_nuevos={"error": str(e), "tipo": type(e).__name__},
+            )
+        except Exception:
+            logger.exception("No se pudo registrar error en auditoría")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al agregar área: {str(e)}"
@@ -139,7 +168,7 @@ def update_area_adicional(
     current_user: User = Depends(get_current_active_user),
 ):
     """Actualiza un área adicional"""
-    relacion = SiniestroAreaService.update(db, relacion_id, payload)
+    relacion = SiniestroAreaService.update(db, relacion_id, payload, current_user.id)
     if not relacion:
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
     return relacion
@@ -152,7 +181,7 @@ def remove_area_adicional(
     current_user: User = Depends(get_current_active_user),
 ):
     """Elimina un área adicional de un siniestro"""
-    ok = SiniestroAreaService.delete(db, relacion_id)
+    ok = SiniestroAreaService.delete(db, relacion_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
     return None

@@ -375,6 +375,7 @@ class BitacoraActividad(Base):
     fecha_actividad = Column(DateTime(timezone=True), nullable=False)
     documento_adjunto = Column(String(255), nullable=True)
     comentarios = Column(Text, nullable=True)
+    verificado = Column(Boolean, nullable=False, server_default=text("false"))
     # Campos para organización por área y flujo
     area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="SET NULL"), nullable=True)
     flujo_trabajo_id = Column(UUID(as_uuid=True), ForeignKey("flujos_trabajo.id", ondelete="SET NULL"), nullable=True)

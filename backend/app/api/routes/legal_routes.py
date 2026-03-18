@@ -50,6 +50,8 @@ from app.schemas.legal_schema import (
     RespuestaFormularioUpdate,
     RespuestaFormularioResponse,
 )
+from app.services.auditoria_service import AuditoriaService
+from app.models.legal import Siniestro
 from app.services.legal_service import (
     RespuestaFormularioService,
     AreaService,
@@ -910,13 +912,28 @@ def upsert_respuesta_formulario(
     current_user: User = Depends(get_current_active_user),
 ):
     """Crea o actualiza la respuesta de formulario para una plantilla+siniestro."""
-    return RespuestaFormularioService.upsert(
+    respuesta = RespuestaFormularioService.upsert(
         db,
         plantilla_id=plantilla_id,
         siniestro_id=siniestro_id,
         valores=payload.valores,
         usuario_id=current_user.id,
     )
+    # Auditoría: formulario actualizado
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="formulario_actualizado",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=siniestro_id,
+        descripcion=f"Respuesta de formulario actualizada (plantilla: {plantilla_id})",
+        datos_nuevos={"plantilla_id": str(plantilla_id)},
+    )
+    return respuesta
 
 
 @router.get(

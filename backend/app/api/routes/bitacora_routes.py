@@ -14,6 +14,8 @@ from app.schemas.legal_schema import (
     BitacoraActividadCreate, BitacoraActividadUpdate, BitacoraActividadResponse,
 )
 from app.services.legal_service import BitacoraActividadService
+from app.services.auditoria_service import AuditoriaService
+from app.models.legal import Siniestro
 
 router = APIRouter(prefix="/bitacora", tags=["Bitácora"])
 
@@ -66,8 +68,25 @@ def create_bitacora_actividad(
     # Si no se especifica usuario_id, usar el usuario actual
     if not payload.usuario_id:
         payload.usuario_id = current_user.id
-    
-    return BitacoraActividadService.create(db, payload)
+
+    actividad = BitacoraActividadService.create(db, payload)
+
+    # Auditoría: actividad bitácora creada
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == actividad.siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="bitacora_creada",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=actividad.siniestro_id,
+        descripcion=f"Actividad en bitácora: {actividad.descripcion[:80]}{'...' if len(actividad.descripcion or '') > 80 else ''}",
+        datos_nuevos={"tipo_actividad": actividad.tipo_actividad, "actividad_id": str(actividad.id)},
+    )
+
+    return actividad
 
 
 @router.put("/{actividad_id}", response_model=BitacoraActividadResponse)
@@ -81,6 +100,22 @@ def update_bitacora_actividad(
     actividad = BitacoraActividadService.update(db, actividad_id, payload)
     if not actividad:
         raise HTTPException(status_code=404, detail="Actividad no encontrada")
+
+    # Auditoría: actividad bitácora actualizada
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == actividad.siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="bitacora_actualizada",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=actividad.siniestro_id,
+        descripcion=f"Actividad en bitácora actualizada: {actividad.descripcion[:80]}{'...' if len(actividad.descripcion or '') > 80 else ''}",
+        datos_nuevos={"tipo_actividad": actividad.tipo_actividad, "actividad_id": str(actividad.id)},
+    )
+
     return actividad
 
 

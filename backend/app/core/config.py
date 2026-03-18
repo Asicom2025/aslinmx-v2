@@ -11,12 +11,18 @@ class Settings(BaseSettings):
     """Configuración de la aplicación usando Pydantic"""
     
     # Base de datos
-    DATABASE_URL: str = "postgresql://aslin_user:aslin_password@db:5432/aslin_db"
+    # Debe venir SIEMPRE del .env (no exponer credenciales en código)
+    DATABASE_URL: str
     
     # Seguridad JWT
-    SECRET_KEY: str = "09d25e094faa6caa6bd32b168903878692e209d09d25e094faa6caa6bd32b168903878692e209d0"
+    # SECRET_KEY y tiempos de expiración deben configurarse en .env
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
+    # Refresh token (JWT) para renovar sesión sin re-login
+    # Default: 7 días
+    REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    REFRESH_TOKEN_COOKIE_NAME: str = "refresh_token"
     # 2FA
     TOTP_ISSUER: str = "Aslin 2.0"
     
@@ -25,23 +31,21 @@ class Settings(BaseSettings):
     RECAPTCHA_KEY: Optional[str] = None  # Clave del sitio reCAPTCHA Enterprise
     RECAPTCHA_SITE_KEY: Optional[str] = None  # Mantener para compatibilidad con frontend
     
-    # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://0.0.0.0:3000",
-        "http://frontend:3000"
-    ]
+    # CORS: debe venir del .env (lista o string separado por comas)
+    CORS_ORIGINS: List[str]
     
-    # Configuración del servidor
-    BACKEND_HOST: str = "0.0.0.0"
-    BACKEND_PORT: int = 8000
-    DEBUG: bool = False
+    # Configuración del servidor (host/puerto/debug) también desde .env
+    BACKEND_HOST: str
+    BACKEND_PORT: int
+    DEBUG: bool
 
-    # URL del frontend (para enlaces en correos, ej. ver siniestro)
-    FRONTEND_URL: str = "http://localhost:3000"
-    BASE_URL: str = "http://localhost:3000"  # URL base para correos (enlaces, assets). Si no se define en .env, usa FRONTEND_URL
-    BACKEND_URL: str = "http://localhost:8000"  # URL base del API (para enlaces de descarga en correos)
+    # URL del frontend / backend (OBLIGATORIAS en entorno real).
+    # Deben venir del .env; aquí no se fijan valores concretos.
+    # - FRONTEND_URL y BACKEND_URL son obligatorias (si faltan, Pydantic levantará error al iniciar).
+    # - BASE_URL es opcional y, si falta, se usa FRONTEND_URL a nivel de uso (no aquí).
+    FRONTEND_URL: str  # ej: https://app.midominio.com
+    BASE_URL: Optional[str] = None  # URL base para correos (enlaces, assets). Si es None, se usará FRONTEND_URL.
+    BACKEND_URL: str  # ej: https://api.midominio.com
     # Rutas de assets para plantillas de correo (servidos por el frontend en /assets/...)
     EMAIL_LOGO_PATH: str = "/assets/logos/logo_dx-legal.png"
     EMAIL_FILE_ICON_PATH: str = "/assets/icons/file2.png"

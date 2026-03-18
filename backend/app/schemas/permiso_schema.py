@@ -61,6 +61,7 @@ class AccionBase(BaseModel):
     nombre: str = Field(..., min_length=1, max_length=50)
     descripcion: Optional[str] = None
     nombre_tecnico: str = Field(..., min_length=1, max_length=50)
+    modulo_id: UUID
 
 
 class AccionCreate(AccionBase):

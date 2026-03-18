@@ -6,6 +6,8 @@ Endpoints para operaciones CRUD de usuarios y autenticación
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
+from fastapi.responses import JSONResponse
+import uuid as uuid_lib
 
 from app.db.session import get_db
 from app.services.permiso_service import RolPermisoService
@@ -25,8 +27,15 @@ from app.schemas.user_schema import (
 )
 from app.services.user_service import UserService
 from app.services.recaptcha_service import RecaptchaService
-from app.core.security import get_current_active_user
+from app.core.security import (
+    get_current_active_user,
+    create_refresh_token,
+    decode_access_token,
+    create_access_token,
+    is_refresh_token,
+)
 from app.models.user import User
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -91,12 +100,26 @@ async def login(
     if result.get("requires_2fa"):
         return {"requires_2fa": True, "temp_token": result.get("temp_token")}
     else:
-        return {"requires_2fa": False, "access_token": result.get("access_token")}
+        access_token = result.get("access_token")
+        # Emitir refresh token en cookie httpOnly para poder renovar sesión
+        refresh_token = create_refresh_token({"sub": str(user.id)})
+        response = JSONResponse({"requires_2fa": False, "access_token": access_token})
+        response.set_cookie(
+            key=settings.REFRESH_TOKEN_COOKIE_NAME,
+            value=refresh_token,
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="lax",
+            max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
+            path="/",
+        )
+        return response
 
 
 @router.post("/2fa/verify", response_model=Token)
 def verify_2fa(
     payload: TwoFAVerifyRequest,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """
@@ -105,7 +128,98 @@ def verify_2fa(
     token = UserService.verify_2fa_and_issue_token(db, payload.temp_token, payload.code)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código 2FA inválido o token expirado")
-    return {"access_token": token, "token_type": "bearer"}
+
+    # Crear refresh token desde el temp_token (sub)
+    temp_payload = decode_access_token(payload.temp_token)
+    user_id = temp_payload.get("sub") if temp_payload else None
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Temp token inválido o expirado")
+
+    refresh_token = create_refresh_token({"sub": str(user_id)})
+    response = JSONResponse({"access_token": token, "token_type": "bearer"})
+    response.set_cookie(
+        key=settings.REFRESH_TOKEN_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+    return response
+
+
+@router.post("/refresh", response_model=Token)
+def refresh_access_token(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Renueva el access token usando refresh_token en cookie httpOnly.
+    """
+    refresh_token = request.cookies.get(settings.REFRESH_TOKEN_COOKIE_NAME)
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión expirada",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not is_refresh_token(refresh_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    payload = decode_access_token(refresh_token) or {}
+    sub = payload.get("sub")
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        user_uuid = uuid_lib.UUID(str(sub))
+    except Exception:
+        user_uuid = sub  # fallback
+
+    user = db.query(User).filter(User.id == user_uuid).first()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión expirada",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    new_access_token = create_access_token({"sub": str(user.id)})
+    new_refresh_token = create_refresh_token({"sub": str(user.id)})
+
+    response = JSONResponse({"access_token": new_access_token, "token_type": "bearer"})
+    response.set_cookie(
+        key=settings.REFRESH_TOKEN_COOKIE_NAME,
+        value=new_refresh_token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+    return response
+
+
+@router.post("/logout")
+def logout_session(
+    request: Request,
+):
+    """
+    Cierra la sesión limpiando refresh_token en cookie (no invalida tokens ya emitidos).
+    """
+    response = JSONResponse({"success": True})
+    response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME, path="/")
+    return response
 
 
 @router.get("/me", response_model=UserResponse)

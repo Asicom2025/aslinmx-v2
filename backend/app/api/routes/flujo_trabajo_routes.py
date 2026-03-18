@@ -29,6 +29,10 @@ from app.services.flujo_trabajo_service import (
     EtapaFlujoService,
     SiniestroEtapaService,
 )
+from app.services.auditoria_service import AuditoriaService
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -373,15 +377,36 @@ def completar_etapa_siniestro(
     current_user: User = Depends(get_current_active_user)
 ):
     """Completa una etapa de un siniestro"""
-    etapa = SiniestroEtapaService.completar_etapa(
-        db=db,
-        siniestro_id=siniestro_id,
-        etapa_flujo_id=etapa_flujo_id,
-        usuario_id=current_user.id,
-        request=request
-    )
-
-    return etapa
+    try:
+        etapa = SiniestroEtapaService.completar_etapa(
+            db=db,
+            siniestro_id=siniestro_id,
+            etapa_flujo_id=etapa_flujo_id,
+            usuario_id=current_user.id,
+            request=request
+        )
+        return etapa
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=current_user.id,
+                empresa_id=current_user.empresa_id,
+                accion="error",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                descripcion="Error al completar etapa de flujo",
+                datos_nuevos={"error": str(e), "tipo": type(e).__name__},
+            )
+        except Exception:
+            logger.exception("No se pudo registrar error en auditoría")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al completar etapa: {str(e)}"
+        )
 
 
 @router.post("/siniestros/{siniestro_id}/avanzar", status_code=status.HTTP_200_OK)
@@ -392,11 +417,32 @@ def avanzar_etapa_siniestro(
     current_user: User = Depends(get_current_active_user)
 ):
     """Avanza a la siguiente etapa del siniestro"""
-    SiniestroEtapaService.avanzar_etapa(
-        db=db,
-        siniestro_id=siniestro_id,
-        usuario_id=current_user.id
-    )
-
-    return {"success": True, "detail": "Etapa avanzada correctamente"}
+    try:
+        SiniestroEtapaService.avanzar_etapa(
+            db=db,
+            siniestro_id=siniestro_id,
+            usuario_id=current_user.id
+        )
+        return {"success": True, "detail": "Etapa avanzada correctamente"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        try:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=current_user.id,
+                empresa_id=current_user.empresa_id,
+                accion="error",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                descripcion="Error al avanzar etapa de flujo",
+                datos_nuevos={"error": str(e), "tipo": type(e).__name__},
+            )
+        except Exception:
+            logger.exception("No se pudo registrar error en auditoría")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al avanzar etapa: {str(e)}"
+        )
 

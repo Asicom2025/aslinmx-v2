@@ -790,20 +790,31 @@ export default function NuevoSiniestroPage() {
 
   const abogadoOptions = abogadosCatalog.map((p) => ({
     id: p.id,
-    nombre: `${p.nombre || ""} ${p.apellido_paterno || ""}`.trim() || p.email || p.id,
+    nombre:
+      `${p.nombre || ""} ${p.apellido_paterno || ""}`.trim() ||
+      p.email ||
+      p.id,
   }));
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Nuevo Siniestro</h1>
-            <p className="text-gray-600 mt-2">Completa el formulario para crear un nuevo siniestro</p>
+    <div className="min-h-screen w-full bg-gray-50">
+      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
+        <div className="mb-4 lg:mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              Nuevo Siniestro
+            </h1>
+            <p className="text-gray-600 mt-1 sm:mt-2 text-sm sm:text-base">
+              Completa el formulario para crear un nuevo siniestro
+            </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <TourButton tour="tour-nuevo-siniestro" label="Ver guía" />
-            <Button variant="secondary" onClick={() => router.push("/siniestros")}>
+            <Button
+              variant="secondary"
+              onClick={() => router.push("/siniestros")}
+              className="w-full sm:w-auto"
+            >
               <FiArrowLeft className="w-4 h-4 mr-2" />
               Volver
             </Button>
@@ -818,10 +829,15 @@ export default function NuevoSiniestroPage() {
           )}
 
           {/* Sección: Asegurado */}
-          <div data-tour="nuevo-sin-asegurado" className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Datos del Asegurado</h2>
+          <div
+            data-tour="nuevo-sin-asegurado"
+            className="bg-white rounded-lg shadow p-4 sm:p-6"
+          >
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-4">
+              Datos del Asegurado
+            </h2>
             <div className="space-y-4">
-              <div className="flex items-end gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                 <div className="flex-1">
                   <CustomSelect
                     label="Seleccionar asegurado *"
@@ -866,8 +882,13 @@ export default function NuevoSiniestroPage() {
           </div>
 
           {/* Sección: Datos Generales */}
-          <div data-tour="nuevo-sin-generales" className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Datos Generales</h2>
+          <div
+            data-tour="nuevo-sin-generales"
+            className="bg-white rounded-lg shadow p-4 sm:p-6"
+          >
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-4">
+              Datos Generales
+            </h2>
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <Input
@@ -1145,8 +1166,10 @@ export default function NuevoSiniestroPage() {
           </div>
 
           {/* Sección: Datos Específicos */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">Datos Específicos</h2>
+          <div className="bg-white rounded-lg shadow p-4 sm:p-6">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-3 sm:mb-4">
+              Datos Específicos
+            </h2>
             <div className="space-y-4">
               <div className="grid gap-4 md:grid-cols-2">
                 <Input
@@ -1229,11 +1252,24 @@ export default function NuevoSiniestroPage() {
           </div>
 
           {/* Botones de acción */}
-          <div data-tour="nuevo-sin-guardar" className="flex items-center justify-end gap-3 bg-white rounded-lg shadow p-6">
-            <Button type="button" variant="secondary" onClick={() => router.push("/siniestros")}>
+          <div
+            data-tour="nuevo-sin-guardar"
+            className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-3 bg-white rounded-lg shadow p-4 sm:p-6"
+          >
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => router.push("/siniestros")}
+              className="w-full sm:w-auto"
+            >
               Cancelar
             </Button>
-            <Button type="submit" variant="primary" loading={saving}>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={saving}
+              className="w-full sm:w-auto"
+            >
               Crear Siniestro
             </Button>
           </div>

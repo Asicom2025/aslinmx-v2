@@ -15,7 +15,7 @@ class Modulo(Base):
     __tablename__ = "modulos"
     
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    nombre = Column(String(100), nullable=False, unique=True)
+    nombre = Column(String(100), nullable=False)
     descripcion = Column(Text)
     nombre_tecnico = Column(String(100), nullable=False, unique=True)
     icono = Column(String(100))
@@ -28,6 +28,7 @@ class Modulo(Base):
     
     # Relaciones
     permisos = relationship("RolPermiso", back_populates="modulo")
+    acciones = relationship("Accion", back_populates="modulo", lazy="selectin")
 
 
 class Accion(Base):
@@ -35,13 +36,15 @@ class Accion(Base):
     __tablename__ = "acciones"
     
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
-    nombre = Column(String(50), nullable=False, unique=True)
+    modulo_id = Column(UUID(as_uuid=True), ForeignKey("modulos.id", ondelete="CASCADE"), nullable=False)
+    nombre = Column(String(50), nullable=False)
     descripcion = Column(Text)
-    nombre_tecnico = Column(String(50), nullable=False, unique=True)
+    nombre_tecnico = Column(String(50), nullable=False)
     activo = Column(Boolean, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relaciones
+    modulo = relationship("Modulo", back_populates="acciones")
     permisos = relationship("RolPermiso", back_populates="accion")
 
 

@@ -113,26 +113,29 @@ export default function ReportesPage() {
   }
 
   return (
-    <div className="w-full p-6 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Reportes</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Genera y descarga reportes de los diferentes módulos del sistema
-          </p>
+    <div className="min-h-screen w-full bg-gray-50">
+      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6 space-y-4 lg:space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              Reportes
+            </h1>
+            <p className="mt-1 text-sm text-gray-600">
+              Genera y descarga reportes de los diferentes módulos del sistema
+            </p>
+          </div>
+          <button
+            onClick={loadReportesDisponibles}
+            className="inline-flex w-full sm:w-auto justify-center px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors items-center gap-2"
+          >
+            <FiRefreshCw className="w-4 h-4" />
+            Actualizar
+          </button>
         </div>
-        <button
-          onClick={loadReportesDisponibles}
-          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors flex items-center gap-2"
-        >
-          <FiRefreshCw className="w-4 h-4" />
-          Actualizar
-        </button>
-      </div>
 
-      {/* Reportes Disponibles */}
-      <div className="bg-white rounded-lg shadow">
+        {/* Reportes Disponibles */}
+        <div className="bg-white rounded-lg shadow">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
             <FiFileText className="w-5 h-5" />
@@ -191,31 +194,34 @@ export default function ReportesPage() {
             </div>
           )}
         </div>
-      </div>
+        </div>
 
-      {/* Configuraciones Guardadas */}
-      <ConfiguracionesGuardadas
-        onGenerarReporte={handleDescargarReporte}
-        onAbrirModal={(modulo) => {
-          setSelectedModulo(modulo);
-          setShowGenerarModal(true);
-        }}
-      />
-
-      {/* Modal para Generar Reporte */}
-      {showGenerarModal && selectedModulo && (
-        <GenerarReporteModal
-          modulo={selectedModulo}
-          reporteDisponible={reportesDisponibles.find((r) => r.modulo === selectedModulo)!}
-          onClose={() => {
-            setShowGenerarModal(false);
-            setSelectedModulo(null);
+        {/* Configuraciones Guardadas */}
+        <ConfiguracionesGuardadas
+          onGenerarReporte={handleDescargarReporte}
+          onAbrirModal={(modulo) => {
+            setSelectedModulo(modulo);
+            setShowGenerarModal(true);
           }}
-          onGenerar={handleDescargarReporte}
-          generando={generando}
-          onGuardarConfiguracion={handleGuardarConfiguracion}
         />
-      )}
+
+        {/* Modal para Generar Reporte */}
+        {showGenerarModal && selectedModulo && (
+          <GenerarReporteModal
+            modulo={selectedModulo}
+            reporteDisponible={
+              reportesDisponibles.find((r) => r.modulo === selectedModulo)!
+            }
+            onClose={() => {
+              setShowGenerarModal(false);
+              setSelectedModulo(null);
+            }}
+            onGenerar={handleDescargarReporte}
+            generando={generando}
+            onGuardarConfiguracion={handleGuardarConfiguracion}
+          />
+        )}
+      </div>
     </div>
   );
 }
