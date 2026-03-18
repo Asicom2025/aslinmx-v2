@@ -6,15 +6,39 @@
 import axios from "axios";
 import { getApiErrorMessage } from "./parseApiError";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // Crear instancia de axios con configuración base
 const api = axios.create({
   baseURL: `${API_URL}/api/v1`,
+  withCredentials: true,
   headers: {
     "Content-Type": "application/json",
   },
 });
+
+// Gestión centralizada de expiración de sesión para:
+// 1) evitar que el resto de la app redirija a /login inmediatamente
+// 2) pausar requests hasta que el usuario confirme el modal
+let sessionRenewalPromise: Promise<boolean> | null = null;
+let sessionRenewalResolver: ((renew: boolean) => void) | null = null;
+
+function notifySessionRenewalNeeded(): Promise<boolean> {
+  if (sessionRenewalPromise) return sessionRenewalPromise;
+  sessionRenewalPromise = new Promise<boolean>((resolve) => {
+    sessionRenewalResolver = resolve;
+  });
+  window.dispatchEvent(new Event("sessionRenewalNeeded"));
+  return sessionRenewalPromise;
+}
+
+function resolveSessionRenewal(renew: boolean) {
+  if (sessionRenewalResolver) {
+    sessionRenewalResolver(renew);
+  }
+  sessionRenewalPromise = null;
+  sessionRenewalResolver = null;
+}
 
 // Interceptor para agregar token a las peticiones
 api.interceptors.request.use(
@@ -33,13 +57,15 @@ api.interceptors.request.use(
 // Interceptor para manejar errores de respuesta
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const status = error.response?.status;
     const url: string = error.config?.url || "";
     const isAuthRoute =
       url.includes("/users/login") ||
       url.includes("/users/register") ||
-      url.includes("/users/2fa/verify");
+      url.includes("/users/2fa/verify") ||
+      url.includes("/users/refresh") ||
+      url.includes("/users/logout");
 
     // Homologar: siempre dejar response.data.detail como string legible para el usuario
     const data = error.response?.data;
@@ -48,14 +74,30 @@ api.interceptors.response.use(
       error.response.data.detail = message;
     }
 
-    // Solo redirigir en 401 cuando el usuario tenía un token (sesión) y no es una ruta de auth
+    // Si el access token expiró, mostramos modal y pausamos requests hasta decisión del usuario
     if (status === 401) {
       const hadToken = !!localStorage.getItem("token");
       if (hadToken && !isAuthRoute) {
-        // Invalidar sesión local y permitir que la página maneje la navegación
-        localStorage.removeItem("token");
+        const originalConfig = error.config;
+        if (originalConfig && !(originalConfig as any).__sessionRenewalRetried) {
+          (originalConfig as any).__sessionRenewalRetried = true;
+          const shouldRenew = await notifySessionRenewalNeeded();
+          if (!shouldRenew) return Promise.reject(error);
+
+          // Reintentar con el nuevo token (modal ya lo actualizó)
+          const token = localStorage.getItem("token");
+          if (token) {
+            originalConfig.headers = originalConfig.headers || {};
+            originalConfig.headers.Authorization = `Bearer ${token}`;
+          }
+          return api.request(originalConfig);
+        }
+
+        // Si ya se intentó reintentar o no hay config, no bloqueamos más
+        return Promise.reject(error);
       }
     }
+
     return Promise.reject(error);
   }
 );
@@ -107,6 +149,16 @@ const authService = {
   },
   setActiveEmpresa: async (empresaId: string) => {
     const response = await api.post("/users/me/empresa", { empresa_id: empresaId });
+    return response.data;
+  },
+
+  refreshSession: async () => {
+    const response = await api.post("/users/refresh", null);
+    return response.data; // { access_token, token_type }
+  },
+
+  logout: async () => {
+    const response = await api.post("/users/logout", null);
     return response.data;
   },
 };
@@ -237,6 +289,7 @@ const permisoService = {
     return response.data;
   },
   createAccion: async (data: {
+    modulo_id: string;
     nombre: string;
     nombre_tecnico: string;
     descripcion?: string;
@@ -993,6 +1046,7 @@ const bitacoraService = {
     fecha_actividad?: string;
     documento_adjunto?: string;
     comentarios?: string;
+    verificado?: boolean;
     area_id?: string;
     flujo_trabajo_id?: string;
   }) => {
@@ -1546,6 +1600,9 @@ const apiService = {
   },
   permiso: permisoService,
   empresa: empresaService,
+
+  // Para que el modal resuelva la promesa que deja en pausa el interceptor
+  resolveSessionRenewal,
 };
 
 export default apiService;

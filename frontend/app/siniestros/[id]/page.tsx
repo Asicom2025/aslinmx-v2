@@ -58,6 +58,8 @@ import {
   FiActivity,
   FiPaperclip,
   FiCornerDownRight,
+  FiAlertTriangle,
+  FiUserPlus,
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
@@ -72,6 +74,7 @@ import type {
   EtapaFlujo,
 } from "@/types/flujosTrabajo";
 import type { BitacoraActividad } from "@/types/bitacora";
+import { FaCheck } from "react-icons/fa";
 
 interface AreaConFlujos {
   area: {
@@ -106,6 +109,7 @@ interface DocumentoEtapa {
   nombre_archivo: string;
   contenido?: string;
   etapa_flujo_id: string;
+  area_id?: string;
   plantilla_documento_id?: string;
   version: number;
   creado_en: string;
@@ -215,10 +219,10 @@ export default function SiniestroDetailPage() {
   const canSubirArchivo = can("siniestros", "subir_archivo");
   const canVerBitacora = can("siniestros", "ver_bitacora");
   const canGenerarPdf = can("siniestros", "generar_pdf");
-  const canActualizarSiniestro = can("siniestros", "actualizar");
-  const canCrearSiniestro = can("siniestros", "crear");
+  const canActualizarSiniestro = can("siniestros", "update");
+  const canCrearSiniestro = can("siniestros", "create");
   const canAsignarAreas = can("siniestros", "asignar_areas");
-  const canEliminarSiniestro = can("siniestros", "eliminar");
+  const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
 
   // Estados para status y calificación
@@ -357,6 +361,32 @@ export default function SiniestroDetailPage() {
       autorUsuario?.email ||
       "";
 
+    // Firma física: viene de user.perfil.firma; si no existe, representamos sin firma.
+    const firmaRaw =
+      (autorUsuario?.perfil && (autorUsuario.perfil as any).firma) ||
+      autorUsuario?.firma ||
+      "";
+
+    // Construir src de imagen para la firma:
+    // - Si ya es data URL (data:...), se usa tal cual.
+    // - Si parece URL absoluta/relativa (http/https o empieza con "/"), se usa tal cual.
+    // - En otro caso, se asume base64 crudo y se envuelve como data:image/png;base64,...
+    let firmaSrc = "";
+    if (typeof firmaRaw === "string" && firmaRaw.trim()) {
+      const raw = firmaRaw.trim();
+      if (raw.startsWith("data:")) {
+        firmaSrc = raw;
+      } else if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/")) {
+        firmaSrc = raw;
+      } else {
+        firmaSrc = `data:image/png;base64,${raw}`;
+      }
+    }
+
+    const firmaHtml = firmaSrc
+      ? `<img src="${firmaSrc}" alt="Firma" style="max-height:80px;"/>`
+      : "---";
+
     // Construir ID con el formato: (codigo_proveniente-codigo_siniestro-anualidad)
     // Ejemplo: 102-005-25
     const construirIdFormato = (): string => {
@@ -396,8 +426,14 @@ export default function SiniestroDetailPage() {
         (siniestroData as any)?.fecha_registro || siniestroData?.creado_en
       ),
       id: idFormato,
+      // Nombre del asegurado
       nombre_asegurado: nombreAsegurado,
+      asegurado: nombreAsegurado,
+      // Nombre del autor (usuario actual)
       autor: autorNombre,
+      creado_por: autorNombre,
+      // Firma física del autor como imagen HTML (si no hay, se coloca '---')
+      firmado_por: firmaHtml,
     };
 
     let resultado = contenido;
@@ -504,11 +540,75 @@ export default function SiniestroDetailPage() {
     }
   }, [loadingFlujos, flujosGenerales, areasConFlujos]);
 
+  // Al cambiar de área, asegurar que el flujo activo pertenezca a esa área (si hay flujos del área)
+  useEffect(() => {
+    if (!activeAreaTab) return;
+    const areaActual = areasConFlujos.find((a) => a.area.id === activeAreaTab);
+    const flujosArea = areaActual?.flujos || [];
+    if (flujosArea.length === 0) return;
+
+    const flujoIdsArea = new Set(flujosArea.map((f) => `area-${f.flujo.id}`));
+    if (!flujoIdsArea.has(activeFlujoTab)) {
+      setActiveFlujoTab(`area-${flujosArea[0].flujo.id}`);
+    }
+  }, [activeAreaTab, areasConFlujos, activeFlujoTab]);
+
+  // Agrupa documentos de informes (HTML con plantilla) y devuelve solo la última versión por grupo lógico
+  const getUltimasVersionesDocumentos = (documentos: any[]): any[] => {
+    if (!Array.isArray(documentos) || documentos.length === 0) return [];
+
+    const informesPorClave = new Map<string, any>();
+    const otros: any[] = [];
+
+    for (const doc of documentos) {
+      const esInforme = !!doc.contenido && !!doc.plantilla_documento_id;
+      if (!esInforme) {
+        otros.push(doc);
+        continue;
+      }
+
+      const clave = [
+        doc.siniestro_id || "",
+        doc.etapa_flujo_id || "",
+        doc.flujo_trabajo_id || "",
+        doc.plantilla_documento_id || "",
+        // Importante: en flujos generales, puede existir el mismo informe por área
+        doc.area_id || "",
+      ].join("::");
+
+
+
+      const actual = informesPorClave.get(clave);
+      if (!actual) {
+        informesPorClave.set(clave, doc);
+        continue;
+      }
+
+      const verActual = typeof actual.version === "number" ? actual.version : 1;
+      const verNuevo = typeof doc.version === "number" ? doc.version : 1;
+      if (verNuevo > verActual) {
+        informesPorClave.set(clave, doc);
+      }
+    }
+
+    const ultimosInformes = Array.from(informesPorClave.values());
+    const combinados = [...ultimosInformes, ...otros];
+
+    // Ordenar por fecha de creación descendente para una tabla más intuitiva
+    combinados.sort((a, b) => {
+      const da = a.creado_en ? new Date(a.creado_en).getTime() : 0;
+      const db = b.creado_en ? new Date(b.creado_en).getTime() : 0;
+      return db - da;
+    });
+
+    return combinados;
+  };
+
   // Cargar documentos y bitácoras cuando cambia el área o flujo activo
   useEffect(() => {
     if (!activeFlujoTab) return;
 
-    let areaId: string | undefined = undefined;
+    let areaId: string | undefined = activeAreaTab || undefined;
     let flujoTrabajoId: string | undefined = undefined;
 
     if (activeFlujoTab.startsWith("general-")) {
@@ -596,7 +696,7 @@ export default function SiniestroDetailPage() {
       const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
         activo: true,
       });
-      setDocumentosExistentes(documentos);
+      setDocumentosExistentes(getUltimasVersionesDocumentos(documentos));
     } catch (error: any) {
       console.error("Error al cargar documentos:", error);
     }
@@ -697,6 +797,7 @@ export default function SiniestroDetailPage() {
       const asegurado = await apiService.getAseguradoById(aseguradoSeleccionadoModal);
       setAseguradoInfo(asegurado);
       setSiniestro((prev) => (prev ? { ...prev, asegurado_id: aseguradoSeleccionadoModal } : null));
+      await loadLogsAuditoria();
       setShowModalAsegurado(false);
       swalSuccess("Asegurado asignado correctamente");
     } catch (e: any) {
@@ -730,6 +831,7 @@ export default function SiniestroDetailPage() {
         const asegurado = await apiService.getAseguradoById(nuevoId);
         setAseguradoInfo(asegurado);
         setSiniestro((prev) => (prev ? { ...prev, asegurado_id: nuevoId } : null));
+        await loadLogsAuditoria();
         setShowModalAsegurado(false);
         swalSuccess("Asegurado creado y asignado correctamente");
       } catch (e: any) {
@@ -757,7 +859,7 @@ export default function SiniestroDetailPage() {
         area_id: areaId,
         flujo_trabajo_id: flujoTrabajoId,
       });
-      setDocumentosFiltrados(documentos);
+      setDocumentosFiltrados(getUltimasVersionesDocumentos(documentos));
     } catch (error: any) {
       console.error("Error al cargar documentos filtrados:", error);
     } finally {
@@ -851,8 +953,8 @@ export default function SiniestroDetailPage() {
       await apiService.updateSiniestro(siniestroId, {
         estado_id: estadoId || undefined,
       });
-      // Recargar el siniestro para obtener los datos actualizados
       await loadSiniestro();
+      await loadLogsAuditoria();
       swalSuccess("Estado actualizado correctamente");
     } catch (error: any) {
       console.error("Error al actualizar estado:", error);
@@ -872,8 +974,8 @@ export default function SiniestroDetailPage() {
         calificacion_id: calificacionId || undefined,
       };
       await apiService.updateSiniestro(siniestroId, updateData);
-      // Recargar el siniestro para obtener los datos actualizados
       await loadSiniestro();
+      await loadLogsAuditoria();
       swalSuccess("Calificación actualizada correctamente");
     } catch (error: any) {
       console.error("Error al actualizar calificación:", error);
@@ -947,10 +1049,8 @@ export default function SiniestroDetailPage() {
       };
 
       await apiService.updateSiniestro(siniestroId, updateData);
-
-      // Recargar el siniestro para obtener los datos actualizados
       await loadSiniestro();
-
+      await loadLogsAuditoria();
       setShowEditModal(false);
       swalSuccess("Siniestro actualizado correctamente");
     } catch (error: any) {
@@ -1148,6 +1248,7 @@ export default function SiniestroDetailPage() {
       });
       await loadAreasAdicionales();
       await loadFlujosPorAreas(); // Recargar flujos para reflejar cambios
+      await loadLogsAuditoria();
       swalSuccess("Área agregada correctamente");
     } catch (error: any) {
       swalError(error.response?.data?.detail || "Error al agregar área");
@@ -1165,6 +1266,7 @@ export default function SiniestroDetailPage() {
       await apiService.removeAreaAdicional(relacionId);
       await loadAreasAdicionales();
       await loadFlujosPorAreas(); // Recargar flujos para reflejar cambios
+      await loadLogsAuditoria();
       swalSuccess("Área eliminada correctamente");
     } catch (error: any) {
       swalError(error.response?.data?.detail || "Error al eliminar área");
@@ -1207,6 +1309,7 @@ export default function SiniestroDetailPage() {
         activo: true,
       });
       await loadInvolucrados();
+      await loadLogsAuditoria();
       swalSuccess("Involucrado agregado correctamente");
     } catch (error: any) {
       swalError(error.response?.data?.detail || "Error al agregar involucrado");
@@ -1223,6 +1326,7 @@ export default function SiniestroDetailPage() {
 
       await apiService.removeInvolucrado(relacionId);
       await loadInvolucrados();
+      await loadLogsAuditoria();
       swalSuccess("Involucrado eliminado correctamente");
     } catch (error: any) {
       swalError(
@@ -1260,6 +1364,7 @@ export default function SiniestroDetailPage() {
 
       await apiService.updateSiniestro(siniestroId, updateData);
       await loadSiniestro();
+      await loadLogsAuditoria();
       setShowPolizaModal(false);
       swalSuccess("Información de póliza actualizada correctamente");
     } catch (error: any) {
@@ -1306,6 +1411,203 @@ export default function SiniestroDetailPage() {
     }
   };
 
+  const logColumns = useMemo<ColumnDef<any>[]>(
+    () => [
+      {
+        accessorKey: "creado_en",
+        header: "Fecha",
+        cell: ({ row }) => (
+          <span className="text-gray-700">
+            {new Date(row.original.creado_en).toLocaleDateString("es-MX", {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "accion",
+        header: "Acción",
+        cell: ({ row }) => {
+          const accion: string = row.original.accion || "";
+          const accionUpper = accion.toUpperCase();
+
+          const formatarAccionLabel = (value: string) => {
+            const labels: Record<string, string> = {
+              crear: "Siniestro creado",
+              actualizar: "Actualización",
+              eliminar: "Eliminación",
+              estado_cambiado: "Cambio de estado",
+              calificacion_cambiada: "Cambio de calificación",
+              area_asignada: "Área asignada",
+              area_desactivada: "Área desactivada",
+              area_activada: "Área activada",
+              area_eliminada: "Área eliminada",
+              usuario_asignado: "Usuario asignado",
+              usuario_eliminado: "Usuario eliminado",
+              abogado_asignado: "Abogado asignado",
+              abogado_eliminado: "Abogado eliminado",
+              poliza_creada: "Póliza creada",
+              poliza_actualizada: "Póliza actualizada",
+              etapa_completada: "Etapa completada",
+              etapa_reabierta: "Etapa reabierta",
+              documento_creado: "Documento creado",
+              documento_actualizado: "Documento actualizado",
+              documento_subido: "Archivo subido",
+              documento_eliminado: "Documento eliminado",
+              bitacora_creada: "Actividad en bitácora",
+              bitacora_actualizada: "Actividad actualizada",
+              formulario_actualizado: "Formulario actualizado",
+              error: "Error",
+            };
+            return labels[value?.toLowerCase()] || (value || "Acción");
+          };
+
+          const getAccionIcon = (value: string) => {
+            switch (value?.toUpperCase()) {
+              case "CREATE":
+              case "CREAR":
+                return <FiPlus className="w-4 h-4" />;
+              case "UPDATE":
+              case "ACTUALIZAR":
+                return <FiEdit3 className="w-4 h-4" />;
+              case "DELETE":
+              case "ELIMINAR":
+                return <FiTrash2 className="w-4 h-4" />;
+              case "ERROR":
+                return <FiAlertTriangle className="w-4 h-4" />;
+              case "ESTADO_CAMBIADO":
+                return <FiActivity className="w-4 h-4" />;
+              case "CALIFICACION_CAMBIADA":
+                return <FiCheckCircle className="w-4 h-4" />;
+              case "AREA_ASIGNADA":
+              case "AREA_ACTIVADA":
+                return <FiLayers className="w-4 h-4" />;
+              case "AREA_DESACTIVADA":
+              case "AREA_ELIMINADA":
+                return <FiTrash2 className="w-4 h-4" />;
+              case "USUARIO_ASIGNADO":
+              case "ABOGADO_ASIGNADO":
+                return <FiUserPlus className="w-4 h-4" />;
+              case "USUARIO_ELIMINADO":
+              case "ABOGADO_ELIMINADO":
+                return <FiUserPlus className="w-4 h-4" />;
+              case "POLIZA_CREADA":
+              case "POLIZA_ACTUALIZADA":
+                return <FiFileText className="w-4 h-4" />;
+              case "ETAPA_COMPLETADA":
+              case "ETAPA_REABIERTA":
+                return <FiCheckCircle className="w-4 h-4" />;
+              case "DOCUMENTO_CREADO":
+              case "DOCUMENTO_ACTUALIZADO":
+              case "DOCUMENTO_SUBIDO":
+                return <FiFileText className="w-4 h-4" />;
+              case "DOCUMENTO_ELIMINADO":
+                return <FiTrash2 className="w-4 h-4" />;
+              case "BITACORA_CREADA":
+              case "BITACORA_ACTUALIZADA":
+                return <FiClock className="w-4 h-4" />;
+              case "FORMULARIO_ACTUALIZADO":
+                return <FiFileText className="w-4 h-4" />;
+              default:
+                return <FiActivity className="w-4 h-4" />;
+            }
+          };
+
+          const getAccionColor = (value: string) => {
+            const a = value?.toUpperCase();
+            if (a === "ERROR") {
+              return "bg-red-200 text-red-800 border-red-300";
+            }
+            switch (a) {
+              case "CREATE":
+              case "CREAR":
+                return "bg-green-100 text-green-700 border-green-200";
+              case "UPDATE":
+              case "ACTUALIZAR":
+                return "bg-blue-100 text-blue-700 border-blue-200";
+              case "DELETE":
+              case "ELIMINAR":
+              case "AREA_ELIMINADA":
+              case "USUARIO_ELIMINADO":
+              case "ABOGADO_ELIMINADO":
+              case "DOCUMENTO_ELIMINADO":
+                return "bg-red-100 text-red-700 border-red-200";
+              case "ESTADO_CAMBIADO":
+              case "CALIFICACION_CAMBIADA":
+                return "bg-amber-100 text-amber-700 border-amber-200";
+              case "AREA_ASIGNADA":
+              case "AREA_ACTIVADA":
+              case "USUARIO_ASIGNADO":
+              case "ABOGADO_ASIGNADO":
+                return "bg-emerald-100 text-emerald-700 border-emerald-200";
+              case "AREA_DESACTIVADA":
+                return "bg-orange-100 text-orange-700 border-orange-200";
+              case "POLIZA_CREADA":
+              case "POLIZA_ACTUALIZADA":
+              case "DOCUMENTO_ACTUALIZADO":
+                return "bg-indigo-100 text-indigo-700 border-indigo-200";
+              case "ETAPA_COMPLETADA":
+              case "ETAPA_REABIERTA":
+                return "bg-teal-100 text-teal-700 border-teal-200";
+              case "DOCUMENTO_CREADO":
+              case "DOCUMENTO_SUBIDO":
+                return "bg-violet-100 text-violet-700 border-violet-200";
+              case "BITACORA_CREADA":
+              case "BITACORA_ACTUALIZADA":
+                return "bg-cyan-100 text-cyan-700 border-cyan-200";
+              case "FORMULARIO_ACTUALIZADO":
+                return "bg-amber-100 text-amber-700 border-amber-200";
+              default:
+                return "bg-gray-100 text-gray-700 border-gray-200";
+            }
+          };
+
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full border ${getAccionColor(
+                accionUpper
+              )}`}
+            >
+              {getAccionIcon(accionUpper)}
+              <span className="ml-1">{formatarAccionLabel(accion)}</span>
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "descripcion",
+        header: "Descripción",
+        cell: ({ row }) => (
+          <span className="text-gray-900">{row.original.descripcion || "-"}</span>
+        ),
+      },
+      {
+        accessorKey: "tabla",
+        header: "Tabla",
+        cell: ({ row }) => (
+          <span className="text-gray-600">{row.original.tabla || "-"}</span>
+        ),
+      },
+      {
+        accessorKey: "usuario_id",
+        header: "Usuario",
+        cell: ({ row }) => {
+          const u = row.original.usuario;
+          const nombre =
+            (u && (u.full_name || u.nombre || u.email)) ||
+            row.original.usuario_id ||
+            "-";
+          return <span className="text-gray-600">{nombre}</span>;
+        },
+      },
+    ],
+    []
+  );
+
   // Función para abrir el editor de documento de una etapa
   // Función para ver el documento como PDF desde una etapa
   const handleViewDocument = async (etapa: EtapaFlujo) => {
@@ -1317,6 +1619,7 @@ export default function SiniestroDetailPage() {
     try {
       // Determinar el flujo_trabajo_id actual basado en el tab activo
       let flujoTrabajoIdActual: string | undefined = undefined;
+      const areaIdActual: string | undefined = activeAreaTab || undefined;
       if (activeFlujoTab.startsWith("general-")) {
         flujoTrabajoIdActual = activeFlujoTab.replace("general-", "");
       } else if (activeFlujoTab.startsWith("area-")) {
@@ -1327,15 +1630,25 @@ export default function SiniestroDetailPage() {
       const documentosEtapa = documentosExistentes.filter(
         (doc: any) => doc.etapa_flujo_id === etapa.id
       );
+
+      console.log("documentosEtapa", documentosEtapa);
+      console.log("flujoTrabajoIdActual", flujoTrabajoIdActual);
+      console.log("areaIdActual", areaIdActual);
       
       // Buscar documento del flujo actual (debe coincidir exactamente)
       // Si no hay flujo específico activo, usar el más reciente
       let docExistente: any = null;
       if (flujoTrabajoIdActual) {
         // Si hay flujo específico, solo buscar documentos de ese flujo
-        docExistente = documentosEtapa.find(
-          (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
-        );
+        docExistente =
+          documentosEtapa.find(
+            (doc: any) =>
+              doc.flujo_trabajo_id === flujoTrabajoIdActual &&
+              (!!areaIdActual ? doc.area_id === areaIdActual : true)
+          ) ||
+          documentosEtapa.find(
+            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
+          );
       } else {
         // Si no hay flujo específico, usar el más reciente
         if (documentosEtapa.length > 0) {
@@ -1722,12 +2035,17 @@ export default function SiniestroDetailPage() {
     setUploadDocSaving(true);
     try {
       let flujoId: string | undefined;
-      if (activeFlujoTab?.startsWith("general-")) flujoId = activeFlujoTab.replace("general-", "");
-      else if (activeFlujoTab?.startsWith("area-")) flujoId = activeFlujoTab.replace("area-", "");
+      let areaIdForContext: string | undefined = activeAreaTab || undefined;
+      if (activeFlujoTab?.startsWith("general-")) {
+        flujoId = activeFlujoTab.replace("general-", "");
+      } else if (activeFlujoTab?.startsWith("area-")) {
+        flujoId = activeFlujoTab.replace("area-", "");
+        areaIdForContext = activeAreaTab;
+      }
       const horasNum = uploadDocHoras.trim() ? parseFloat(uploadDocHoras) : undefined;
       await apiService.uploadDocumento(siniestroId, uploadDocFile, {
         descripcion: uploadDocDescripcion.trim() || undefined,
-        area_id: activeAreaTab || undefined,
+        area_id: areaIdForContext || undefined,
         flujo_trabajo_id: flujoId,
         tipo_documento_id: uploadDocTipoId || undefined,
         plantilla_documento_id: uploadDocPlantillaId || undefined,
@@ -1737,6 +2055,9 @@ export default function SiniestroDetailPage() {
       await swalSuccess("Archivo subido correctamente");
       handleCloseUploadDocModal();
       await loadDocumentosSiniestro();
+      await loadDocumentosFiltrados(areaIdForContext, flujoId);
+      await loadBitacorasFiltradas(areaIdForContext, flujoId);
+      await loadLogsAuditoria();
     } catch (e: any) {
       swalError(e.response?.data?.detail || "Error al subir el archivo");
     } finally {
@@ -1777,6 +2098,7 @@ export default function SiniestroDetailPage() {
     try {
       // Determinar el flujo_trabajo_id actual basado en el tab activo
       let flujoTrabajoIdActual: string | undefined = undefined;
+      const areaIdActual: string | undefined = activeAreaTab || undefined;
       if (activeFlujoTab.startsWith("general-")) {
         flujoTrabajoIdActual = activeFlujoTab.replace("general-", "");
       } else if (activeFlujoTab.startsWith("area-")) {
@@ -1795,9 +2117,15 @@ export default function SiniestroDetailPage() {
       let docExistente: any = null;
       if (flujoTrabajoIdActual) {
         // Si hay flujo específico, solo buscar documentos de ese flujo
-        docExistente = documentosEtapa.find(
-          (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
-        );
+        docExistente =
+          documentosEtapa.find(
+            (doc: any) =>
+              doc.flujo_trabajo_id === flujoTrabajoIdActual &&
+              (!!areaIdActual ? doc.area_id === areaIdActual : true)
+          ) ||
+          documentosEtapa.find(
+            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
+          );
       } else {
         // Si no hay flujo específico, usar el más reciente
         if (documentosEtapa.length > 0) {
@@ -1878,15 +2206,13 @@ export default function SiniestroDetailPage() {
       )}_${fecha}.html`;
 
       // Determinar area_id y flujo_trabajo_id basándose en el contexto actual
-      let areaId: string | undefined = undefined;
+      let areaId: string | undefined = activeAreaTab || undefined;
       let flujoTrabajoId: string | undefined = undefined;
 
       if (activeFlujoTab.startsWith("general-")) {
-        // Flujo general - no tiene área específica, pero sí flujo
         const flujoId = activeFlujoTab.replace("general-", "");
         flujoTrabajoId = flujoId;
       } else if (activeFlujoTab.startsWith("area-")) {
-        // Flujo de área específica
         const flujoId = activeFlujoTab.replace("area-", "");
         flujoTrabajoId = flujoId;
         areaId = activeAreaTab; // El área actual del tab
@@ -1934,8 +2260,10 @@ export default function SiniestroDetailPage() {
         await swalSuccess("Documento guardado correctamente");
       }
 
-      // Recargar documentos después de guardar
       await loadDocumentosSiniestro();
+      await loadDocumentosFiltrados(areaId, flujoTrabajoId);
+      await loadBitacorasFiltradas(areaId, flujoTrabajoId);
+      await loadLogsAuditoria();
       setShowEditorModal(false);
       setDocHorasBitacora("");
       setDocComentarioBitacora("");
@@ -2013,12 +2341,15 @@ export default function SiniestroDetailPage() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
+    <div className="min-h-screen w-full bg-gray-50">
+      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
         {/* Header */}
-        <div data-tour="detalle-header" className="mb-6 flex items-start justify-between gap-6">
-          <div className="flex-1">
-            <div className="mb-4 flex items-center gap-3">
+        <div
+          data-tour="detalle-header"
+          className="mb-4 lg:mb-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 lg:gap-6"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="mb-3 flex flex-wrap items-center gap-2 sm:gap-3">
               <Button
                 variant="secondary"
                 onClick={() => router.push("/siniestros")}
@@ -2028,19 +2359,7 @@ export default function SiniestroDetailPage() {
               </Button>
               <TourButton tour="tour-detalle-siniestro" label="Ver guía" />
             </div>
-            {canActualizarSiniestro && (
-              <div className="flex items-end justify-end gap-3">
-                <EmpresaButton
-                  variant="primary"
-                  size="sm"
-                  onClick={() => handleOpenEditModal()}
-                >
-                  <FiEdit3 className="w-4 h-4 mr-2" />
-                  Editar
-                </EmpresaButton>
-              </div>
-            )}
-            <p className="text-gray-600 mt-2 flex flex-col">
+            <p className="text-gray-600 mt-2 flex flex-col gap-1 text-sm sm:text-base">
               {(() => {
                 // Construir código completo: proveniente-consecutivo-añalidad
                 const codigoCompleto = (() => {
@@ -2111,44 +2430,66 @@ export default function SiniestroDetailPage() {
             </p>
           </div>
 
-          {/* Selectores de Status y Calificación (solo editables con permiso actualizar) */}
-          <div className="grid grid-cols-2 gap-4 min-w-[500px]">
-            <EmpresaSelect
-              label="Status"
-              value={siniestro.estado_id ? String(siniestro.estado_id) : ""}
-              onChange={handleUpdateEstado}
-              options={estadosSiniestro.map((estado) => ({
-                value: String(estado.id),
-                label: estado.nombre,
-                color: estado.color,
-              }))}
-              placeholder="Seleccionar estado"
-              disabled={!canActualizarSiniestro || loadingEstados || updatingStatus}
-            />
+          {/* Selectores de Status y Calificación + botón Editar (solo editables con permiso actualizar) */}
+          <div className="w-full lg:w-auto flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="w-full sm:w-auto grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <EmpresaSelect
+                label="Status"
+                value={siniestro.estado_id ? String(siniestro.estado_id) : ""}
+                onChange={handleUpdateEstado}
+                options={estadosSiniestro.map((estado) => ({
+                  value: String(estado.id),
+                  label: estado.nombre,
+                  color: estado.color,
+                }))}
+                placeholder="Seleccionar estado"
+                disabled={
+                  !canActualizarSiniestro || loadingEstados || updatingStatus
+                }
+              />
 
-            <EmpresaSelect
-              label="Calificación"
-              value={
-                siniestro.calificacion_id
-                  ? String(siniestro.calificacion_id)
-                  : ""
-              }
-              onChange={handleUpdateCalificacion}
-              options={calificacionesSiniestro.map((calificacion) => ({
-                value: String(calificacion.id),
-                label: calificacion.nombre,
-                color: calificacion.color,
-              }))}
-              placeholder="Seleccionar calificación"
-              disabled={!canActualizarSiniestro || loadingCalificaciones || updatingCalificacion}
-            />
+              <EmpresaSelect
+                label="Calificación"
+                value={
+                  siniestro.calificacion_id
+                    ? String(siniestro.calificacion_id)
+                    : ""
+                }
+                onChange={handleUpdateCalificacion}
+                options={calificacionesSiniestro.map((calificacion) => ({
+                  value: String(calificacion.id),
+                  label: calificacion.nombre,
+                  color: calificacion.color,
+                }))}
+                placeholder="Seleccionar calificación"
+                disabled={
+                  !canActualizarSiniestro ||
+                  loadingCalificaciones ||
+                  updatingCalificacion
+                }
+              />
+            </div>
+
+            {canActualizarSiniestro && (
+              <div className="flex justify-end">
+                <EmpresaButton
+                  variant="primary"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() => handleOpenEditModal()}
+                >
+                  <FiEdit3 className="w-4 h-4 mr-2" />
+                  Editar
+                </EmpresaButton>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Layout de dos columnas */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)] gap-4 lg:gap-6 mt-4 lg:mt-6">
           {/* Columna izquierda - Contenido principal */}
-          <div data-tour="detalle-tabs" className="lg:col-span-2 space-y-6">
+          <div data-tour="detalle-tabs" className="space-y-4 lg:space-y-6">
             {/* Pestañas estilo Chrome - Dos niveles */}
             {loadingFlujos ? (
               <div className="bg-white rounded-lg shadow p-6">
@@ -2174,16 +2515,16 @@ export default function SiniestroDetailPage() {
                         onClick={() => {
                           setActiveAreaTab(areaConFlujos.area.id);
                           // Al cambiar de área, seleccionar el primer flujo disponible
-                          if (
+                          if (areaConFlujos.flujos.length > 0) {
+                            setActiveFlujoTab(
+                              `area-${areaConFlujos.flujos[0].flujo.id}`
+                            );
+                          } else if (
                             flujosGenerales &&
                             flujosGenerales.flujos.length > 0
                           ) {
                             setActiveFlujoTab(
                               `general-${flujosGenerales.flujos[0].flujo.id}`
-                            );
-                          } else if (areaConFlujos.flujos.length > 0) {
-                            setActiveFlujoTab(
-                              `area-${areaConFlujos.flujos[0].flujo.id}`
                             );
                           } else {
                             setActiveFlujoTab("");
@@ -2398,6 +2739,7 @@ export default function SiniestroDetailPage() {
                                           }
                                           empresaColors={empresaColors}
                                           flujoTrabajoId={flujoConEtapas.flujo.id}
+                                          areaId={activeAreaTab}
                                           canVerPdf={canGenerarPdf}
                                           canEditarDocumento={canActualizarSiniestro}
                                           canCrearDocumento={canCrearSiniestro}
@@ -2423,16 +2765,17 @@ export default function SiniestroDetailPage() {
                                           bitacoras={bitacorasFiltradas}
                                           loading={loadingBitacoras}
                                           siniestroId={siniestroId}
-                                          areaId={undefined}
+                                          areaId={activeAreaTab}
                                           flujoTrabajoId={
                                             flujoConEtapas.flujo.id
                                           }
-                                          onRefresh={() =>
-                                            loadBitacorasFiltradas(
+                                          onRefresh={async () => {
+                                            await loadBitacorasFiltradas(
                                               undefined,
                                               flujoConEtapas.flujo.id
-                                            )
-                                          }
+                                            );
+                                            await loadLogsAuditoria();
+                                          }}
                                         />
                                       )}
                                     </div>
@@ -2540,6 +2883,7 @@ export default function SiniestroDetailPage() {
                                         }
                                         empresaColors={empresaColors}
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
+                                        areaId={activeAreaTab}
                                         canVerPdf={canGenerarPdf}
                                         canEditarDocumento={canActualizarSiniestro}
                                         canCrearDocumento={canCrearSiniestro}
@@ -2567,12 +2911,13 @@ export default function SiniestroDetailPage() {
                                         siniestroId={siniestroId}
                                         areaId={activeAreaTab}
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
-                                        onRefresh={() =>
-                                          loadBitacorasFiltradas(
+                                        onRefresh={async () => {
+                                          await loadBitacorasFiltradas(
                                             activeAreaTab,
                                             flujoConEtapas.flujo.id
-                                          )
-                                        }
+                                          );
+                                          await loadLogsAuditoria();
+                                        }}
                                       />
                                     )}
                                   </div>
@@ -3333,131 +3678,18 @@ export default function SiniestroDetailPage() {
                 </p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                {logsAuditoria.map((log) => {
-                  const getAccionIcon = (accion: string) => {
-                    switch (accion?.toUpperCase()) {
-                      case "CREATE":
-                      case "CREAR":
-                        return <FiPlus className="w-4 h-4" />;
-                      case "UPDATE":
-                      case "ACTUALIZAR":
-                        return <FiEdit3 className="w-4 h-4" />;
-                      case "DELETE":
-                      case "ELIMINAR":
-                        return <FiTrash2 className="w-4 h-4" />;
-                      default:
-                        return <FiActivity className="w-4 h-4" />;
-                    }
-                  };
-
-                  const getAccionColor = (accion: string) => {
-                    switch (accion?.toUpperCase()) {
-                      case "CREATE":
-                      case "CREAR":
-                        return "bg-green-100 text-green-700 border-green-200";
-                      case "UPDATE":
-                      case "ACTUALIZAR":
-                        return "bg-blue-100 text-blue-700 border-blue-200";
-                      case "DELETE":
-                      case "ELIMINAR":
-                        return "bg-red-100 text-red-700 border-red-200";
-                      default:
-                        return "bg-gray-100 text-gray-700 border-gray-200";
-                    }
-                  };
-
-                  const formatarDescripcion = (log: any) => {
-                    if (log.descripcion) {
-                      return log.descripcion;
-                    }
-
-                    const accion = log.accion?.toUpperCase() || "";
-                    const modulo = log.modulo || "";
-                    const tabla = log.tabla || "";
-
-                    // Generar descripción basada en la acción y tabla
-                    if (tabla === "siniestros") {
-                      if (accion === "UPDATE" || accion === "ACTUALIZAR") {
-                        return "Se actualizó la información del siniestro";
-                      } else if (accion === "CREATE" || accion === "CREAR") {
-                        return "Se creó el siniestro";
-                      }
-                    } else if (tabla === "siniestro_areas") {
-                      if (accion === "CREATE" || accion === "CREAR") {
-                        return "Se agregó un área al siniestro";
-                      } else if (accion === "DELETE" || accion === "ELIMINAR") {
-                        return "Se eliminó un área del siniestro";
-                      }
-                    } else if (tabla === "siniestro_usuarios") {
-                      if (accion === "CREATE" || accion === "CREAR") {
-                        return "Se agregó un involucrado al siniestro";
-                      } else if (accion === "DELETE" || accion === "ELIMINAR") {
-                        return "Se eliminó un involucrado del siniestro";
-                      }
-                    }
-
-                    return `${accion} en ${tabla}`;
-                  };
-
-                  return (
-                    <div
-                      key={log.id}
-                      className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span
-                              className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full border ${getAccionColor(
-                                log.accion
-                              )}`}
-                            >
-                              {getAccionIcon(log.accion)}
-                              <span className="ml-1 capitalize">
-                                {log.accion || "Acción"}
-                              </span>
-                            </span>
-                            {log.modulo && (
-                              <span className="text-xs text-gray-500">
-                                {log.modulo}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-900 mb-2">
-                            {formatarDescripcion(log)}
-                          </p>
-                          <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                            <span>
-                              {new Date(log.creado_en).toLocaleDateString(
-                                "es-MX",
-                                {
-                                  year: "numeric",
-                                  month: "long",
-                                  day: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                }
-                              )}
-                            </span>
-                            {log.usuario && (
-                              <>
-                                <span>•</span>
-                                <span>
-                                  Usuario:{" "}
-                                  {log.usuario.full_name ||
-                                    log.usuario.email ||
-                                    "Desconocido"}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <DataTable
+                columns={logColumns}
+                data={logsAuditoria}
+                emptyText="No hay registros de actividad"
+                enableSearch={true}
+                searchPlaceholder="Buscar en el log..."
+                enablePagination={true}
+                enableSorting={true}
+                pageSize={25}
+                size="compact"
+                maxTextLength={140}
+              />
             )}
           </EmpresaCard>
         </div>
@@ -3728,8 +3960,9 @@ export default function SiniestroDetailPage() {
         plantillaId={formularioContinuacionPlantillaId}
         plantillaNombre={formularioContinuacionPlantillaNombre}
         siniestroId={siniestroId}
-        onSaved={() => {
-          loadDocumentosSiniestro();
+        onSaved={async () => {
+          await loadDocumentosSiniestro();
+          await loadLogsAuditoria();
           swalSuccess("Datos de continuación guardados correctamente.");
         }}
         empresaColors={empresaColors}
@@ -4360,6 +4593,7 @@ function EtapasTimeline({
   onContinuar,
   empresaColors,
   flujoTrabajoId,
+  areaId,
   canVerPdf = true,
   canEditarDocumento = true,
   canCrearDocumento = true,
@@ -4371,10 +4605,15 @@ function EtapasTimeline({
   onContinuar?: (etapa: EtapaFlujo, docExistente: any) => void;
   empresaColors: { primary: string; secondary: string; tertiary: string };
   flujoTrabajoId?: string;
+  areaId?: string;
   canVerPdf?: boolean;
   canEditarDocumento?: boolean;
   canCrearDocumento?: boolean;
 }) {
+
+  console.log("DocumentosExistentes", documentosExistentes);
+
+
   if (!etapas || etapas.length === 0) {
     return (
       <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
@@ -4507,7 +4746,7 @@ function EtapasTimeline({
                         // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
                         // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
                         const documentosEtapa = documentosExistentes.filter(
-                          (doc: any) => doc.etapa_flujo_id === etapa.id
+                          (doc: any) => doc.etapa_flujo_id === etapa.id && (!!areaId ? doc.area_id === areaId : true)
                         );
                         
                         // Buscar documento del flujo actual (debe coincidir exactamente)
@@ -4515,9 +4754,15 @@ function EtapasTimeline({
                         let docExistente: any = null;
                         if (flujoTrabajoId) {
                           // Si hay flujo específico, solo buscar documentos de ese flujo
-                          docExistente = documentosEtapa.find(
-                            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoId
-                          );
+                          docExistente =
+                            documentosEtapa.find(
+                              (doc: any) =>
+                                doc.flujo_trabajo_id === flujoTrabajoId &&
+                                (!!areaId ? doc.area_id === areaId : true)
+                            ) ||
+                            documentosEtapa.find(
+                              (doc: any) => doc.flujo_trabajo_id === flujoTrabajoId
+                            );
                         } else {
                           // Si no hay flujo específico, usar el más reciente
                           if (documentosEtapa.length > 0) {
@@ -4919,6 +5164,16 @@ function BitacoraList({
   flujoTrabajoId?: string;
   onRefresh: () => void;
 }) {
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [editingActividad, setEditingActividad] = useState<BitacoraActividad | null>(null);
+  const [descripcion, setDescripcion] = useState("");
+  const [horas, setHoras] = useState("");
+  const [comentarios, setComentarios] = useState("");
+  const [fechaActividad, setFechaActividad] = useState(
+    new Date().toISOString().slice(0, 16) // para input datetime-local
+  );
+  const [saving, setSaving] = useState(false);
+
   const getTipoActividadIcon = (tipo: string) => {
     switch (tipo) {
       case "documento":
@@ -4949,6 +5204,56 @@ function BitacoraList({
     }
   };
 
+  const handleCreateActividad = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!descripcion.trim()) {
+      swalError("La descripción es obligatoria");
+      return;
+    }
+    try {
+      setSaving(true);
+      const horasNum = horas.trim() ? parseFloat(horas) : undefined;
+      if (editingActividad) {
+        await apiService.updateBitacoraActividad(editingActividad.id, {
+          descripcion: descripcion.trim(),
+          fecha_actividad: new Date(fechaActividad).toISOString(),
+          horas_trabajadas:
+            horasNum != null && !Number.isNaN(horasNum) ? horasNum : undefined,
+          comentarios: comentarios.trim() || undefined,
+        });
+        swalSuccess("Actividad actualizada correctamente");
+      } else {
+        await apiService.createBitacoraActividad({
+          siniestro_id: siniestroId,
+          tipo_actividad: "otro",
+          descripcion: descripcion.trim(),
+          fecha_actividad: new Date(fechaActividad).toISOString(),
+          horas_trabajadas:
+            horasNum != null && !Number.isNaN(horasNum) ? horasNum : undefined,
+          comentarios: comentarios.trim() || undefined,
+          area_id: areaId,
+          flujo_trabajo_id: flujoTrabajoId,
+        });
+        swalSuccess("Actividad registrada en la bitácora");
+      }
+      setDescripcion("");
+      setHoras("");
+      setComentarios("");
+      setFechaActividad(new Date().toISOString().slice(0, 16));
+      setEditingActividad(null);
+      setShowFormModal(false);
+      onRefresh();
+    } catch (error: any) {
+      console.error("Error al crear actividad de bitácora:", error);
+      swalError(
+        error?.response?.data?.detail ||
+          "Error al crear la actividad de bitácora"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -4960,77 +5265,387 @@ function BitacoraList({
 
   if (bitacoras.length === 0) {
     return (
-      <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-        <FiClock className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-        <p className="text-gray-500 font-medium">
-          No hay actividades registradas
-        </p>
-        <p className="text-sm text-gray-400 mt-1">
-          Las actividades de bitácora aparecerán aquí
-        </p>
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setEditingActividad(null);
+              setDescripcion("");
+              setHoras("");
+              setComentarios("");
+              setFechaActividad(new Date().toISOString().slice(0, 16));
+              setShowFormModal(true);
+            }}
+          >
+            Agregar actividad
+          </Button>
+        </div>
+        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+          <FiClock className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+          <p className="text-gray-500 font-medium">
+            No hay actividades registradas
+          </p>
+          <p className="text-sm text-gray-400 mt-1">
+            Las actividades de bitácora aparecerán aquí
+          </p>
+        </div>
+        {/* Modal para nueva actividad */}
+        <Modal
+          open={showFormModal}
+          onClose={() => setShowFormModal(false)}
+          title="Registrar actividad en bitácora"
+          maxWidthClass="max-w-lg"
+        >
+          <div className="space-y-4">
+            <form onSubmit={handleCreateActividad} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Fecha y hora
+                </label>
+                <input
+                  type="datetime-local"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                  value={fechaActividad}
+                  onChange={(e) => setFechaActividad(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Descripción *
+                </label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                  value={descripcion}
+                  onChange={(e) => setDescripcion(e.target.value)}
+                  placeholder="Describe brevemente la actividad realizada"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Horas trabajadas
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                    value={horas}
+                    onChange={(e) => setHoras(e.target.value)}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Comentarios
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                    value={comentarios}
+                    onChange={(e) => setComentarios(e.target.value)}
+                    placeholder="Notas adicionales (opcional)"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setShowFormModal(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="primary"
+                  disabled={saving}
+                >
+                  {saving ? "Guardando..." : "Guardar actividad"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </Modal>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="space-y-3">
-        {bitacoras.map((actividad) => (
-          <div
-            key={actividad.id}
-            className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-          >
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-2">
-                  <span
-                    className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full border ${getTipoActividadColor(
-                      actividad.tipo_actividad
-                    )}`}
-                  >
-                    {getTipoActividadIcon(actividad.tipo_actividad)}
-                    <span className="ml-1 capitalize">
-                      {actividad.tipo_actividad}
-                    </span>
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-sm font-semibold text-gray-800">
+          Actividades registradas
+        </h3>
+        <Button
+          type="button"
+          size="sm"
+          variant="primary"
+          onClick={() => {
+            setEditingActividad(null);
+            setDescripcion("");
+            setHoras("");
+            setComentarios("");
+            setFechaActividad(new Date().toISOString().slice(0, 16));
+            setShowFormModal(true);
+          }}
+        >
+          Agregar actividad
+        </Button>
+      </div>
+
+      <DataTable
+        columns={[
+          {
+            id: "tipo_actividad",
+            header: "Tipo",
+            accessorKey: "tipo_actividad",
+            cell: ({ row }: any) => {
+              const tipo = row.original.tipo_actividad as string;
+              return (
+                <span
+                  className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full border ${getTipoActividadColor(
+                    tipo
+                  )}`}
+                >
+                  {getTipoActividadIcon(tipo)}
+                  <span className="ml-1 capitalize">{tipo}</span>
+                </span>
+              );
+            },
+          },
+          {
+            id: "descripcion",
+            header: "Descripción",
+            accessorKey: "descripcion",
+            cell: ({ row }: any) => (
+              <div className="flex flex-col">
+                <span className="text-sm text-gray-900">
+                  {row.original.descripcion}
+                </span>
+                {row.original.comentarios && (
+                  <span className="text-xs text-gray-500 mt-0.5 italic">
+                    {row.original.comentarios}
                   </span>
-                  {actividad.horas_trabajadas > 0 && (
-                    <span className="text-xs text-gray-500">
-                      {actividad.horas_trabajadas} hrs
-                    </span>
+                )}
+              </div>
+            ),
+          },
+          {
+            id: "fecha_actividad",
+            header: "Fecha actividad",
+            accessorKey: "fecha_actividad",
+            cell: ({ row }: any) => (
+              <span className="text-xs text-gray-700">
+                {new Date(
+                  row.original.fecha_actividad
+                ).toLocaleDateString("es-MX", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            ),
+          },
+          {
+            id: "creado_en",
+            header: "Registrado",
+            accessorKey: "creado_en",
+            cell: ({ row }: any) => (
+              <span className="text-xs text-gray-500">
+                {new Date(row.original.creado_en).toLocaleDateString("es-MX")}
+              </span>
+            ),
+          },
+          {
+            id: "horas_trabajadas",
+            header: "Horas",
+            accessorKey: "horas_trabajadas",
+            cell: ({ row }: any) =>
+              row.original.horas_trabajadas > 0 ? (
+                <span className="text-xs text-gray-700">
+                  {row.original.horas_trabajadas} hrs
+                </span>
+              ) : (
+                <span className="text-xs text-gray-400">-</span>
+              ),
+          },
+          {
+            id: "verificado",
+            header: "Verificada",
+            accessorKey: "verificado",
+            cell: ({ row }: any) =>
+              row.original.verificado ? (
+                <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 border border-green-200">
+                  Sí
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
+                  No
+                </span>
+              ),
+          },
+          {
+            id: "acciones",
+            header: "Acciones",
+            cell: ({ row }: any) => {
+              const actividad = row.original as BitacoraActividad;
+              const puedeEditar = !actividad.verificado;
+              return (
+                <div className="flex items-center gap-2">
+                  {!actividad.verificado && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await apiService.updateBitacoraActividad(
+                            actividad.id,
+                            { verificado: true } as any
+                          );
+                          swalSuccess("Actividad marcada como verificada");
+                          onRefresh();
+                        } catch (error: any) {
+                          // console.error("Error al verificar actividad:", error);
+                          swalError(
+                            error?.response?.data?.detail ||
+                              "Error al marcar como verificada"
+                          );
+                        }
+                      }}
+                    >
+                      Verificar
+                    </Button>
+                  )}
+                  {puedeEditar && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setEditingActividad(actividad);
+                        setDescripcion(actividad.descripcion);
+                        setHoras(
+                          actividad.horas_trabajadas
+                            ? String(actividad.horas_trabajadas)
+                            : ""
+                        );
+                        setComentarios(actividad.comentarios || "");
+                        setFechaActividad(
+                          actividad.fecha_actividad.slice(0, 16)
+                        );
+                        setShowFormModal(true);
+                      }}
+                    >
+                      Editar
+                    </Button>
                   )}
                 </div>
-                <p className="text-sm text-gray-900 mb-2">
-                  {actividad.descripcion}
-                </p>
-                {actividad.comentarios && (
-                  <p className="text-xs text-gray-600 mb-2 italic">
-                    {actividad.comentarios}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                  <span>
-                    {new Date(actividad.fecha_actividad).toLocaleDateString(
-                      "es-MX",
-                      {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }
-                    )}
-                  </span>
-                  <span>•</span>
-                  <span>
-                    Registrado:{" "}
-                    {new Date(actividad.creado_en).toLocaleDateString("es-MX")}
-                  </span>
-                </div>
-              </div>
+              );
+            },
+          },
+        ]}
+        data={bitacoras}
+        emptyText="No hay actividades registradas"
+        enableSearch={true}
+        searchPlaceholder="Buscar en descripción o comentarios..."
+        enablePagination={true}
+        enableSorting={true}
+        pageSize={10}
+        size="default"
+        maxTextLength={80}
+      />
+
+      {/* Modal para nueva actividad */}
+      <Modal
+        open={showFormModal}
+        onClose={() => setShowFormModal(false)}
+        title="Registrar actividad en bitácora"
+        maxWidthClass="max-w-lg"
+      >
+        <div className="space-y-4">
+          <form onSubmit={handleCreateActividad} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Fecha y hora
+            </label>
+            <input
+              type="datetime-local"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+              value={fechaActividad}
+              onChange={(e) => setFechaActividad(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Descripción *
+            </label>
+            <input
+              type="text"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              placeholder="Describe brevemente la actividad realizada"
+            />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Horas trabajadas
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                value={horas}
+                onChange={(e) => setHoras(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Comentarios
+              </label>
+              <input
+                type="text"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                value={comentarios}
+                onChange={(e) => setComentarios(e.target.value)}
+                placeholder="Notas adicionales (opcional)"
+              />
             </div>
           </div>
-        ))}
-      </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowFormModal(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              disabled={saving}
+            >
+              {saving ? "Guardando..." : "Guardar actividad"}
+            </Button>
+          </div>
+          </form>
+        </div>
+      </Modal>
     </div>
   );
 }

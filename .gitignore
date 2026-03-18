@@ -28,6 +28,8 @@ env/
 docs/
 .venv
 
+*.zip
+
 # Node.js
 node_modules/
 npm-debug.log*

@@ -388,7 +388,8 @@ class EmailService:
         perfil = db.query(UsuarioPerfil).filter(UsuarioPerfil.usuario_id == usuario.id).first()
         if not perfil:
             return None, None
-        firma_digital = getattr(perfil, "firma_digital", None) or getattr(perfil, "firma", None)
+        # Solo usar la firma digital para correos; la firma física no se usa como fallback aquí.
+        firma_digital = getattr(perfil, "firma_digital", None)
         if not firma_digital or not isinstance(firma_digital, str) or not firma_digital.strip():
             return None, None
         firma_bytes, src = EmailService._firma_to_bytes_and_src(firma_digital)
@@ -504,8 +505,10 @@ class EmailService:
         else:
             fecha_asignacion_str = str(fecha_asig)
 
-        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
-        base_for_assets = (base_url or "").rstrip("/")
+        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
+        if not base_url:
+            raise RuntimeError("BASE_URL o FRONTEND_URL no están configurados en .env")
+        base_for_assets = base_url.rstrip("/")
         enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
         id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
 
@@ -617,8 +620,10 @@ class EmailService:
         else:
             fecha_asignacion_str = str(fecha_asig)
 
-        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
-        base_for_assets = (base_url or "").rstrip("/")
+        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
+        if not base_url:
+            raise RuntimeError("BASE_URL o FRONTEND_URL no están configurados en .env")
+        base_for_assets = base_url.rstrip("/")
         enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
         id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
 

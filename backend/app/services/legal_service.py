@@ -9,6 +9,7 @@ from sqlalchemy.types import Integer
 from datetime import datetime
 from fastapi import HTTPException, status
 
+from app.services.auditoria_service import AuditoriaService
 from app.models.legal import (
     Area,
     EstadoSiniestro,
@@ -76,7 +77,14 @@ from app.schemas.legal_schema import (
 class AreaService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Area]:
-        q = db.query(Area).options(joinedload(Area.jefe)).filter(Area.empresa_id == empresa_id)
+        q = (
+            db.query(Area)
+            .options(joinedload(Area.jefe))
+            .filter(
+                Area.empresa_id == empresa_id,
+                Area.eliminado_en.is_(None),
+            )
+        )
         if activo is not None:
             q = q.filter(Area.activo == activo)
         return q.order_by(Area.nombre).all()
@@ -87,7 +95,14 @@ class AreaService:
 
     @staticmethod
     def update(db: Session, area_id: UUID, payload: AreaUpdate) -> Optional[Area]:
-        area = db.query(Area).filter(Area.id == area_id).first()
+        area = (
+            db.query(Area)
+            .filter(
+                Area.id == area_id,
+                Area.eliminado_en.is_(None),
+            )
+            .first()
+        )
         if not area:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -98,7 +113,10 @@ class AreaService:
 
     @staticmethod
     def delete(db: Session, area_id: UUID) -> bool:
-        area = db.query(Area).filter(Area.id == area_id).first()
+        area = db.query(Area).filter(
+            Area.id == area_id,
+            Area.eliminado_en.is_(None),
+        ).first()
         if not area:
             return False
         area.eliminado_en = func.now()
@@ -109,7 +127,10 @@ class AreaService:
 class EstadoSiniestroService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[EstadoSiniestro]:
-        q = db.query(EstadoSiniestro).filter(EstadoSiniestro.empresa_id == empresa_id)
+        q = db.query(EstadoSiniestro).filter(
+            EstadoSiniestro.empresa_id == empresa_id,
+            EstadoSiniestro.eliminado_en.is_(None),
+        )
         if activo is not None:
             q = q.filter(EstadoSiniestro.activo == activo)
         return q.order_by(EstadoSiniestro.orden, EstadoSiniestro.nombre).all()
@@ -124,7 +145,10 @@ class EstadoSiniestroService:
 
     @staticmethod
     def update(db: Session, estado_id: UUID, payload: EstadoSiniestroUpdate) -> Optional[EstadoSiniestro]:
-        es = db.query(EstadoSiniestro).filter(EstadoSiniestro.id == estado_id).first()
+        es = db.query(EstadoSiniestro).filter(
+            EstadoSiniestro.id == estado_id,
+            EstadoSiniestro.eliminado_en.is_(None),
+        ).first()
         if not es:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -135,7 +159,10 @@ class EstadoSiniestroService:
 
     @staticmethod
     def delete(db: Session, estado_id: UUID) -> bool:
-        es = db.query(EstadoSiniestro).filter(EstadoSiniestro.id == estado_id).first()
+        es = db.query(EstadoSiniestro).filter(
+            EstadoSiniestro.id == estado_id,
+            EstadoSiniestro.eliminado_en.is_(None),
+        ).first()
         if not es:
             return False
         es.eliminado_en = func.now()
@@ -146,7 +173,10 @@ class EstadoSiniestroService:
 class CalificacionSiniestroService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[CalificacionSiniestro]:
-        q = db.query(CalificacionSiniestro).filter(CalificacionSiniestro.empresa_id == empresa_id)
+        q = db.query(CalificacionSiniestro).filter(
+            CalificacionSiniestro.empresa_id == empresa_id,
+            CalificacionSiniestro.eliminado_en.is_(None),
+        )
         if activo is not None:
             q = q.filter(CalificacionSiniestro.activo == activo)
         return q.order_by(CalificacionSiniestro.orden, CalificacionSiniestro.nombre).all()
@@ -165,7 +195,10 @@ class CalificacionSiniestroService:
         calificacion_id: UUID,
         payload: CalificacionSiniestroUpdate,
     ) -> Optional[CalificacionSiniestro]:
-        calificacion = db.query(CalificacionSiniestro).filter(CalificacionSiniestro.id == calificacion_id).first()
+        calificacion = db.query(CalificacionSiniestro).filter(
+            CalificacionSiniestro.id == calificacion_id,
+            CalificacionSiniestro.eliminado_en.is_(None),
+        ).first()
         if not calificacion:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -176,7 +209,10 @@ class CalificacionSiniestroService:
 
     @staticmethod
     def delete(db: Session, calificacion_id: UUID) -> bool:
-        calificacion = db.query(CalificacionSiniestro).filter(CalificacionSiniestro.id == calificacion_id).first()
+        calificacion = db.query(CalificacionSiniestro).filter(
+            CalificacionSiniestro.id == calificacion_id,
+            CalificacionSiniestro.eliminado_en.is_(None),
+        ).first()
         if not calificacion:
             return False
         calificacion.eliminado_en = func.now()
@@ -265,7 +301,10 @@ class EntidadService:
 class InstitucionService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Institucion]:
-        q = db.query(Institucion).filter(Institucion.empresa_id == empresa_id)
+        q = db.query(Institucion).filter(
+            Institucion.empresa_id == empresa_id,
+            Institucion.eliminado_en.is_(None),
+        )
         if activo is not None:
             q = q.filter(Institucion.activo == activo)
         return q.order_by(Institucion.nombre).all()
@@ -280,7 +319,10 @@ class InstitucionService:
 
     @staticmethod
     def update(db: Session, institucion_id: UUID, payload: InstitucionUpdate) -> Optional[Institucion]:
-        inst = db.query(Institucion).filter(Institucion.id == institucion_id).first()
+        inst = db.query(Institucion).filter(
+            Institucion.id == institucion_id,
+            Institucion.eliminado_en.is_(None),
+        ).first()
         if not inst:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -291,7 +333,10 @@ class InstitucionService:
 
     @staticmethod
     def delete(db: Session, institucion_id: UUID) -> bool:
-        inst = db.query(Institucion).filter(Institucion.id == institucion_id).first()
+        inst = db.query(Institucion).filter(
+            Institucion.id == institucion_id,
+            Institucion.eliminado_en.is_(None),
+        ).first()
         if not inst:
             return False
         inst.eliminado_en = func.now()
@@ -302,7 +347,10 @@ class InstitucionService:
 class AutoridadService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Autoridad]:
-        q = db.query(Autoridad).filter(Autoridad.empresa_id == empresa_id)
+        q = db.query(Autoridad).filter(
+            Autoridad.empresa_id == empresa_id,
+            Autoridad.eliminado_en.is_(None),
+        )
         if activo is not None:
             q = q.filter(Autoridad.activo == activo)
         return q.order_by(Autoridad.nombre).all()
@@ -317,7 +365,10 @@ class AutoridadService:
 
     @staticmethod
     def update(db: Session, autoridad_id: UUID, payload: AutoridadUpdate) -> Optional[Autoridad]:
-        autoridad = db.query(Autoridad).filter(Autoridad.id == autoridad_id).first()
+        autoridad = db.query(Autoridad).filter(
+            Autoridad.id == autoridad_id,
+            Autoridad.eliminado_en.is_(None),
+        ).first()
         if not autoridad:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -328,7 +379,10 @@ class AutoridadService:
 
     @staticmethod
     def delete(db: Session, autoridad_id: UUID) -> bool:
-        autoridad = db.query(Autoridad).filter(Autoridad.id == autoridad_id).first()
+        autoridad = db.query(Autoridad).filter(
+            Autoridad.id == autoridad_id,
+            Autoridad.eliminado_en.is_(None),
+        ).first()
         if not autoridad:
             return False
         autoridad.eliminado_en = func.now()
@@ -344,7 +398,7 @@ class AseguradoService:
         Nota: la tabla asegurados no tiene empresa_id, por lo que el parámetro
         empresa_id se ignora y se listan todos los registros (opcionalmente filtrando por activo).
         """
-        q = db.query(Asegurado)
+        q = db.query(Asegurado).filter(Asegurado.eliminado_en.is_(None))
         if activo is not None:
             q = q.filter(Asegurado.activo == activo)
         return q.order_by(Asegurado.nombre).all()
@@ -355,7 +409,10 @@ class AseguradoService:
 
         Nota: la tabla asegurados no tiene empresa_id, por lo que solo se filtra por id.
         """
-        return db.query(Asegurado).filter(Asegurado.id == asegurado_id).first()
+        return db.query(Asegurado).filter(
+            Asegurado.id == asegurado_id,
+            Asegurado.eliminado_en.is_(None),
+        ).first()
 
     @staticmethod
     def create(db: Session, empresa_id: UUID, payload: AseguradoCreate) -> Asegurado:
@@ -371,7 +428,10 @@ class AseguradoService:
 
     @staticmethod
     def update(db: Session, asegurado_id: UUID, payload: AseguradoUpdate) -> Optional[Asegurado]:
-        asegurado = db.query(Asegurado).filter(Asegurado.id == asegurado_id).first()
+        asegurado = db.query(Asegurado).filter(
+            Asegurado.id == asegurado_id,
+            Asegurado.eliminado_en.is_(None),
+        ).first()
         if not asegurado:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -382,7 +442,10 @@ class AseguradoService:
 
     @staticmethod
     def delete(db: Session, asegurado_id: UUID) -> bool:
-        asegurado = db.query(Asegurado).filter(Asegurado.id == asegurado_id).first()
+        asegurado = db.query(Asegurado).filter(
+            Asegurado.id == asegurado_id,
+            Asegurado.eliminado_en.is_(None),
+        ).first()
         if not asegurado:
             return False
         asegurado.eliminado_en = func.now()
@@ -393,7 +456,10 @@ class AseguradoService:
 class ProvenienteService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Proveniente]:
-        q = db.query(Proveniente).filter(Proveniente.empresa_id == empresa_id)
+        q = db.query(Proveniente).filter(
+            Proveniente.empresa_id == empresa_id,
+            Proveniente.eliminado_en.is_(None),
+        )
         if activo is not None:
             q = q.filter(Proveniente.activo == activo)
         return q.order_by(Proveniente.nombre).all()
@@ -408,7 +474,10 @@ class ProvenienteService:
 
     @staticmethod
     def update(db: Session, proveniente_id: UUID, payload: ProvenienteUpdate) -> Optional[Proveniente]:
-        proveniente = db.query(Proveniente).filter(Proveniente.id == proveniente_id).first()
+        proveniente = db.query(Proveniente).filter(
+            Proveniente.id == proveniente_id,
+            Proveniente.eliminado_en.is_(None),
+        ).first()
         if not proveniente:
             return None
         for k, v in payload.model_dump(exclude_unset=True).items():
@@ -419,7 +488,10 @@ class ProvenienteService:
 
     @staticmethod
     def delete(db: Session, proveniente_id: UUID) -> bool:
-        proveniente = db.query(Proveniente).filter(Proveniente.id == proveniente_id).first()
+        proveniente = db.query(Proveniente).filter(
+            Proveniente.id == proveniente_id,
+            Proveniente.eliminado_en.is_(None),
+        ).first()
         if not proveniente:
             return False
         proveniente.eliminado_en = func.now()
@@ -430,7 +502,7 @@ class ProvenienteService:
 class TiposDocumentoService:
     @staticmethod
     def list(db: Session, activo: Optional[bool] = None, area_id: Optional[UUID] = None) -> List[TipoDocumento]:
-        q = db.query(TipoDocumento)
+        q = db.query(TipoDocumento).filter(TipoDocumento.eliminado_en.is_(None))
         if activo is not None:
             q = q.filter(TipoDocumento.activo == activo)
         # area_id no existe en la tabla, se ignora
@@ -756,7 +828,7 @@ class SiniestroService:
                 ).ilike(f"%{asegurado_nombre.strip()}%")
             ).distinct()
         
-        siniestros = q.order_by(nullslast(Siniestro.fecha_siniestro.desc())).offset(skip).limit(limit).all()
+        siniestros = q.order_by(nullslast(Siniestro.fecha_registro.desc())).offset(skip).limit(limit).all()
         
         # Cargar versión actual de descripción y id_formato (proveniente-consecutivo-año) para cada siniestro
         proveniente_ids = list({s.proveniente_id for s in siniestros if s.proveniente_id})
@@ -935,7 +1007,20 @@ class SiniestroService:
                 ),
                 creado_por
             )
-        
+
+        # Log de auditoría
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=creado_por,
+            empresa_id=empresa_id,
+            accion="crear",
+            modulo="siniestros",
+            tabla="siniestros",
+            registro_id=siniestro.id,
+            datos_nuevos={"numero_siniestro": siniestro.numero_siniestro, "codigo": siniestro.codigo},
+            descripcion="Siniestro creado",
+        )
+
         return siniestro
     
     @staticmethod
@@ -953,7 +1038,17 @@ class SiniestroService:
         
         if not siniestro:
             return None
-        
+
+        estado_id_antes = siniestro.estado_id
+        calificacion_id_antes = siniestro.calificacion_id
+        poliza_antes = {
+            "numero_poliza": siniestro.numero_poliza,
+            "deducible": str(siniestro.deducible) if siniestro.deducible is not None else None,
+            "reserva": str(siniestro.reserva) if siniestro.reserva is not None else None,
+            "coaseguro": str(siniestro.coaseguro) if siniestro.coaseguro is not None else None,
+            "suma_asegurada": str(siniestro.suma_asegurada) if siniestro.suma_asegurada is not None else None,
+        }
+
         # Validar unicidad del número si se cambia y se proporciona un valor
         if payload.numero_siniestro is not None:
             # Si se está estableciendo un número (cambiando de null a valor o cambiando el valor)
@@ -1004,11 +1099,93 @@ class SiniestroService:
                     ),
                     actualizado_por or siniestro.creado_por
                 )
-        
+
+        # Log de auditoría: cambios específicos
+        usuario_audit = actualizado_por or siniestro.creado_por
+        if estado_id_antes != siniestro.estado_id:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_audit,
+                empresa_id=empresa_id,
+                accion="estado_cambiado",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                datos_anteriores={"estado_id": str(estado_id_antes) if estado_id_antes else None},
+                datos_nuevos={"estado_id": str(siniestro.estado_id) if siniestro.estado_id else None},
+                descripcion="Estado del siniestro cambiado",
+            )
+        if calificacion_id_antes != siniestro.calificacion_id:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_audit,
+                empresa_id=empresa_id,
+                accion="calificacion_cambiada",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                datos_anteriores={"calificacion_id": str(calificacion_id_antes) if calificacion_id_antes else None},
+                datos_nuevos={"calificacion_id": str(siniestro.calificacion_id) if siniestro.calificacion_id else None},
+                descripcion="Calificación del siniestro cambiada",
+            )
+
+        # Log de póliza si cambian campos relacionados
+        poliza_campos = ("numero_poliza", "deducible", "reserva", "coaseguro", "suma_asegurada")
+        poliza_cambios = {k: v for k, v in payload_dict.items() if k in poliza_campos}
+        if poliza_cambios:
+            poliza_nuevos = {
+                "numero_poliza": siniestro.numero_poliza,
+                "deducible": str(siniestro.deducible) if siniestro.deducible is not None else None,
+                "reserva": str(siniestro.reserva) if siniestro.reserva is not None else None,
+                "coaseguro": str(siniestro.coaseguro) if siniestro.coaseguro is not None else None,
+                "suma_asegurada": str(siniestro.suma_asegurada) if siniestro.suma_asegurada is not None else None,
+            }
+            tiene_antes = any(poliza_antes.get(k) for k in poliza_campos)
+            tiene_nuevos = any(poliza_nuevos.get(k) for k in poliza_campos)
+            accion_poliza = "poliza_creada" if not tiene_antes and tiene_nuevos else "poliza_actualizada"
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_audit,
+                empresa_id=empresa_id,
+                accion=accion_poliza,
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                datos_anteriores=poliza_antes,
+                datos_nuevos=poliza_nuevos,
+                descripcion="Póliza agregada" if accion_poliza == "poliza_creada" else "Póliza actualizada",
+            )
+
+        # Log genérico de actualización si hubo otros cambios (excluyendo estado, calificación y póliza ya logueados)
+        exclude_log = ("estado_id", "calificacion_id") + poliza_campos
+        otros_cambios = {k: v for k, v in payload_dict.items() if k not in exclude_log}
+        # Serializar UUIDs y otros tipos para JSON
+        otros_cambios_ser = {}
+        for k, v in otros_cambios.items():
+            if v is not None and hasattr(v, "__str__"):
+                try:
+                    otros_cambios_ser[k] = str(v) if hasattr(v, "hex") else v
+                except Exception:
+                    otros_cambios_ser[k] = str(v)
+            else:
+                otros_cambios_ser[k] = v
+        if otros_cambios_ser:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_audit,
+                empresa_id=empresa_id,
+                accion="actualizar",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                datos_nuevos=otros_cambios_ser,
+                descripcion="Siniestro actualizado",
+            )
+
         return siniestro
     
     @staticmethod
-    def delete(db: Session, siniestro_id: UUID, empresa_id: UUID) -> bool:
+    def delete(db: Session, siniestro_id: UUID, empresa_id: UUID, usuario_id: Optional[UUID] = None) -> bool:
         """
         Elimina lógicamente un siniestro (soft delete).
         No elimina físicamente para mantener historial.
@@ -1026,6 +1203,19 @@ class SiniestroService:
         siniestro.activo = False
         siniestro.eliminado_en = func.now()
         db.commit()
+
+        # Log de auditoría
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=usuario_id,
+            empresa_id=empresa_id,
+            accion="eliminar",
+            modulo="siniestros",
+            tabla="siniestros",
+            registro_id=siniestro_id,
+            descripcion="Siniestro eliminado (soft delete)",
+        )
+
         return True
 
 
@@ -1147,10 +1337,41 @@ class DocumentoService:
         db.commit()
         db.refresh(documento)
         return documento
-    
+
+    @staticmethod
+    def _get_next_version(
+        db: Session,
+        siniestro_id: UUID,
+        etapa_flujo_id: Optional[UUID],
+        flujo_trabajo_id: Optional[UUID],
+        plantilla_documento_id: Optional[UUID],
+    ) -> int:
+        """
+        Obtiene la siguiente versión para un informe dado su contexto lógico.
+        Se basa en la versión máxima existente para ese siniestro/etapa/flujo/plantilla.
+        """
+        q = db.query(Documento).filter(
+            Documento.siniestro_id == siniestro_id,
+            Documento.eliminado == False,
+        )
+        if etapa_flujo_id is not None:
+            q = q.filter(Documento.etapa_flujo_id == etapa_flujo_id)
+        if flujo_trabajo_id is not None:
+            q = q.filter(Documento.flujo_trabajo_id == flujo_trabajo_id)
+        if plantilla_documento_id is not None:
+            q = q.filter(Documento.plantilla_documento_id == plantilla_documento_id)
+
+        ultimo = q.order_by(Documento.version.desc()).first()
+        if not ultimo or not getattr(ultimo, "version", None):
+            return 1
+        return int(ultimo.version) + 1
+
     @staticmethod
     def update(db: Session, documento_id: UUID, payload: DocumentoUpdate) -> Optional[Documento]:
-        """Actualiza un documento existente"""
+        """
+        Actualiza un documento existente creando una nueva versión (nuevo registro).
+        El documento anterior permanece como histórico y se marca como inactivo.
+        """
         documento = db.query(Documento).filter(
             Documento.id == documento_id,
             Documento.eliminado == False
@@ -1159,12 +1380,47 @@ class DocumentoService:
             return None
 
         exclude = {"horas_trabajadas_bitacora", "comentarios_bitacora"}
-        for k, v in payload.model_dump(exclude_unset=True, exclude=exclude).items():
-            setattr(documento, k, v)
+        updates = payload.model_dump(exclude_unset=True, exclude=exclude)
 
+        # Calcular siguiente versión para este informe (por contexto lógico)
+        next_version = DocumentoService._get_next_version(
+            db=db,
+            siniestro_id=documento.siniestro_id,
+            etapa_flujo_id=documento.etapa_flujo_id,
+            flujo_trabajo_id=documento.flujo_trabajo_id,
+            plantilla_documento_id=documento.plantilla_documento_id,
+        )
+
+        # Marcar la versión anterior como no activa (sigue sin eliminarse)
+        documento.activo = False
+
+        # Construir nuevo documento copiando el anterior y aplicando cambios
+        nuevo = Documento(
+            siniestro_id=documento.siniestro_id,
+            tipo_documento_id=updates.get("tipo_documento_id", documento.tipo_documento_id),
+            etapa_flujo_id=updates.get("etapa_flujo_id", documento.etapa_flujo_id),
+            plantilla_documento_id=updates.get("plantilla_documento_id", documento.plantilla_documento_id),
+            area_id=updates.get("area_id", documento.area_id),
+            flujo_trabajo_id=updates.get("flujo_trabajo_id", documento.flujo_trabajo_id),
+            nombre_archivo=updates.get("nombre_archivo", documento.nombre_archivo),
+            ruta_archivo=updates.get("ruta_archivo", documento.ruta_archivo),
+            contenido=updates.get("contenido", documento.contenido),
+            tamaño_archivo=documento.tamaño_archivo,
+            tipo_mime=documento.tipo_mime,
+            usuario_subio=documento.usuario_subio,
+            version=next_version,
+            descripcion=updates.get("descripcion", documento.descripcion),
+            fecha_documento=updates.get("fecha_documento", documento.fecha_documento),
+            es_principal=updates.get("es_principal", documento.es_principal),
+            es_adicional=updates.get("es_adicional", documento.es_adicional),
+            activo=True,
+            eliminado=False,
+        )
+
+        db.add(nuevo)
         db.commit()
-        db.refresh(documento)
-        return documento
+        db.refresh(nuevo)
+        return nuevo
 
     @staticmethod
     def delete(db: Session, documento_id: UUID) -> bool:
@@ -1366,7 +1622,7 @@ class SiniestroUsuarioService:
         return q.order_by(SiniestroUsuario.es_principal.desc(), SiniestroUsuario.creado_en).all()
     
     @staticmethod
-    def create(db: Session, payload: SiniestroUsuarioCreate) -> SiniestroUsuario:
+    def create(db: Session, payload: SiniestroUsuarioCreate, usuario_audit_id: Optional[UUID] = None) -> SiniestroUsuario:
         """Agrega un involucrado a un siniestro"""
         # Verificar que no exista ya la misma relación
         existing = db.query(SiniestroUsuario).filter(
@@ -1386,6 +1642,25 @@ class SiniestroUsuarioService:
         db.add(relacion)
         db.commit()
         db.refresh(relacion)
+
+        # Log de auditoría
+        from app.models.user import Usuario
+        usu = db.query(Usuario).filter(Usuario.id == payload.usuario_id).first()
+        usu_nombre = getattr(usu, "full_name", None) or getattr(usu, "correo", None) or str(payload.usuario_id)
+        siniestro = db.query(Siniestro).filter(Siniestro.id == payload.siniestro_id).first()
+        empresa_id = siniestro.empresa_id if siniestro else None
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=usuario_audit_id,
+            empresa_id=empresa_id,
+            accion="usuario_asignado",
+            modulo="siniestros",
+            tabla="siniestros",
+            registro_id=payload.siniestro_id,
+            datos_nuevos={"usuario_id": str(payload.usuario_id), "tipo_relacion": payload.tipo_relacion},
+            descripcion=f"Involucrado asignado ({payload.tipo_relacion}): {usu_nombre}",
+        )
+
         return relacion
     
     @staticmethod
@@ -1403,14 +1678,34 @@ class SiniestroUsuarioService:
         return relacion
     
     @staticmethod
-    def delete(db: Session, relacion_id: UUID) -> bool:
+    def delete(db: Session, relacion_id: UUID, usuario_audit_id: Optional[UUID] = None) -> bool:
         """Elimina una relación siniestro-usuario"""
         relacion = db.query(SiniestroUsuario).filter(SiniestroUsuario.id == relacion_id).first()
         if not relacion:
             return False
-        
+
+        siniestro_id = relacion.siniestro_id
+        from app.models.user import Usuario
+        usu = db.query(Usuario).filter(Usuario.id == relacion.usuario_id).first()
+        usu_nombre = getattr(usu, "full_name", None) or getattr(usu, "correo", None) or str(relacion.usuario_id)
+        siniestro = db.query(Siniestro).filter(Siniestro.id == siniestro_id).first()
+        empresa_id = siniestro.empresa_id if siniestro else None
+
         db.delete(relacion)
         db.commit()
+
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=usuario_audit_id,
+            empresa_id=empresa_id,
+            accion="usuario_eliminado",
+            modulo="siniestros",
+            tabla="siniestros",
+            registro_id=siniestro_id,
+            datos_anteriores={"usuario_id": str(relacion.usuario_id), "tipo_relacion": relacion.tipo_relacion},
+            descripcion=f"Involucrado eliminado ({relacion.tipo_relacion}): {usu_nombre}",
+        )
+
         return True
 
 
@@ -1427,7 +1722,7 @@ class SiniestroAreaService:
         return q.order_by(SiniestroArea.fecha_asignacion.desc()).all()
     
     @staticmethod
-    def create(db: Session, payload: SiniestroAreaCreate) -> SiniestroArea:
+    def create(db: Session, payload: SiniestroAreaCreate, usuario_id: Optional[UUID] = None) -> SiniestroArea:
         """Agrega un área a un siniestro"""
         # Validar que el siniestro existe
         from app.models.legal import Siniestro
@@ -1470,6 +1765,19 @@ class SiniestroAreaService:
             db.add(relacion)
             db.commit()
             db.refresh(relacion)
+
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_id,
+                empresa_id=siniestro.empresa_id,
+                accion="area_asignada",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=payload.siniestro_id,
+                datos_nuevos={"area_id": str(payload.area_id), "area_nombre": area.nombre},
+                descripcion=f"Área asignada: {area.nombre}",
+            )
+
             return relacion
         except Exception as e:
             db.rollback()
@@ -1483,28 +1791,78 @@ class SiniestroAreaService:
             )
     
     @staticmethod
-    def update(db: Session, relacion_id: UUID, payload: SiniestroAreaUpdate) -> Optional[SiniestroArea]:
+    def update(db: Session, relacion_id: UUID, payload: SiniestroAreaUpdate, usuario_id: Optional[UUID] = None) -> Optional[SiniestroArea]:
         """Actualiza una relación siniestro-área"""
         relacion = db.query(SiniestroArea).filter(SiniestroArea.id == relacion_id).first()
         if not relacion:
             return None
-        
+
+        activo_antes = relacion.activo
+
         for k, v in payload.model_dump(exclude_unset=True).items():
             setattr(relacion, k, v)
-        
+
         db.commit()
         db.refresh(relacion)
+
+        # Log si cambió el estado activo
+        if "activo" in payload.model_dump(exclude_unset=True):
+            if activo_antes and not relacion.activo:
+                accion_desc = "area_desactivada"
+                desc = "Área desactivada"
+            elif not activo_antes and relacion.activo:
+                accion_desc = "area_activada"
+                desc = "Área reactivada"
+            else:
+                accion_desc = "actualizar"
+                desc = "Área adicional actualizada"
+            area = db.query(Area).filter(Area.id == relacion.area_id).first()
+            area_nombre = area.nombre if area else str(relacion.area_id)
+            siniestro = db.query(Siniestro).filter(Siniestro.id == relacion.siniestro_id).first()
+            empresa_id = siniestro.empresa_id if siniestro else None
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_id,
+                empresa_id=empresa_id,
+                accion=accion_desc,
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=relacion.siniestro_id,
+                datos_anteriores={"activo": activo_antes, "area_nombre": area_nombre},
+                datos_nuevos={"activo": relacion.activo, "area_nombre": area_nombre},
+                descripcion=desc,
+            )
+
         return relacion
     
     @staticmethod
-    def delete(db: Session, relacion_id: UUID) -> bool:
+    def delete(db: Session, relacion_id: UUID, usuario_id: Optional[UUID] = None) -> bool:
         """Elimina una relación siniestro-área"""
         relacion = db.query(SiniestroArea).filter(SiniestroArea.id == relacion_id).first()
         if not relacion:
             return False
-        
+
+        siniestro_id = relacion.siniestro_id
+        area = db.query(Area).filter(Area.id == relacion.area_id).first()
+        area_nombre = area.nombre if area else str(relacion.area_id)
+        siniestro = db.query(Siniestro).filter(Siniestro.id == siniestro_id).first()
+        empresa_id = siniestro.empresa_id if siniestro else None
+
         db.delete(relacion)
         db.commit()
+
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=usuario_id,
+            empresa_id=empresa_id,
+            accion="area_eliminada",
+            modulo="siniestros",
+            tabla="siniestros",
+            registro_id=siniestro_id,
+            datos_anteriores={"area_id": str(relacion.area_id), "area_nombre": area_nombre},
+            descripcion=f"Área eliminada: {area_nombre}",
+        )
+
         return True
 
 

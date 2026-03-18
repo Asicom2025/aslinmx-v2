@@ -84,16 +84,11 @@ class AccionService:
     """Servicio para operaciones CRUD de acciones"""
     
     @staticmethod
-    def get_acciones(
-        db: Session,
-        activo: Optional[bool] = None
-    ) -> List[Accion]:
-        """Obtiene lista de acciones"""
+    def get_acciones(db: Session, activo: Optional[bool] = None) -> List[Accion]:
+        """Obtiene lista global de acciones (todas los módulos)"""
         query = db.query(Accion)
-        
         if activo is not None:
             query = query.filter(Accion.activo == activo)
-        
         return query.order_by(Accion.nombre).all()
     
     @staticmethod
@@ -110,20 +105,8 @@ class AccionService:
 
     @staticmethod
     def get_acciones_por_modulo(db: Session, modulo_id: str, activo: Optional[bool] = True) -> List[Accion]:
-        """Obtiene las acciones asignadas a un módulo (desde rol_permisos)"""
-        accion_ids = (
-            db.query(RolPermiso.accion_id)
-            .filter(
-                RolPermiso.modulo_id == modulo_id,
-                RolPermiso.activo == True,
-            )
-            .distinct()
-            .all()
-        )
-        ids = [a[0] for a in accion_ids]
-        if not ids:
-            return []
-        query = db.query(Accion).filter(Accion.id.in_(ids))
+        """Obtiene todas las acciones definidas para un módulo (independiente de roles)"""
+        query = db.query(Accion).filter(Accion.modulo_id == modulo_id)
         if activo is not None:
             query = query.filter(Accion.activo == activo)
         return query.order_by(Accion.nombre).all()
@@ -132,6 +115,7 @@ class AccionService:
     def create_accion(db: Session, accion: AccionCreate) -> Accion:
         """Crea una nueva acción"""
         db_accion = Accion(
+            modulo_id=accion.modulo_id,
             nombre=accion.nombre,
             descripcion=accion.descripcion,
             nombre_tecnico=accion.nombre_tecnico,
@@ -249,9 +233,17 @@ class RolPermisoService:
         # Todos los módulos activos (ordenados)
         modulos = ModuloService.get_modulos(db, limit=500, activo=True)
 
-        # Permisos de ESTE rol: mapa (modulo_id, accion) -> permiso
-        permisos_rol = (
-            db.query(RolPermiso)
+        # Todas las acciones activas por módulo
+        acciones_modulo_q = db.query(Accion).filter(Accion.activo == True)
+        acciones_por_modulo: Dict[str, List[Accion]] = {}
+        for a in acciones_modulo_q.all():
+            mid = str(a.modulo_id)
+            acciones_por_modulo.setdefault(mid, []).append(a)
+
+        # Permisos de ESTE rol: conjunto de IDs de acción
+        permisos_rol_ids = {
+            str(p.accion_id)
+            for p in db.query(RolPermiso)
             .join(Accion, RolPermiso.accion_id == Accion.id)
             .filter(
                 RolPermiso.rol_id == rol_id,
@@ -259,27 +251,23 @@ class RolPermisoService:
                 Accion.activo == True,
             )
             .all()
-        )
-        # Mapa modulo_id -> [accion, ...]
-        por_modulo: Dict[str, List] = {}
-        for p in permisos_rol:
-            mid = str(p.modulo_id)
-            if mid not in por_modulo:
-                por_modulo[mid] = []
-            por_modulo[mid].append(p.accion)
+        }
 
         modulos_config = []
         for modulo in modulos:
             mid = str(modulo.id)
-            acciones_rol = por_modulo.get(mid, [])
+            acciones_definidas = sorted(
+                acciones_por_modulo.get(mid, []),
+                key=lambda x: x.nombre,
+            )
             acciones_config = [
                 AccionConfigItem(
                     accion_id=a.id,
                     accion_nombre=a.nombre,
                     accion_tecnica=a.nombre_tecnico,
-                    tiene_permiso=True,  # Si está en la lista, tiene permiso
+                    tiene_permiso=str(a.id) in permisos_rol_ids,
                 )
-                for a in sorted(acciones_rol, key=lambda x: x.nombre)
+                for a in acciones_definidas
             ]
             modulos_config.append(ModuloConfigItem(
                 modulo_id=modulo.id,

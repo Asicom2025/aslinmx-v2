@@ -189,10 +189,13 @@ export default function TiptapEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      {label && <label className="text-sm font-medium text-gray-700">{label}</label>}
-      
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-1 p-2 border border-gray-300 rounded-t-md bg-white shadow-sm">
+      {label && (
+        <label className="text-sm font-medium text-gray-700">{label}</label>
+      )}
+
+      {/* Toolbar (scrollable horizontal en pantallas pequeñas) */}
+      <div className="overflow-x-auto overflow-y-visible rounded-t-md border border-gray-300 bg-white shadow-sm">
+        <div className="flex flex-nowrap items-center gap-1 p-2 min-w-max">
         {/* Formato de texto básico */}
         <div className="flex items-center gap-0.5 border-r border-gray-200 pr-2 mr-1">
           <button
@@ -730,6 +733,7 @@ export default function TiptapEditor({
             <FiRotateCw className="w-4 h-4" />
             <span className="sr-only">Rehacer</span>
           </button>
+        </div>
         </div>
       </div>
 

@@ -61,7 +61,7 @@ export function usePermisos(): UsePermisosReturn {
       const path = pathname.split("?")[0].replace(/\/$/, "") || "/";
       const modulo = RUTA_A_MODULO[path];
       if (!modulo) return true;
-      return can(modulo, "leer");
+      return can(modulo, "read");
     },
     [can, userLoading]
   );

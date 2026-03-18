@@ -760,7 +760,7 @@ export default function DashboardPage() {
       {/* Gráficos principales */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros por Estado - Gráfico de Barras */}
-        {can("dashboard", "grafica_barras_por_estado") && (
+        {can("dashboard", "ver_grafica_barras_por_estado") && (
         <div data-tour="dashboard-grafica-estados" className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiBarChart2 className="w-5 h-5" />

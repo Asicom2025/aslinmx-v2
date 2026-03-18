@@ -81,6 +81,12 @@ export default function Navbar() {
 
   const handleLogout = async () => {
     try {
+      // Limpiar cookie httpOnly en backend (refresh token)
+      try {
+        await apiService.logout();
+      } catch {
+        // Si falla el logout del backend, igual continuamos con limpieza local
+      }
       localStorage.removeItem("token");
       logout();
       await swalSuccess("Sesión cerrada");

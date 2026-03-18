@@ -86,16 +86,23 @@ export default function ConfiguracionPage() {
   );
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-3xl font-bold text-gray-900">Configuración</h1>
-          <TourButton tour="tour-configuracion" label="Ver guía" />
+    <div className="min-h-screen w-full bg-gray-50">
+      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 lg:mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            Configuración
+          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <TourButton tour="tour-configuracion" label="Ver guía" />
+          </div>
         </div>
 
         {/* Tabs */}
-        <div data-tour="config-tabs" className="border-b border-gray-200 mb-6 overflow-x-auto">
-          <nav className="-mb-px flex gap-6" aria-label="Tabs">
+        <div
+          data-tour="config-tabs"
+          className="border-b border-gray-200 mb-4 lg:mb-6 overflow-x-auto"
+        >
+          <nav className="-mb-px flex gap-4 sm:gap-6 min-w-max" aria-label="Tabs">
             <TabButton id="general" label="General" />
             <TabButton id="flujos" label="Flujos" />
             <TabButton id="areas" label="Áreas" />
@@ -105,7 +112,11 @@ export default function ConfiguracionPage() {
         </div>
 
         {/* Content */}
-        {activeTab === "general" && <div data-tour="config-empresa"><GeneralTab /></div>}
+        {activeTab === "general" && (
+          <div data-tour="config-empresa">
+            <GeneralTab />
+          </div>
+        )}
 
         {activeTab === "flujos" && (
           <div className="bg-white rounded-lg shadow p-2">

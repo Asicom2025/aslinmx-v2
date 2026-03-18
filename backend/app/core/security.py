@@ -58,6 +58,23 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
+def create_refresh_token(data: dict) -> str:
+    """
+    Crea un refresh token JWT para renovar sesión.
+    Se usa con cookie httpOnly y valida purpose='refresh'.
+    """
+    expires_delta = timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES)
+    payload = data.copy()
+    payload.update({"purpose": "refresh"})
+    return create_access_token(payload, expires_delta=expires_delta)
+
+
+def is_refresh_token(token: str) -> bool:
+    """Valida que el JWT tenga purpose='refresh'."""
+    payload = decode_access_token(token)
+    return bool(payload and payload.get("purpose") == "refresh")
+
+
 def create_temp_token(data: dict = None, expires_minutes: int = 5) -> str:
     """
     Crea un token temporal previo a la verificación 2FA.

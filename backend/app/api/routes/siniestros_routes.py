@@ -16,6 +16,7 @@ from app.schemas.legal_schema import (
 )
 from app.services.legal_service import SiniestroService
 from app.services.email_service import EmailService
+from app.services.auditoria_service import AuditoriaService
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,20 @@ def create_siniestro(
     except HTTPException:
         raise
     except Exception as e:
+        try:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=current_user.id,
+                empresa_id=current_user.empresa_id,
+                accion="error",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=None,
+                descripcion=f"Error al crear siniestro: {str(e)}",
+                datos_nuevos={"error": str(e), "tipo": type(e).__name__},
+            )
+        except Exception:
+            pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al crear siniestro: {str(e)}"
@@ -132,6 +147,20 @@ def update_siniestro(
     except HTTPException:
         raise
     except Exception as e:
+        try:
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=current_user.id,
+                empresa_id=current_user.empresa_id,
+                accion="error",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                descripcion=f"Error al actualizar siniestro: {str(e)}",
+                datos_nuevos={"error": str(e), "tipo": type(e).__name__},
+            )
+        except Exception:
+            pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al actualizar siniestro: {str(e)}"
@@ -148,7 +177,7 @@ def delete_siniestro(
     Elimina lógicamente un siniestro (soft delete).
     No elimina físicamente para mantener historial.
     """
-    ok = SiniestroService.delete(db, siniestro_id, current_user.empresa_id)
+    ok = SiniestroService.delete(db, siniestro_id, current_user.empresa_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
     return None

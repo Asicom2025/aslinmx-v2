@@ -367,7 +367,13 @@ async def enviar_correo(
 
         # Logo e icono como CID para que Gmail muestre las imágenes
         logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
-        base_for_assets = (getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000").rstrip("/")
+        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
+        if not base_url:
+            raise HTTPException(
+                status_code=500,
+                detail="BASE_URL o FRONTEND_URL no están configurados en el backend. Configúralos en el .env."
+            )
+        base_for_assets = base_url.rstrip("/")
         logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
         file_icon_url = "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png"))
         if not logo_cid_bytes and current_user.empresa_id:
@@ -463,27 +469,46 @@ async def enviar_archivo_correo(
 
     c1 = request_data.tipo_documento_nombre or ""
     c2 = request_data.categoria_nombre or ""
+    # Soportar uno o varios documentos
+    documento_ids: List[UUID] = []
     if request_data.documento_id:
-        doc = DocumentoService.get_by_id(db, request_data.documento_id)
-        if doc:
-            if not c1 and doc.tipo_documento_id:
-                td = TiposDocumentoService.get_by_id(db, doc.tipo_documento_id)
+        documento_ids.append(request_data.documento_id)
+    if getattr(request_data, "documentos_ids", None):
+        documento_ids.extend([d for d in request_data.documentos_ids or [] if d not in documento_ids])
+
+    # Para el texto del correo (c1/c2) usamos la info del primer documento si no viene en el request
+    if documento_ids:
+        primer_doc = DocumentoService.get_by_id(db, documento_ids[0])
+        if primer_doc:
+            if not c1 and primer_doc.tipo_documento_id:
+                td = TiposDocumentoService.get_by_id(db, primer_doc.tipo_documento_id)
                 if td:
                     c1 = getattr(td, "nombre", "") or ""
-            if not c2 and getattr(doc, "plantilla_origen", None) and getattr(doc.plantilla_origen, "categoria", None):
-                c2 = getattr(doc.plantilla_origen.categoria, "nombre", "") or ""
+            if not c2 and getattr(primer_doc, "plantilla_origen", None) and getattr(primer_doc.plantilla_origen, "categoria", None):
+                c2 = getattr(primer_doc.plantilla_origen.categoria, "nombre", "") or ""
 
-    base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000"
-    backend_url = getattr(settings, "BACKEND_URL", None) or "http://localhost:8000"
+    base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
+    if not base_url:
+        raise HTTPException(
+            status_code=500,
+            detail="BASE_URL o FRONTEND_URL no están configurados en el backend. Configúralos en el .env."
+        )
+    backend_url = getattr(settings, "BACKEND_URL", None)
+    if not backend_url:
+        raise HTTPException(
+            status_code=500,
+            detail="BACKEND_URL no está configurado en el backend. Configúralo en el .env."
+        )
     # Enlace de descarga: si hay documento, apuntar directo al endpoint de archivo;
     # si no, al detalle del siniestro.
     enlace_descarga = f"{base_url.rstrip('/')}/siniestros/{request_data.siniestro_id}"
-    if request_data.documento_id:
-        enlace_descarga = f"{backend_url.rstrip('/')}/api/v1/documentos/{request_data.documento_id}/archivo"
+    if documento_ids:
+        # Para enlace directo usamos el primer documento; si hay más, igual llegan como adjuntos.
+        enlace_descarga = f"{backend_url.rstrip('/')}/api/v1/documentos/{documento_ids[0]}/archivo"
 
     # Logo e icono: adjuntar como CID (como la firma) para que Gmail muestre las imágenes
     logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
-    base_for_assets = (getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None) or "http://localhost:3000").rstrip("/")
+    base_for_assets = base_url.rstrip("/")
     logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
     file_icon_url = "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png"))
     if not logo_cid_bytes and current_user.empresa_id:
@@ -512,26 +537,28 @@ async def enviar_archivo_correo(
     asunto, cuerpo_html, cuerpo_texto = EmailService.render_template(plantilla, variables)
 
     adjuntos_bytes = []
-    if request_data.documento_id:
-        pdf_result = generar_pdf_bytes_para_documento(db, request_data.documento_id, current_user)
+    # Generar/adjuntar todos los documentos solicitados
+    for doc_id in documento_ids:
+        pdf_result = generar_pdf_bytes_para_documento(db, doc_id, current_user)
         if pdf_result:
             adjuntos_bytes.append(pdf_result)
-        else:
-            # Si no es informe (no tiene plantilla), adjuntar el archivo desde disco si existe
-            doc = DocumentoService.get_by_id(db, request_data.documento_id)
-            if doc and getattr(doc, "ruta_archivo", None):
-                ruta_str = doc.ruta_archivo.strip()
-                if ruta_str:
-                    ruta_path = Path(ruta_str)
-                    if not ruta_path.is_absolute():
-                        ruta_path = Path.cwd() / ruta_path
-                    if ruta_path.exists():
-                        try:
-                            with open(ruta_path, "rb") as f:
-                                nombre = (doc.nombre_archivo or ruta_path.name) or "adjunto"
-                                adjuntos_bytes.append((nombre, f.read()))
-                        except Exception:
-                            pass
+            continue
+
+        # Si no es informe (no tiene plantilla), adjuntar el archivo desde disco si existe
+        doc = DocumentoService.get_by_id(db, doc_id)
+        if doc and getattr(doc, "ruta_archivo", None):
+            ruta_str = doc.ruta_archivo.strip()
+            if ruta_str:
+                ruta_path = Path(ruta_str)
+                if not ruta_path.is_absolute():
+                    ruta_path = Path.cwd() / ruta_path
+                if ruta_path.exists():
+                    try:
+                        with open(ruta_path, "rb") as f:
+                            nombre = (doc.nombre_archivo or ruta_path.name) or "adjunto"
+                            adjuntos_bytes.append((nombre, f.read()))
+                    except Exception:
+                        pass
 
     resultados = []
     for destinatario in request_data.destinatarios:

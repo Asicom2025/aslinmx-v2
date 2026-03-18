@@ -631,6 +631,7 @@ class BitacoraActividadBase(BaseModel):
     fecha_actividad: datetime
     documento_adjunto: Optional[str] = Field(None, max_length=255)
     comentarios: Optional[str] = None
+    verificado: bool = False
 
 
 class BitacoraActividadCreate(BitacoraActividadBase):
@@ -649,6 +650,7 @@ class BitacoraActividadUpdate(BaseModel):
     fecha_actividad: Optional[datetime] = None
     documento_adjunto: Optional[str] = Field(None, max_length=255)
     comentarios: Optional[str] = None
+    verificado: Optional[bool] = None
     area_id: Optional[UUID] = None
     flujo_trabajo_id: Optional[UUID] = None
 

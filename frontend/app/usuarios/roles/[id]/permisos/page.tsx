@@ -13,9 +13,9 @@ import { useUser } from "@/context/UserContext";
 import { useEmpresaColors } from "@/hooks/useEmpresaColors";
 import apiService from "@/lib/apiService";
 import Button from "@/components/ui/Button";
+import Checkbox from "@/components/ui/Checkbox";
 import ButtonCreateModulo from "@/components/usuarios/ButtonCreateModulo";
 import ButtonCreateAccion from "@/components/usuarios/ButtonCreateAccion";
-import ButtonAddAccionToModulo from "@/components/usuarios/ButtonAddAccionToModulo";
 import { swalSuccess, swalError, swalConfirm } from "@/lib/swal";
 import {
   FiArrowLeft,
@@ -138,7 +138,11 @@ export default function PermisosRolPage() {
   };
 
   const totalPermisos = useMemo(
-    () => config?.modulos.reduce((s, m) => s + m.acciones.length, 0) ?? 0,
+    () =>
+      config?.modulos.reduce(
+        (s, m) => s + m.acciones.filter((a) => a.tiene_permiso).length,
+        0
+      ) ?? 0,
     [config]
   );
 
@@ -199,7 +203,7 @@ export default function PermisosRolPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <ButtonCreateModulo onCreated={() => loadConfiguracion(rolId)} variant="outline" size="sm" />
-              <ButtonCreateAccion rolId={rolId} onCreated={() => loadConfiguracion(rolId)} variant="outline" size="sm" />
+              <ButtonCreateAccion onCreated={() => loadConfiguracion(rolId)} variant="outline" size="sm" />
             </div>
           </div>
         </div>
@@ -237,6 +241,7 @@ export default function PermisosRolPage() {
         <div className="grid gap-6 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
           {config?.modulos.map((modulo) => {
             const { modulo_id, modulo_nombre, acciones } = modulo;
+            const accionesAsignadas = acciones.filter((a) => a.tiene_permiso);
             const IconModulo = getModuloIcon(modulo_nombre);
 
             return (
@@ -260,45 +265,92 @@ export default function PermisosRolPage() {
                       <div className="min-w-0">
                         <h3 className="font-semibold text-gray-900 truncate">{modulo_nombre}</h3>
                         <p className="text-xs text-gray-500">
-                          {acciones.length} acción(es) asignada(s)
+                          {accionesAsignadas.length} de {acciones.length} acción(es) con permiso
                         </p>
                       </div>
                     </div>
-                    <ButtonAddAccionToModulo
-                      rolId={rolId}
+                    <ButtonCreateAccion
                       moduloId={modulo_id}
-                      moduloNombre={modulo_nombre}
-                      accionesActuales={acciones}
-                      onAdded={() => loadConfiguracion(rolId)}
+                      onCreated={() => loadConfiguracion(rolId)}
                       variant="outline"
                       size="sm"
-                    />
+                    >
+                      Nueva acción
+                    </ButtonCreateAccion>
                   </div>
                 </div>
 
-                {/* Lista de acciones */}
-                <div className="p-4 space-y-1">
-                  {acciones.map((a) => (
-                    <div
-                      key={`${modulo_id}-${a.accion_id}`}
-                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-primary-50/50 hover:bg-primary-50/70 transition-colors"
-                    >
-                      <FiCheck className="w-4 h-4 flex-shrink-0" style={{ color: colors.primary }} />
-                      <span className="text-sm font-medium flex-1 text-gray-900">{a.accion_nombre}</span>
+                {/* Lista de acciones (todas las acciones del módulo, con toggle por rol, en filas responsivas) */}
+                <div className="p-4">
+                  <div className="flex flex-wrap gap-2">
+                  {acciones.map((a) => {
+                    const tienePermiso = a.tiene_permiso;
+                    const handleToggle = async () => {
+                      if (saving) return;
+                      const nextChecked = !tienePermiso;
+                      try {
+                        setSaving(true);
+                        if (nextChecked) {
+                          await apiService.permiso.asignarAccionModulo(
+                            rolId,
+                            modulo_id,
+                            a.accion_id
+                          );
+                        } else {
+                          await apiService.permiso.desasignarAccionModulo(
+                            rolId,
+                            modulo_id,
+                            a.accion_id
+                          );
+                        }
+                        await swalSuccess(
+                          nextChecked
+                            ? "Permiso activado para esta acción"
+                            : "Permiso desactivado para esta acción"
+                        );
+                        loadConfiguracion(rolId);
+                      } catch (e: any) {
+                        swalError(e.response?.data?.detail || "Error al actualizar permiso");
+                      } finally {
+                        setSaving(false);
+                      }
+                    };
+
+                    return (
                       <button
-                        onClick={() => quitarAccion(modulo_id, a.accion_id)}
-                        disabled={saving}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                        title="Quitar acción"
-                        aria-label="Quitar acción"
+                        key={`${modulo_id}-${a.accion_id}`}
+                        type="button"
+                        onClick={handleToggle}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs shadow-sm border transition-colors ${
+                          tienePermiso
+                            ? "bg-primary-50/80 border-primary-200 hover:bg-primary-50"
+                            : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                        }`}
                       >
-                        <FiTrash2 className="w-4 h-4" />
+                        <Checkbox
+                          checked={tienePermiso}
+                          onChange={() => {
+                            // El toggle se maneja desde el botón contenedor
+                          }}
+                          size="sm"
+                        />
+                        <span
+                          className={`whitespace-nowrap ${
+                            tienePermiso ? "font-medium text-gray-900" : "text-gray-600"
+                          }`}
+                        >
+                          {a.accion_nombre}
+                          <span className="ml-1 text-[10px] text-gray-400">
+                            ({a.accion_tecnica})
+                          </span>
+                        </span>
                       </button>
-                    </div>
-                  ))}
+                    );
+                  })}
+                  </div>
                   {acciones.length === 0 && (
                     <div className="py-4 text-center text-gray-500 text-sm">
-                      <p>Sin acciones. Usa &quot;Agregar acción&quot; para asignar.</p>
+                      <p>Sin acciones definidas para este módulo.</p>
                     </div>
                   )}
                 </div>

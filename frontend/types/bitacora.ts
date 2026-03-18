@@ -16,6 +16,7 @@ export interface BitacoraActividad {
   comentarios?: string;
   area_id?: string;
   flujo_trabajo_id?: string;
+  verificado: boolean;
   creado_en: string;
 }
 
@@ -41,5 +42,6 @@ export interface BitacoraActividadUpdate {
   comentarios?: string;
   area_id?: string;
   flujo_trabajo_id?: string;
+  verificado?: boolean;
 }
 
