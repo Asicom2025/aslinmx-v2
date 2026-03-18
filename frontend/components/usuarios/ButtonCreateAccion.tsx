@@ -146,7 +146,7 @@ export default function ButtonCreateAccion({
               onChange={(value) =>
                 setForm((p) => ({ ...p, moduloIds: Array.isArray(value) ? (value as string[]) : [] }))
               }
-              options={modulos.map<SelectableOption>((m) => ({
+              options={modulos.map<SelectOption>((m) => ({
                 value: String(m.id),
                 label: m.nombre,
               }))}
