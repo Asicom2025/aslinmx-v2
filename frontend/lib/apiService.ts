@@ -453,8 +453,8 @@ const flujoTrabajoService = {
     return response.data;
   },
 
-  deleteEtapa: async (etapaId: string) => {
-    const response = await api.delete(`/flujos-trabajo/etapas/${etapaId}`);
+  deleteEtapa: async (flujoId: string, etapaId: string) => {
+    const response = await api.delete(`/flujos-trabajo/${flujoId}/etapas/${etapaId}`);
     return response.data;
   },
 

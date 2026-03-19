@@ -64,8 +64,17 @@ class FlujoTrabajoService:
         
         if include_etapas:
             query = query.options(joinedload(FlujoTrabajo.etapas))
-        
-        return query.first()
+
+        flujo = query.first()
+        if not flujo:
+            return None
+
+        # Importante: filtramos etapas soft-eliminadas. El joinedload por defecto trae
+        # todas las filas relacionadas, y la UI espera que desaparezcan del listado.
+        if include_etapas and getattr(flujo, "etapas", None):
+            flujo.etapas = [e for e in flujo.etapas if e.eliminado_en is None]
+
+        return flujo
 
     @staticmethod
     def get_flujo_predeterminado(
