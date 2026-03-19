@@ -31,6 +31,7 @@ from app.services.flujo_trabajo_service import (
 )
 from app.services.auditoria_service import AuditoriaService
 import logging
+from app.models.flujo_trabajo import EtapaFlujo
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +291,11 @@ def eliminar_etapa(
     current_user: User = Depends(get_current_active_user)
 ):
     """Elimina (soft delete) una etapa"""
-    etapa = EtapaFlujoService.get_etapa_by_id(db, etapa_id)
+    # Importante: consultar la etapa aunque ya esté soft-eliminada.
+    # EtapaFlujoService.delete_etapa() ya es idempotente, pero este endpoint validaba
+    # contra get_etapa_by_id() (que filtra eliminado_en IS NULL), provocando "Etapa no encontrada"
+    # si había un doble delete o un estado de UI desactualizado.
+    etapa = db.query(EtapaFlujo).filter(EtapaFlujo.id == etapa_id).first()
 
     if not etapa:
         raise HTTPException(
@@ -305,10 +310,52 @@ def eliminar_etapa(
             detail="No tiene permiso para eliminar esta etapa"
         )
 
+    # Si ya está eliminada, devolver éxito (idempotente)
+    if etapa.eliminado_en is not None:
+        return None
+
     if not EtapaFlujoService.delete_etapa(db, etapa_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Etapa no encontrada"
+        )
+
+    return None
+
+
+@router.delete("/{flujo_id}/etapas/{etapa_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_etapa_por_flujo(
+    flujo_id: UUID,
+    etapa_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Elimina (soft delete) una etapa asegurando que pertenece al flujo indicado.
+    Esto evita que por un ID incorrecto se borre una etapa de otro flujo.
+    """
+    etapa = db.query(EtapaFlujo).filter(EtapaFlujo.id == etapa_id).first()
+    if not etapa or str(etapa.flujo_trabajo_id) != str(flujo_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Etapa no encontrada",
+        )
+
+    flujo = FlujoTrabajoService.get_flujo_by_id(db, flujo_id, include_etapas=False)
+    if not flujo or flujo.empresa_id != current_user.empresa_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso para eliminar esta etapa",
+        )
+
+    # Idempotencia: si ya estaba eliminada, devolvemos éxito
+    if etapa.eliminado_en is not None:
+        return None
+
+    if not EtapaFlujoService.delete_etapa(db, etapa_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Etapa no encontrada",
         )
 
     return None
