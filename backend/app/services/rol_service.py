@@ -16,7 +16,7 @@ def _asignar_modulos_por_defecto(db: Session, rol_id: str) -> None:
     """
     Asigna al rol nuevo el permiso 'leer' en todos los módulos activos.
     """
-    accion_leer = db.query(Accion).filter(Accion.nombre_tecnico == "leer", Accion.activo == True).first()
+    accion_leer = db.query(Accion).filter(Accion.nombre_tecnico == "read", Accion.activo == True).first()
     if not accion_leer:
         return
     modulos = db.query(Modulo).filter(Modulo.activo == True, Modulo.eliminado_en.is_(None)).all()
@@ -70,7 +70,7 @@ class RolService:
     @staticmethod
     def create_rol(db: Session, rol: RolCreate) -> Rol:
         """
-        Crea un nuevo rol y le asigna automáticamente el permiso 'leer'
+        Crea un nuevo rol y le asigna automáticamente el permiso 'read'
         en todos los módulos disponibles.
         """
         db_rol = Rol(**rol.model_dump())

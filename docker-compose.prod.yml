@@ -31,10 +31,13 @@ services:
     networks:
       - aslin_network
 
+  # Frontend: NEXT_PUBLIC_* se incrusta en el bundle al construir la imagen (Dockerfile + CI).
+  # El .env del servidor no basta para esas claves si la imagen se construyó sin ellas.
   frontend:
     image: ghcr.io/asicom2025/aslinmx-v2/aslin-frontend:latest
     container_name: aslin_frontend
     restart: unless-stopped
+    env_file: .env
     depends_on:
       - backend
     ports:

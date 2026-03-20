@@ -2,6 +2,8 @@
 Rutas para configuración del sistema (SMTP, plantillas, etc.)
 """
 
+import base64
+import binascii
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List
@@ -26,11 +28,9 @@ from app.schemas.config_schema import (
 )
 from app.services.email_service import EmailService, get_email_assets_bytes
 from app.services.auditoria_service import AuditoriaService
-from app.services.legal_service import DocumentoService, TiposDocumentoService
-from app.api.routes.pdf_routes import generar_pdf_bytes_para_documento
-from app.core.config import settings
 from pathlib import Path
-from app.services.legal_service import DocumentoService, TiposDocumentoService
+
+from app.services.legal_service import DocumentoService, TiposDocumentoService, SiniestroService
 from app.api.routes.pdf_routes import generar_pdf_bytes_para_documento
 from app.core.config import settings
 
@@ -348,6 +348,16 @@ async def enviar_correo(
     if not config:
         raise HTTPException(status_code=404, detail="Configuración SMTP no encontrada o inactiva")
 
+    base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
+    if not base_url:
+        raise HTTPException(
+            status_code=500,
+            detail="BASE_URL o FRONTEND_URL no están configurados en el backend. Configúralos en el .env."
+        )
+    base_for_assets = base_url.rstrip("/")
+    unsubscribe_url = f"{base_for_assets}/unsubscribe"
+    unsubscribe_mailto = f"mailto:{config.remitente_email}?subject=unsubscribe"
+
     # Obtener plantilla si se especificó
     asunto = request_data.asunto
     cuerpo_html = request_data.cuerpo_html
@@ -367,13 +377,6 @@ async def enviar_correo(
 
         # Logo e icono como CID para que Gmail muestre las imágenes
         logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
-        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
-        if not base_url:
-            raise HTTPException(
-                status_code=500,
-                detail="BASE_URL o FRONTEND_URL no están configurados en el backend. Configúralos en el .env."
-            )
-        base_for_assets = base_url.rstrip("/")
         logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
         file_icon_url = "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png"))
         if not logo_cid_bytes and current_user.empresa_id:
@@ -387,6 +390,7 @@ async def enviar_correo(
             "file_icon_url": file_icon_url,
             "base_url": base_for_assets,
             "firma_url": firma_url,
+            "unsubscribe_url": unsubscribe_url,
         }
         variables = {**template_defaults, **(request_data.variables or {})}
 
@@ -395,6 +399,7 @@ async def enviar_correo(
             plantilla,
             variables
         )
+        
 
     # Enviar correo a cada destinatario
     resultados = []
@@ -409,6 +414,9 @@ async def enviar_correo(
             firma_cid_bytes=firma_cid_bytes,
             logo_cid_bytes=logo_cid_bytes if request_data.plantilla_id else None,
             file_icon_cid_bytes=file_icon_cid_bytes if request_data.plantilla_id else None,
+            list_unsubscribe_url=unsubscribe_url,
+            list_unsubscribe_mailto=unsubscribe_mailto,
+            list_unsubscribe_one_click=True,
         )
 
         estado = "enviado" if success else "fallido"
@@ -476,7 +484,8 @@ async def enviar_archivo_correo(
     if getattr(request_data, "documentos_ids", None):
         documento_ids.extend([d for d in request_data.documentos_ids or [] if d not in documento_ids])
 
-    # Para el texto del correo (c1/c2) usamos la info del primer documento si no viene en el request
+    # Primer documento: c1/c2 y valor por defecto de {{ asunto }}
+    primer_doc = None
     if documento_ids:
         primer_doc = DocumentoService.get_by_id(db, documento_ids[0])
         if primer_doc:
@@ -486,6 +495,26 @@ async def enviar_archivo_correo(
                     c1 = getattr(td, "nombre", "") or ""
             if not c2 and getattr(primer_doc, "plantilla_origen", None) and getattr(primer_doc.plantilla_origen, "categoria", None):
                 c2 = getattr(primer_doc.plantilla_origen.categoria, "nombre", "") or ""
+
+    asunto_var = (request_data.asunto or "").strip()
+    if not asunto_var and primer_doc:
+        asunto_var = (getattr(primer_doc, "nombre_archivo", None) or "").strip()
+    if not asunto_var and current_user.empresa_id:
+        sin_obj = SiniestroService.get_by_id(
+            db, request_data.siniestro_id, current_user.empresa_id
+        )
+        if sin_obj:
+            ref = (
+                (getattr(sin_obj, "numero_siniestro", None) or "").strip()
+                or (getattr(sin_obj, "codigo", None) or "").strip()
+            )
+            asunto_var = (
+                f"Documento de siniestro {ref}".strip()
+                if ref
+                else f"Siniestro {request_data.siniestro_id}"
+            )
+    if not asunto_var:
+        asunto_var = "Te envían un archivo"
 
     base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
     if not base_url:
@@ -527,10 +556,12 @@ async def enviar_archivo_correo(
         "c2": c2,
         "c3": "",
         "textMail": request_data.mensaje or "",
+        "asunto": asunto_var,
         "logo_url": logo_url,
         "file_icon_url": file_icon_url,
         "base_url": base_url,
         "firma_url": firma_url,
+        "unsubscribe_url": f"{base_url.rstrip('/')}/unsubscribe",
         "ano_actual": str(datetime.now().year),
     }
 
@@ -541,11 +572,13 @@ async def enviar_archivo_correo(
     for doc_id in documento_ids:
         pdf_result = generar_pdf_bytes_para_documento(db, doc_id, current_user)
         if pdf_result:
-            adjuntos_bytes.append(pdf_result)
-            continue
+            # generar_pdf_bytes_para_documento retorna (bytes_pdf, nombre_archivo);
+            # send_email_sync espera (nombre_archivo, contenido_bytes).
+            pdf_bytes, nombre_pdf = pdf_result[0], pdf_result[1]
+            adjuntos_bytes.append((nombre_pdf, pdf_bytes))
 
-        # Si no es informe (no tiene plantilla), adjuntar el archivo desde disco si existe
         doc = DocumentoService.get_by_id(db, doc_id)
+        # Además del PDF del informe, adjuntar archivo en disco si existe (p. ej. HTML/PDF guardado).
         if doc and getattr(doc, "ruta_archivo", None):
             ruta_str = doc.ruta_archivo.strip()
             if ruta_str:
@@ -560,20 +593,41 @@ async def enviar_archivo_correo(
                     except Exception:
                         pass
 
+    # Adjuntos adicionales enviados desde frontend en base64
+    if request_data.archivos_adjuntos:
+        for archivo in request_data.archivos_adjuntos:
+            nombre = (archivo.get("nombre") or "").strip()
+            contenido_base64 = (archivo.get("contenido_base64") or "").strip()
+            if not nombre or not contenido_base64:
+                continue
+            try:
+                if "," in contenido_base64:
+                    contenido_base64 = contenido_base64.split(",", 1)[1]
+                contenido_bytes = base64.b64decode(contenido_base64, validate=True)
+                adjuntos_bytes.append((nombre, contenido_bytes))
+            except (ValueError, binascii.Error):
+                # Ignorar adjuntos malformados para no frenar todo el envío
+                continue
+
+    # Enviar una sola vez con todos los destinatarios para asegurar entrega múltiple.
+    success, error = EmailService.send_email_sync(
+        config=config,
+        destinatarios=request_data.destinatarios,
+        asunto=asunto or "Te envían un archivo",
+        cuerpo_html=cuerpo_html,
+        cuerpo_texto=cuerpo_texto,
+        adjuntos_bytes=adjuntos_bytes if adjuntos_bytes else None,
+        firma_cid_bytes=firma_cid_bytes,
+        logo_cid_bytes=logo_cid_bytes,
+        file_icon_cid_bytes=file_icon_cid_bytes,
+        list_unsubscribe_url=variables["unsubscribe_url"],
+        list_unsubscribe_mailto=f"mailto:{config.remitente_email}?subject=unsubscribe",
+        list_unsubscribe_one_click=True,
+    )
+
+    estado = "enviado" if success else "fallido"
     resultados = []
     for destinatario in request_data.destinatarios:
-        success, error = EmailService.send_email_sync(
-            config=config,
-            destinatarios=[destinatario],
-            asunto=asunto or "Te envían un archivo",
-            cuerpo_html=cuerpo_html,
-            cuerpo_texto=cuerpo_texto,
-            adjuntos_bytes=adjuntos_bytes if adjuntos_bytes else None,
-            firma_cid_bytes=firma_cid_bytes,
-            logo_cid_bytes=logo_cid_bytes,
-            file_icon_cid_bytes=file_icon_cid_bytes,
-        )
-        estado = "enviado" if success else "fallido"
         EmailService.guardar_historial(
             db=db,
             empresa_id=str(current_user.empresa_id),

@@ -52,7 +52,10 @@ function loadGooglePlaces(): Promise<void> {
 
 export interface SiniestroFormState {
   numero_siniestro: string;
-  fecha_siniestro: string;
+  /** Fecha de reporte → persiste en `fecha_registro` (no usar `fecha_siniestro`). */
+  fecha_registro: string;
+  /** Fecha de asignación de área(s) → `siniestro_areas.fecha_asignacion`. */
+  fecha_asignacion: string;
   ubicacion: string;
   descripcion_hechos: string;
   numero_poliza: string;
@@ -550,8 +553,11 @@ export default function SiniestroWizard({
     }
     if (step === 1) {
       // numero_siniestro es opcional, no se valida
-      if (!form.fecha_siniestro) {
-        return "Selecciona la fecha del siniestro.";
+      if (!form.fecha_registro) {
+        return "Selecciona la fecha de reporte.";
+      }
+      if (!form.fecha_asignacion) {
+        return "Selecciona la fecha de asignación.";
       }
       if (!form.estado_id) {
         return "Selecciona un status para el siniestro.";
@@ -927,11 +933,20 @@ export default function SiniestroWizard({
                     placeholder="SIN-2025-000001"
                   />
                   <Input
-                    label="Fecha del siniestro *"
+                    label="Fecha Reporte"
                     type="date"
-                    name="fecha_siniestro"
-                    value={form.fecha_siniestro}
+                    name="fecha_registro"
+                    value={form.fecha_registro}
                     onChange={onChange}
+                    required
+                  />
+                  <Input
+                    label="Fecha Asignacion"
+                    type="date"
+                    name="fecha_asignacion"
+                    value={form.fecha_asignacion}
+                    onChange={onChange}
+                    required
                   />
                 </div>
 
@@ -1011,7 +1026,7 @@ export default function SiniestroWizard({
                     onChange={(event) => setGeneralesValue("fecha_fin_vigencia", event.target.value)}
                   />
                   <CustomSelect
-                    label="Status *"
+                    label="Status"
                     name="estado_id"
                     value={form.estado_id}
                     onChange={(value) => {
@@ -1231,7 +1246,7 @@ export default function SiniestroWizard({
                 />
 
                 <JoditEditor
-                  label="Descripción de los hechos *"
+                  label="Descripción de los hechos"
                   value={extendedForm.especificos.descripcion_html}
                   onChange={(value) => setEspecificosValue("descripcion_html", value)}
                   placeholder="Describe con detalle lo ocurrido"

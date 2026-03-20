@@ -97,7 +97,8 @@ const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
 
 const getInitialForm = (): SiniestroFormState => ({
   numero_siniestro: "",
-  fecha_siniestro: new Date().toISOString().split("T")[0],
+  fecha_registro: new Date().toISOString().split("T")[0],
+  fecha_asignacion: new Date().toISOString().split("T")[0],
   ubicacion: "",
   descripcion_hechos: "",
   numero_poliza: "",
@@ -644,8 +645,11 @@ export default function NuevoSiniestroPage() {
       return "Debes seleccionar un asegurado.";
     }
     // numero_siniestro es opcional, no se valida
-    if (!form.fecha_siniestro) {
-      return "Selecciona la fecha del siniestro.";
+    if (!form.fecha_registro) {
+      return "Selecciona la fecha de reporte.";
+    }
+    if (!form.fecha_asignacion) {
+      return "Selecciona la fecha de asignación.";
     }
     if (!form.estado_id) {
       return "Selecciona un status para el siniestro.";
@@ -681,17 +685,21 @@ export default function NuevoSiniestroPage() {
       const coaseguroBase = primaryPoliza ? primaryPoliza.coaseguro : form.coaseguro;
       const sumaAseguradaBase = primaryPoliza ? primaryPoliza.suma_asegurada : form.suma_asegurada;
 
-      const fechaSiniestroDateTime = form.fecha_siniestro
-        ? new Date(form.fecha_siniestro + "T00:00:00").toISOString()
+      const fechaRegistroDateTime = form.fecha_registro
+        ? new Date(form.fecha_registro + "T00:00:00").toISOString()
+        : new Date().toISOString();
+      const fechaAsignacionDateTime = form.fecha_asignacion
+        ? new Date(form.fecha_asignacion + "T00:00:00").toISOString()
         : new Date().toISOString();
 
       const areasIds = extendedForm.generales.areas_ids || [];
       const usuariosIds = extendedForm.generales.usuarios_ids || [];
       const aseguradoId = extendedForm.asegurado.seleccionadoId || null;
 
+      const { fecha_registro: _fr, fecha_asignacion: _fa, ...formRest } = form;
       const payload = {
-        ...form,
-        fecha_siniestro: fechaSiniestroDateTime,
+        ...formRest,
+        fecha_registro: fechaRegistroDateTime,
         numero_poliza: primaryPoliza ? primaryPoliza.numero_poliza : form.numero_poliza,
         deducible: deducibleBase === "" ? 0 : Number(deducibleBase),
         reserva: reservaBase === "" ? 0 : Number(reservaBase),
@@ -723,6 +731,7 @@ export default function NuevoSiniestroPage() {
             await apiService.addAreaAdicional(siniestroId, {
               area_id: areaId,
               activo: true,
+              fecha_asignacion: fechaAsignacionDateTime,
             });
             areasGuardadas.push(areaId);
           } catch (error: any) {
@@ -840,7 +849,7 @@ export default function NuevoSiniestroPage() {
               <div className="flex flex-col sm:flex-row sm:items-end gap-3">
                 <div className="flex-1">
                   <CustomSelect
-                    label="Seleccionar asegurado *"
+                    label="Seleccionar asegurado"
                     name="asegurado_selector"
                     value={extendedForm.asegurado.seleccionadoId || ""}
                     onChange={(value) => handleSelectAsegurado(value as string)}
@@ -890,7 +899,7 @@ export default function NuevoSiniestroPage() {
               Datos Generales
             </h2>
             <div className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-4">
                 <Input
                   label="Número de reporte"
                   name="numero_reporte"
@@ -906,10 +915,18 @@ export default function NuevoSiniestroPage() {
                   placeholder="SIN-2025-000001"
                 />
                 <Input
-                  label="Fecha del siniestro *"
+                  label="Fecha Asignacion"
                   type="date"
-                  name="fecha_siniestro"
-                  value={form.fecha_siniestro}
+                  name="fecha_asignacion"
+                  value={form.fecha_asignacion}
+                  onChange={handleFormChange}
+                  required
+                />
+                <Input
+                  label="Fecha Reporte"
+                  type="date"
+                  name="fecha_registro"
+                  value={form.fecha_registro}
                   onChange={handleFormChange}
                   required
                 />
@@ -930,7 +947,7 @@ export default function NuevoSiniestroPage() {
                   ]}
                 />
                 <CustomSelect
-                  label="Institución *"
+                  label="Institución"
                   name="institucion_id"
                   value={form.institucion_id}
                   onChange={(value) => {
@@ -952,7 +969,7 @@ export default function NuevoSiniestroPage() {
                   required
                 />
                 <CustomSelect
-                  label="Autoridad *"
+                  label="Autoridad"
                   name="autoridad_id"
                   value={form.autoridad_id}
                   onChange={(value) => {
@@ -991,7 +1008,7 @@ export default function NuevoSiniestroPage() {
                   onChange={(event) => setGeneralesValue("fecha_fin_vigencia", event.target.value)}
                 />
                 <CustomSelect
-                  label="Status *"
+                  label="Status"
                   name="estado_id"
                   value={form.estado_id}
                   onChange={(value) => {
@@ -1230,7 +1247,7 @@ export default function NuevoSiniestroPage() {
               </div>
 
               <JoditEditor
-                label="Descripción de los hechos *"
+                label="Descripción de los hechos"
                 value={extendedForm.especificos.descripcion_html}
                 onChange={(value) => setEspecificosValue("descripcion_html", value)}
                 placeholder="Describe con detalle lo ocurrido"

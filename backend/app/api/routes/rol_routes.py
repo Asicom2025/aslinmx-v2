@@ -23,7 +23,7 @@ def get_roles(
     limit: int = Query(100, ge=1, le=1000),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "leer")),
+    current_user: User = Depends(require_permiso("usuarios", "read")),
 ):
     """
     Obtener lista de roles (requiere autenticación)
@@ -36,7 +36,7 @@ def get_roles(
 def get_rol(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "leer")),
+    current_user: User = Depends(require_permiso("usuarios", "read")),
 ):
     """
     Obtener rol por ID (requiere autenticación)
@@ -56,7 +56,7 @@ def get_rol(
 def create_rol(
     rol: RolCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "crear")),
+    current_user: User = Depends(require_permiso("usuarios", "create")),
 ):
     """
     Crear nuevo rol (requiere autenticación)
@@ -69,7 +69,7 @@ def update_rol(
     rol_id: str,
     rol_update: RolUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "actualizar")),
+    current_user: User = Depends(require_permiso("usuarios", "update")),
 ):
     """
     Actualizar rol (requiere autenticación)
@@ -89,7 +89,7 @@ def update_rol(
 def delete_rol(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "eliminar")),
+    current_user: User = Depends(require_permiso("usuarios", "delete")),
 ):
     """
     Eliminar rol (requiere autenticación)

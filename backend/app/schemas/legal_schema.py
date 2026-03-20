@@ -313,10 +313,35 @@ class ProvenienteUpdate(BaseModel):
     activo: Optional[bool] = None
 
 
+class ProvenienteContactoBase(BaseModel):
+    """Schema base de contacto de proveniente"""
+    nombre: str = Field(..., min_length=1, max_length=200)
+    correo: str = Field(..., min_length=1, max_length=255)
+    activo: bool = True
+
+
+class ProvenienteContactoCreate(ProvenienteContactoBase):
+    """Schema para crear contacto de proveniente"""
+    pass
+
+
+class ProvenienteContactoResponse(ProvenienteContactoBase):
+    """Schema de respuesta de contacto de proveniente"""
+    id: UUID
+    proveniente_id: UUID
+    creado_en: datetime
+    actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ProvenienteResponse(ProvenienteBase):
     """Schema de respuesta de proveniente"""
     id: UUID
     empresa_id: UUID
+    contactos: List[ProvenienteContactoResponse] = Field(default_factory=list)
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
@@ -553,13 +578,15 @@ class SiniestroBase(BaseModel):
 
 class SiniestroCreate(SiniestroBase):
     """Schema para crear siniestro"""
-    pass
+    # Fecha de reporte (PDF/correos): se persiste en `fecha_registro`. No usar `fecha_siniestro` para esto.
+    fecha_registro: Optional[datetime] = None
 
 
 class SiniestroUpdate(BaseModel):
     """Schema para actualizar siniestro"""
     numero_siniestro: Optional[str] = Field(None, min_length=1, max_length=50)
     fecha_siniestro: Optional[datetime] = None
+    fecha_registro: Optional[datetime] = None
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)
     
@@ -855,6 +882,7 @@ class SiniestroUsuarioResponse(SiniestroUsuarioBase):
 # ===== RELACIONES SINIESTRO-ÁREA =====
 class SiniestroAreaBase(BaseModel):
     """Schema base de relación siniestro-área"""
+    fecha_asignacion: Optional[datetime] = None
     observaciones: Optional[str] = None
     activo: bool = True
 
@@ -872,6 +900,7 @@ class SiniestroAreaCreate(SiniestroAreaBase):
 
 class SiniestroAreaUpdate(BaseModel):
     """Schema para actualizar relación siniestro-área"""
+    fecha_asignacion: Optional[datetime] = None
     observaciones: Optional[str] = None
     activo: Optional[bool] = None
 

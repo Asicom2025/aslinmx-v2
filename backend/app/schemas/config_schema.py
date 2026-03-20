@@ -39,9 +39,16 @@ class ConfiguracionSMTPUpdate(BaseModel):
     activo: Optional[bool] = None
 
 
-class ConfiguracionSMTPResponse(ConfiguracionSMTPBase):
+class ConfiguracionSMTPResponse(BaseModel):
     id: UUID
     empresa_id: UUID
+    nombre: str
+    servidor: str
+    puerto: int
+    usar_tls: bool
+    usar_ssl: bool
+    remitente_nombre: Optional[str] = None
+    remitente_email: EmailStr
     activo: bool
     creado_en: datetime
     actualizado_en: Optional[datetime]
@@ -102,17 +109,20 @@ class EnviarCorreoRequest(BaseModel):
 
 
 class EnviarArchivoCorreoRequest(BaseModel):
-    """Envío de correo usando plantilla 'Te envían un archivo'. Si documento_id es un informe (tiene plantilla), se adjunta el PDF."""
+    """Envío de correo usando plantilla 'Te envían un archivo'. Por documento: PDF si es informe; si hay ruta_archivo, también el archivo en disco."""
     siniestro_id: UUID
     configuracion_smtp_id: UUID
     destinatarios: List[EmailStr]
     mensaje: str  # textMail: mensaje que coloca el usuario
+    # Se inyecta en la plantilla como {{ asunto }} (asunto del correo y cuerpo HTML si la plantilla lo usa).
+    asunto: Optional[str] = None
     documento_id: Optional[UUID] = None  # Si es informe (tiene plantilla), se adjunta PDF
     # Permite enviar varios documentos en el mismo correo.
-    # Para cada documento se intentará generar el PDF; si no es informe, se adjunta el archivo original.
+    # Por cada id: PDF del informe si aplica + archivo en disco si existe; si no es informe, solo archivo en disco.
     documentos_ids: Optional[List[UUID]] = None
     tipo_documento_nombre: Optional[str] = None  # c1
     categoria_nombre: Optional[str] = None  # c2
+    archivos_adjuntos: Optional[List[Dict[str, str]]] = None
     # c3 se puede dejar vacío o usar para otro dato si se desea
 
 

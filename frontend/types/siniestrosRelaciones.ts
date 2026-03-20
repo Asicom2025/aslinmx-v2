@@ -53,6 +53,7 @@ export interface SiniestroAreaCreate {
 }
 
 export interface SiniestroAreaUpdate {
+  fecha_asignacion?: string;
   usuario_responsable?: string;
   observaciones?: string;
   activo?: boolean;

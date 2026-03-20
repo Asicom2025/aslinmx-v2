@@ -158,6 +158,7 @@ export default function SiniestrosPage() {
   const [filtros, setFiltros] = useState({
     activo: true,
     estado_id: "",
+    proveniente_id: "",
     area_id: "",
     usuario_asignado: "",
     prioridad: "" as "" | "baja" | "media" | "alta" | "critica",
@@ -171,7 +172,8 @@ export default function SiniestrosPage() {
   const [editing, setEditing] = useState<Siniestro | null>(null);
   const [form, setForm] = useState<SiniestroFormState>({
     numero_siniestro: "",
-    fecha_siniestro: new Date().toISOString().split("T")[0],
+    fecha_registro: new Date().toISOString().split("T")[0],
+    fecha_asignacion: new Date().toISOString().split("T")[0],
     ubicacion: "",
     descripcion_hechos: "",
     numero_poliza: "",
@@ -269,6 +271,8 @@ export default function SiniestrosPage() {
       setSiniestrosLoading(true);
       const params: any = { activo: filtros.activo };
       if (filtros.estado_id) params.estado_id = filtros.estado_id;
+      if (filtros.proveniente_id)
+        params.proveniente_id = filtros.proveniente_id;
       if (filtros.area_id) params.area_id = filtros.area_id;
       if (filtros.usuario_asignado)
         params.usuario_asignado = filtros.usuario_asignado;
@@ -518,19 +522,22 @@ export default function SiniestrosPage() {
         ? primaryPoliza.suma_asegurada
         : form.suma_asegurada;
 
-      // Convertir fecha_siniestro a formato datetime (ISO 8601)
-      const fechaSiniestroDateTime = form.fecha_siniestro
-        ? new Date(form.fecha_siniestro + "T00:00:00").toISOString()
+      const fechaRegistroDateTime = form.fecha_registro
+        ? new Date(form.fecha_registro + "T00:00:00").toISOString()
+        : new Date().toISOString();
+      const fechaAsignacionDateTime = form.fecha_asignacion
+        ? new Date(form.fecha_asignacion + "T00:00:00").toISOString()
         : new Date().toISOString();
 
       const areasIds = extendedForm.generales.areas_ids || [];
       const usuariosIds = extendedForm.generales.usuarios_ids || [];
       const aseguradoId = extendedForm.asegurado.seleccionadoId || null;
 
+      const { fecha_registro: _fr, fecha_asignacion: _fa, ...formRest } = form;
       const payload = {
-        ...form,
+        ...formRest,
         numero_siniestro: form.numero_siniestro && form.numero_siniestro.trim() ? form.numero_siniestro : null,
-        fecha_siniestro: fechaSiniestroDateTime,
+        fecha_registro: fechaRegistroDateTime,
         numero_poliza: primaryPoliza
           ? primaryPoliza.numero_poliza
           : form.numero_poliza,
@@ -618,6 +625,7 @@ export default function SiniestrosPage() {
               const resultado = await apiService.addAreaAdicional(siniestroId, {
                 area_id: areaId,
                 activo: true,
+                fecha_asignacion: fechaAsignacionDateTime,
               });
               console.log(`Área ${areaId} agregada correctamente:`, resultado);
               areasGuardadas.push(areaId);
@@ -775,6 +783,7 @@ export default function SiniestrosPage() {
               const resultado = await apiService.addAreaAdicional(siniestroId, {
                 area_id: areaId,
                 activo: true,
+                fecha_asignacion: fechaAsignacionDateTime,
               });
               console.log(`Área ${areaId} agregada correctamente:`, resultado);
               areasGuardadas.push(areaId);
@@ -1135,7 +1144,9 @@ export default function SiniestrosPage() {
       cell: ({ row }) => {
         // Extraer solo el consecutivo del código (formato: proveniente-consecutivo-año)
         // encontrar el codigo del proveniente y concatenarlo con el consecutivo
-        let anualidad = new Date(row.original.fecha_registro).getFullYear() % 100;
+        const refFecha =
+          row.original.fecha_registro || row.original.fecha_siniestro || new Date().toISOString();
+        let anualidad = new Date(refFecha).getFullYear() % 100;
         let codigo =
           getProvenienteCodigo(row.original.proveniente_id) +
           "-" +
@@ -1237,13 +1248,18 @@ export default function SiniestrosPage() {
       },
     },
     {
-      accessorKey: "fecha_siniestro",
-      header: "Fecha",
-      cell: ({ row }) => (
-        <span className="text-sm truncate block max-w-[100px]">
-          {new Date(row.original.fecha_siniestro).toLocaleDateString("es-MX")}
-        </span>
-      ),
+      accessorKey: "fecha_registro",
+      header: "Fecha reporte",
+      cell: ({ row }) => {
+        const raw =
+          row.original.fecha_registro || row.original.fecha_siniestro;
+        if (!raw) return <span className="text-sm">—</span>;
+        return (
+          <span className="text-sm truncate block max-w-[100px]">
+            {new Date(raw).toLocaleDateString("es-MX")}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "ubicacion",
@@ -1321,7 +1337,7 @@ export default function SiniestrosPage() {
           <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">
             Filtros
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3 sm:gap-4">
             <CustomSelect
               label="Status"
               name="estado_id"
@@ -1334,6 +1350,22 @@ export default function SiniestrosPage() {
                 ...estados.map((estado) => ({
                   value: estado.id,
                   label: estado.nombre,
+                })),
+              ]}
+              placeholder="Todos"
+            />
+            <CustomSelect
+              label="Proveniente"
+              name="proveniente_id"
+              value={filtros.proveniente_id}
+              onChange={(value) =>
+                setFiltros({ ...filtros, proveniente_id: value as string })
+              }
+              options={[
+                { value: "", label: "Todos" },
+                ...(provenientesCatalogo || []).map((p: any) => ({
+                  value: String(p.id || ""),
+                  label: p.nombre || String(p.id) || "Sin nombre",
                 })),
               ]}
               placeholder="Todos"

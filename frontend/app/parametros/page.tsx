@@ -1255,31 +1255,24 @@ function ProvenientesTable({
       ),
     },
     {
-      header: "Teléfono",
-      accessorKey: "telefono",
-      cell: (info) => (
-        <span className="text-sm text-gray-600">
-          {(info.getValue() as string) || "-"}
-        </span>
-      ),
-    },
-    {
-      header: "Email",
-      accessorKey: "email",
-      cell: (info) => (
-        <span className="text-sm text-gray-600">
-          {(info.getValue() as string) || "-"}
-        </span>
-      ),
-    },
-    {
-      header: "Contacto Principal",
-      accessorKey: "contacto_principal",
-      cell: (info) => (
-        <span className="text-sm text-gray-600">
-          {(info.getValue() as string) || "-"}
-        </span>
-      ),
+      header: "Contactos",
+      accessorKey: "contactos",
+      cell: ({ row }) => {
+        const contactos = Array.isArray(row.original?.contactos)
+          ? row.original.contactos
+          : [];
+        if (contactos.length === 0) {
+          return <span className="text-sm text-gray-500">-</span>;
+        }
+        const texto = contactos
+          .map((c: any) => `${c?.nombre || "Sin nombre"} (${c?.correo || "-"})`)
+          .join(", ");
+        return (
+          <span className="text-sm text-gray-600" title={texto}>
+            {texto}
+          </span>
+        );
+      },
     },
     {
       header: "Activo",

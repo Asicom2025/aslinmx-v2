@@ -7,9 +7,9 @@ export interface Siniestro {
   id: string;
   empresa_id: string;
   numero_siniestro?: string | null;
-  fecha_siniestro: string;
-  fecha_registro: string;
-  fecha_asignacion: string;
+  /** Legado; la fecha de reporte en UI/PDF es `fecha_registro`. */
+  fecha_siniestro?: string | null;
+  fecha_registro?: string | null;
   ubicacion?: string;
   descripcion_hechos: string;
   
@@ -59,7 +59,8 @@ export interface Siniestro {
 
 export interface SiniestroCreate {
   numero_siniestro?: string | null;
-  fecha_siniestro: string;
+  /** Fecha de reporte (persiste en `fecha_registro`). */
+  fecha_registro: string;
   ubicacion?: string;
   descripcion_hechos: string;
   
@@ -88,7 +89,7 @@ export interface SiniestroCreate {
 
 export interface SiniestroUpdate {
   numero_siniestro?: string;
-  fecha_siniestro?: string;
+  fecha_registro?: string;
   ubicacion?: string;
   descripcion_hechos?: string;
   
@@ -133,5 +134,16 @@ export interface SiniestroFilters {
   prioridad?: "baja" | "media" | "alta" | "critica";
   skip?: number;
   limit?: number;
+}
+
+export interface ProvenienteContacto {
+  id: string;
+  proveniente_id: string;
+  nombre: string;
+  correo: string;
+  activo: boolean;
+  creado_en: string;
+  actualizado_en: string;
+  eliminado_en?: string;
 }
 

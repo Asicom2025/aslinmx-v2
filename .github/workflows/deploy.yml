@@ -29,9 +29,14 @@ jobs:
 
 
       - name: Build & Push Frontend
+        env:
+          NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID }}
+          NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY }}
         run: |
           docker build -t $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:latest \
             --build-arg NEXT_PUBLIC_API_URL=https://app.aslin.online \
+            --build-arg NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID="$NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID" \
+            --build-arg NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY="$NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY" \
             ./frontend
           docker push $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:latest
 

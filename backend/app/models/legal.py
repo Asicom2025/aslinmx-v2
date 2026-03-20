@@ -170,6 +170,28 @@ class Proveniente(Base):
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
+    contactos = relationship(
+        "ProvenienteContacto",
+        back_populates="proveniente",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+
+class ProvenienteContacto(Base):
+    """Contactos de correo asociados a un proveniente."""
+    __tablename__ = "proveniente_contactos"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    proveniente_id = Column(UUID(as_uuid=True), ForeignKey("provenientes.id", ondelete="CASCADE"), nullable=False)
+    nombre = Column(String(200), nullable=False)
+    correo = Column(String(255), nullable=False)
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+    proveniente = relationship("Proveniente", back_populates="contactos")
 
 
 class TipoDocumento(Base):

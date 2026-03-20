@@ -9,7 +9,10 @@ const MAX_ITEMS = 10;
 export interface RecentSiniestroItem {
   id: string;
   numero_siniestro: string | null;
-  fecha_siniestro: string | null;
+  /** Fecha de reporte (`fecha_registro`). */
+  fecha_registro?: string | null;
+  /** @deprecated Legado */
+  fecha_siniestro?: string | null;
   prioridad: string;
   estado_id?: string | null;
   area_principal_id?: string | null;

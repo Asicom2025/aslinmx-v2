@@ -10,6 +10,7 @@ from datetime import datetime
 from fastapi import HTTPException, status
 
 from app.services.auditoria_service import AuditoriaService
+from app.services.email_service import EmailService
 from app.models.legal import (
     Area,
     EstadoSiniestro,
@@ -19,6 +20,7 @@ from app.models.legal import (
     Autoridad,
     Asegurado,
     Proveniente,
+    ProvenienteContacto,
     TipoDocumento,
     RespuestaFormularioPlantilla,
     CategoriaDocumento,
@@ -49,6 +51,7 @@ from app.schemas.legal_schema import (
     AseguradoUpdate,
     ProvenienteCreate,
     ProvenienteUpdate,
+    ProvenienteContactoCreate,
     TiposDocumentoCreate,
     TiposDocumentoUpdate,
     CategoriaDocumentoCreate,
@@ -499,6 +502,52 @@ class ProvenienteService:
         return True
 
 
+class ProvenienteContactoService:
+    @staticmethod
+    def list(db: Session, proveniente_id: UUID) -> List[ProvenienteContacto]:
+        return db.query(ProvenienteContacto).filter(
+            ProvenienteContacto.proveniente_id == proveniente_id,
+            ProvenienteContacto.eliminado_en.is_(None),
+        ).order_by(ProvenienteContacto.nombre, ProvenienteContacto.correo).all()
+
+    @staticmethod
+    def create(db: Session, proveniente_id: UUID, payload: ProvenienteContactoCreate) -> ProvenienteContacto:
+        correo_normalizado = payload.correo.strip().lower()
+        existente = db.query(ProvenienteContacto).filter(
+            ProvenienteContacto.proveniente_id == proveniente_id,
+            func.lower(ProvenienteContacto.correo) == correo_normalizado,
+            ProvenienteContacto.eliminado_en.is_(None),
+        ).first()
+        if existente:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe un contacto con ese correo para este proveniente",
+            )
+
+        contacto = ProvenienteContacto(
+            proveniente_id=proveniente_id,
+            nombre=payload.nombre.strip(),
+            correo=payload.correo.strip(),
+            activo=payload.activo,
+        )
+        db.add(contacto)
+        db.commit()
+        db.refresh(contacto)
+        return contacto
+
+    @staticmethod
+    def delete(db: Session, contacto_id: UUID) -> bool:
+        contacto = db.query(ProvenienteContacto).filter(
+            ProvenienteContacto.id == contacto_id,
+            ProvenienteContacto.eliminado_en.is_(None),
+        ).first()
+        if not contacto:
+            return False
+        contacto.eliminado_en = func.now()
+        db.commit()
+        return True
+
+
 class TiposDocumentoService:
     @staticmethod
     def list(db: Session, activo: Optional[bool] = None, area_id: Optional[UUID] = None) -> List[TipoDocumento]:
@@ -736,6 +785,7 @@ class SiniestroService:
         empresa_id: UUID,
         activo: Optional[bool] = None,
         estado_id: Optional[UUID] = None,
+        proveniente_id: Optional[UUID] = None,
         area_id: Optional[UUID] = None,
         usuario_asignado: Optional[UUID] = None,
         prioridad: Optional[str] = None,
@@ -760,6 +810,8 @@ class SiniestroService:
             q = q.filter(Siniestro.activo == activo)
         if estado_id is not None:
             q = q.filter(Siniestro.estado_id == estado_id)
+        if proveniente_id is not None:
+            q = q.filter(Siniestro.proveniente_id == proveniente_id)
         if area_id is not None:
             q = q.join(SiniestroArea).filter(
                 SiniestroArea.area_id == area_id,
@@ -977,11 +1029,17 @@ class SiniestroService:
         # Remover descripcion_hechos del payload del siniestro (se manejará en versiones)
         # La columna descripcion_hechos ya no existe en la tabla siniestros
         payload_dict.pop('descripcion_hechos', None)
+
+        # Fecha de reporte: solo `fecha_registro`. No persistir `fecha_siniestro` desde el alta (campo legado).
+        payload_dict.pop("fecha_siniestro", None)
         
         # Generar código automáticamente si hay proveniente_id
         if payload.proveniente_id:
             try:
-                codigo = SiniestroService._generar_codigo(db, payload.proveniente_id, payload.fecha_siniestro)
+                ref_fecha = payload_dict.get("fecha_registro") or getattr(
+                    payload, "fecha_registro", None
+                )
+                codigo = SiniestroService._generar_codigo(db, payload.proveniente_id, ref_fecha)
                 if codigo:
                     payload_dict['codigo'] = codigo
             except Exception as e:
@@ -1069,11 +1127,21 @@ class SiniestroService:
         # Extraer descripcion_hechos del payload si viene
         payload_dict = payload.model_dump(exclude_unset=True)
         descripcion_hechos = payload_dict.pop('descripcion_hechos', None)
+
+        # Fecha de reporte: solo `fecha_registro`. Ignorar `fecha_siniestro` en actualizaciones.
+        payload_dict.pop("fecha_siniestro", None)
         
         # Generar código automáticamente si falta y hay proveniente_id
         proveniente_id_actualizado = payload_dict.get('proveniente_id', siniestro.proveniente_id)
         if not siniestro.codigo and proveniente_id_actualizado:
-            codigo = SiniestroService._generar_codigo(db, proveniente_id_actualizado, payload.fecha_siniestro or siniestro.fecha_siniestro)
+            ref_fecha = (
+                payload_dict.get("fecha_registro")
+                if "fecha_registro" in payload_dict
+                else None
+            ) or siniestro.fecha_registro or siniestro.fecha_siniestro
+            codigo = SiniestroService._generar_codigo(
+                db, proveniente_id_actualizado, ref_fecha
+            )
             if codigo:
                 payload_dict['codigo'] = codigo
         
@@ -1103,6 +1171,21 @@ class SiniestroService:
         # Log de auditoría: cambios específicos
         usuario_audit = actualizado_por or siniestro.creado_por
         if estado_id_antes != siniestro.estado_id:
+            estado_anterior_nombre = "Sin estado"
+            estado_nuevo_nombre = "Sin estado"
+            if estado_id_antes:
+                estado_anterior = db.query(EstadoSiniestro).filter(
+                    EstadoSiniestro.id == estado_id_antes
+                ).first()
+                if estado_anterior and getattr(estado_anterior, "nombre", None):
+                    estado_anterior_nombre = str(estado_anterior.nombre)
+            if siniestro.estado_id:
+                estado_nuevo = db.query(EstadoSiniestro).filter(
+                    EstadoSiniestro.id == siniestro.estado_id
+                ).first()
+                if estado_nuevo and getattr(estado_nuevo, "nombre", None):
+                    estado_nuevo_nombre = str(estado_nuevo.nombre)
+
             AuditoriaService.registrar_accion(
                 db=db,
                 usuario_id=usuario_audit,
@@ -1113,7 +1196,7 @@ class SiniestroService:
                 registro_id=siniestro_id,
                 datos_anteriores={"estado_id": str(estado_id_antes) if estado_id_antes else None},
                 datos_nuevos={"estado_id": str(siniestro.estado_id) if siniestro.estado_id else None},
-                descripcion="Estado del siniestro cambiado",
+                descripcion=f"Estado del siniestro cambiado: {estado_anterior_nombre} -> {estado_nuevo_nombre}",
             )
         if calificacion_id_antes != siniestro.calificacion_id:
             AuditoriaService.registrar_accion(
@@ -1761,7 +1844,8 @@ class SiniestroAreaService:
         
         # Crear nueva relación
         try:
-            relacion = SiniestroArea(**payload.model_dump())
+            # exclude_none para mantener server_default en campos no enviados
+            relacion = SiniestroArea(**payload.model_dump(exclude_none=True))
             db.add(relacion)
             db.commit()
             db.refresh(relacion)
@@ -1777,6 +1861,39 @@ class SiniestroAreaService:
                 datos_nuevos={"area_id": str(payload.area_id), "area_nombre": area.nombre},
                 descripcion=f"Área asignada: {area.nombre}",
             )
+
+            # Notificar por correo al jefe del área usando plantilla de correo.
+            try:
+                from app.models.user import Usuario
+
+                jefe_id = getattr(area, "usuario_id", None)
+                if jefe_id:
+                    jefe = db.query(Usuario).filter(Usuario.id == jefe_id).first()
+                    if jefe:
+                        usuario_asignador = (
+                            db.query(Usuario).filter(Usuario.id == usuario_id).first()
+                            if usuario_id
+                            else None
+                        )
+                        current_user_ref = usuario_asignador
+                        if not current_user_ref:
+                            class _SystemUser:
+                                pass
+                            current_user_ref = _SystemUser()
+                            current_user_ref.id = usuario_id
+                            current_user_ref.empresa_id = siniestro.empresa_id
+
+                        EmailService.enviar_notificacion_asignacion_area(
+                            db=db,
+                            siniestro=siniestro,
+                            area=area,
+                            jefe_area=jefe,
+                            current_user=current_user_ref,
+                            usuario_asignador=usuario_asignador,
+                        )
+            except Exception:
+                # El fallo de notificación no debe afectar la asignación del área.
+                pass
 
             return relacion
         except Exception as e:

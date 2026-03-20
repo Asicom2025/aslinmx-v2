@@ -209,58 +209,25 @@ export default function FlujoDetallePage() {
   };
 
   const handleEliminarEtapa = async (etapaId: string) => {
-    const confirmed = await swalConfirmDelete("¿Está seguro de eliminar esta etapa? Esta acción no se puede deshacer.");
+    const confirmed = await swalConfirmDelete(
+      "¿Está seguro de ocultar esta etapa? La base de datos no se modificará."
+    );
     if (!confirmed) return;
 
     try {
-      // #region agent log session-renewal/delete-etapa
-      fetch("http://127.0.0.1:7872/ingest/abd48661-377a-49e4-8f34-d0c2108a8626", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "204a16",
-        },
-        body: JSON.stringify({
-          sessionId: "204a16",
-          runId: "pre-fix",
-          hypothesisId: "H1-delete-called-with-id",
-          location: "frontend/app/flujos-trabajo/[id]/page.tsx:handleEliminarEtapa:start",
-          message: "Intentando eliminar etapa",
-          data: {
-            etapaId,
-            flujoId: flujo?.id ?? null,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       await apiService.deleteEtapa(flujoId, etapaId);
-      await swalSuccess("Etapa eliminada correctamente");
-      cargarFlujo();
+      await swalSuccess("Etapa ocultada correctamente");
+
+      // Eliminación SOLO visual: no recargamos desde DB.
+      setFlujo((prev) => {
+        if (!prev) return prev;
+        const etapas = Array.isArray(prev.etapas) ? prev.etapas : [];
+        return {
+          ...prev,
+          etapas: etapas.filter((e: any) => String(e.id) !== String(etapaId)),
+        };
+      });
     } catch (error: any) {
-      // #region agent log session-renewal/delete-etapa
-      fetch("http://127.0.0.1:7872/ingest/abd48661-377a-49e4-8f34-d0c2108a8626", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "204a16",
-        },
-        body: JSON.stringify({
-          sessionId: "204a16",
-          runId: "pre-fix",
-          hypothesisId: "H2-delete-error-response",
-          location: "frontend/app/flujos-trabajo/[id]/page.tsx:handleEliminarEtapa:catch",
-          message: "Error al eliminar etapa",
-          data: {
-            etapaId,
-            flujoId: flujo?.id ?? null,
-            status: error?.response?.status ?? null,
-            detail: error?.response?.data?.detail ?? null,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       swalError(error.response?.data?.detail || "Error al eliminar etapa");
     }
   };

@@ -108,7 +108,10 @@ class EmailService:
         asunto: str,
         cuerpo_html: Optional[str] = None,
         cuerpo_texto: Optional[str] = None,
-        adjuntos: Optional[List[str]] = None
+        adjuntos: Optional[List[str]] = None,
+        list_unsubscribe_url: Optional[str] = None,
+        list_unsubscribe_mailto: Optional[str] = None,
+        list_unsubscribe_one_click: bool = False,
     ) -> Tuple[bool, Optional[str]]:
         """
         Envía un correo electrónico de forma asíncrona
@@ -121,6 +124,15 @@ class EmailService:
             message["From"] = f"{config.remitente_nombre or 'Sistema'} <{config.remitente_email}>"
             message["To"] = ", ".join(destinatarios)
             message["Subject"] = asunto
+            unsubscribe_entries: List[str] = []
+            if list_unsubscribe_mailto:
+                unsubscribe_entries.append(f"<{list_unsubscribe_mailto}>")
+            if list_unsubscribe_url:
+                unsubscribe_entries.append(f"<{list_unsubscribe_url}>")
+            if unsubscribe_entries:
+                message["List-Unsubscribe"] = ", ".join(unsubscribe_entries)
+                if list_unsubscribe_one_click and list_unsubscribe_url.startswith("https://"):
+                    message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
             # Agregar cuerpo del mensaje
             if cuerpo_texto:
@@ -193,6 +205,9 @@ class EmailService:
         firma_cid_bytes: Optional[bytes] = None,
         logo_cid_bytes: Optional[bytes] = None,
         file_icon_cid_bytes: Optional[bytes] = None,
+        list_unsubscribe_url: Optional[str] = None,
+        list_unsubscribe_mailto: Optional[str] = None,
+        list_unsubscribe_one_click: bool = False,
         *,
         incluir_file_icon_solo_si_usa_plantilla: bool = True,
     ) -> Tuple[bool, Optional[str]]:
@@ -209,6 +224,15 @@ class EmailService:
             message["From"] = f"{config.remitente_nombre or 'Sistema'} <{config.remitente_email}>"
             message["To"] = ", ".join(destinatarios)
             message["Subject"] = asunto
+            unsubscribe_entries: List[str] = []
+            if list_unsubscribe_mailto:
+                unsubscribe_entries.append(f"<{list_unsubscribe_mailto}>")
+            if list_unsubscribe_url:
+                unsubscribe_entries.append(f"<{list_unsubscribe_url}>")
+            if unsubscribe_entries:
+                message["List-Unsubscribe"] = ", ".join(unsubscribe_entries)
+                if list_unsubscribe_one_click and list_unsubscribe_url.startswith("https://"):
+                    message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
             # Agregar cuerpo del mensaje
             if cuerpo_texto:
@@ -241,25 +265,45 @@ class EmailService:
             if adjuntos_bytes:
                 for nombre_archivo, contenido in adjuntos_bytes:
                     try:
-                        lower = (nombre_archivo or "").lower()
+                        if not isinstance(contenido, (bytes, bytearray)):
+                            logger.warning(
+                                "Adjunto omitido (contenido no es bytes): %s tipo=%s",
+                                nombre_archivo,
+                                type(contenido),
+                            )
+                            continue
+                        payload = bytes(contenido)
+                        if not payload:
+                            logger.warning("Adjunto omitido (vacío): %s", nombre_archivo)
+                            continue
+                        nombre_str = (
+                            str(nombre_archivo)
+                            if nombre_archivo is not None
+                            else "adjunto.pdf"
+                        )
+                        lower = nombre_str.lower()
                         if lower.endswith(".pdf"):
-                            part = MIMEApplication(contenido, _subtype="pdf")
+                            part = MIMEApplication(payload, _subtype="pdf")
                             part.add_header(
                                 "Content-Disposition",
                                 "attachment",
-                                filename=nombre_archivo,
+                                filename=nombre_str,
                             )
                         else:
                             part = MIMEBase("application", "octet-stream")
-                            part.set_payload(contenido)
+                            part.set_payload(payload)
                             encoders.encode_base64(part)
                             part.add_header(
                                 "Content-Disposition",
-                                f'attachment; filename="{nombre_archivo}"'
+                                f'attachment; filename="{nombre_str}"'
                             )
                         message.attach(part)
                     except Exception as e:
-                        logger.warning("No se pudo adjuntar archivo en memoria: %s", e)
+                        logger.warning(
+                            "No se pudo adjuntar archivo en memoria (%s): %s",
+                            nombre_archivo,
+                            e,
+                        )
 
             # Imágenes inline (CID) para que Gmail y otros clientes las muestren sin bloquear.
             # file2 (file_icon) solo se agrega si la plantilla lo usa; no va como adjunto descargable.
@@ -435,6 +479,7 @@ class EmailService:
     NOMBRE_PLANTILLA_NUEVO_SINIESTRO = "Nuevo siniestro"
     NOMBRE_PLANTILLA_NUEVO_INVOLUCRADO = "Nuevo involucrado"
     NOMBRE_PLANTILLA_TE_ENVIAN_ARCHIVO = "Envió de archivo"
+    NOMBRE_PLANTILLA_ASIGNACION_AREA = "Asignación de área"
 
     _TIPO_RELACION_LABELS = {
         "asegurado": "Asegurado",
@@ -499,7 +544,17 @@ class EmailService:
             fecha_creacion_str = fecha_reg.strftime("%d/%m/%Y %H:%M")
         else:
             fecha_creacion_str = str(fecha_reg)
-        fecha_asig = getattr(siniestro, "fecha_siniestro", None) or fecha_reg
+        # `fecha_asignacion` vive en la relación siniestro-área.
+        fecha_asig_rel = None
+        try:
+            fechas_asig = [
+                getattr(r, "fecha_asignacion", None) for r in areas_rel if getattr(r, "fecha_asignacion", None) is not None
+            ]
+            fecha_asig_rel = max(fechas_asig) if fechas_asig else None
+        except Exception:
+            fecha_asig_rel = None
+
+        fecha_asig = fecha_asig_rel or fecha_reg
         if hasattr(fecha_asig, "strftime"):
             fecha_asignacion_str = fecha_asig.strftime("%d/%m/%Y %H:%M")
         else:
@@ -669,5 +724,104 @@ class EmailService:
         if not success:
             return False, error
         logger.info("Correo de nuevo involucrado enviado a %s", destinatarios)
+        return True, None
+
+    @staticmethod
+    def enviar_notificacion_asignacion_area(
+        db: Session,
+        siniestro: Any,
+        area: Any,
+        jefe_area: Any,
+        current_user: Any,
+        usuario_asignador: Optional[Any] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Envía correo al jefe del área usando la plantilla "Asignación de área".
+        """
+        correo_jefe = (
+            (getattr(jefe_area, "correo", None) or "").strip()
+            or (getattr(jefe_area, "email", None) or "").strip()
+        )
+        if not correo_jefe:
+            return False, "Jefe de área sin correo"
+
+        config_smtp = db.query(ConfiguracionSMTP).filter(
+            ConfiguracionSMTP.empresa_id == current_user.empresa_id,
+            ConfiguracionSMTP.activo == True,
+        ).first()
+        if not config_smtp:
+            logger.warning("No hay configuración SMTP activa: no se envía correo de asignación de área")
+            return False, "Sin configuración SMTP activa"
+
+        plantilla = db.query(PlantillaCorreo).filter(
+            PlantillaCorreo.empresa_id == current_user.empresa_id,
+            PlantillaCorreo.activo == True,
+            PlantillaCorreo.nombre == EmailService.NOMBRE_PLANTILLA_ASIGNACION_AREA,
+        ).first()
+        if not plantilla:
+            logger.warning(
+                "Plantilla de correo '%s' no encontrada o inactiva: no se envía correo",
+                EmailService.NOMBRE_PLANTILLA_ASIGNACION_AREA,
+            )
+            return False, f"Plantilla '{EmailService.NOMBRE_PLANTILLA_ASIGNACION_AREA}' no encontrada o inactiva"
+
+        base_url = getattr(settings, "BASE_URL", None) or getattr(settings, "FRONTEND_URL", None)
+        if not base_url:
+            raise RuntimeError("BASE_URL o FRONTEND_URL no están configurados en .env")
+        base_for_assets = base_url.rstrip("/")
+        enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
+        id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
+
+        logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
+        logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
+        if not logo_cid_bytes and current_user.empresa_id:
+            from app.models.user import Empresa
+            emp = db.query(Empresa).filter(Empresa.id == current_user.empresa_id).first()
+            if emp and getattr(emp, "logo_url", None) and str(emp.logo_url).strip():
+                logo_url = (emp.logo_url or "").strip()
+
+        firma_url, firma_cid_bytes = EmailService.get_firma_for_template(db, current_user)
+        asignador_nombre = (
+            getattr(usuario_asignador, "full_name", None)
+            or getattr(usuario_asignador, "correo", None)
+            or getattr(usuario_asignador, "email", None)
+            or "Usuario del sistema"
+        )
+
+        fecha_asig = datetime.now()
+        fecha_asignacion_str = fecha_asig.strftime("%d/%m/%Y %H:%M")
+
+        variables = {
+            "id": id_display,
+            "enlace_ver_id": enlace_ver_id,
+            "area_nombre": getattr(area, "nombre", "") or "Área asignada",
+            "asignado_por": asignador_nombre,
+            "fecha_asignacion": fecha_asignacion_str,
+            "logo_url": logo_url,
+            "file_icon_url": "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png")),
+            "base_url": base_url,
+            "firma_url": firma_url,
+            "ano_actual": str(datetime.now().year),
+        }
+
+        try:
+            asunto, cuerpo_html, cuerpo_texto = EmailService.render_template(plantilla, variables)
+        except Exception as e:
+            logger.exception("Error renderizando plantilla de correo de asignación de área")
+            return False, str(e)
+
+        success, error = EmailService.send_email_sync(
+            config_smtp,
+            [correo_jefe],
+            asunto,
+            cuerpo_html=cuerpo_html,
+            cuerpo_texto=cuerpo_texto,
+            firma_cid_bytes=firma_cid_bytes,
+            logo_cid_bytes=logo_cid_bytes,
+            file_icon_cid_bytes=file_icon_cid_bytes,
+        )
+        if not success:
+            return False, error
+        logger.info("Correo de asignación de área enviado a %s", [correo_jefe])
         return True, None
 
