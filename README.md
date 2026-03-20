@@ -144,6 +144,7 @@ Configura en **Settings → Secrets and variables → Actions** (además de los 
 
 | Secreto | Uso |
 |--------|-----|
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Build del frontend (Google Maps / Places en el cliente) |
 | `NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID` | Build del frontend (Google Calendar en el cliente) |
 | `NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY` | Build del frontend (Google Calendar en el cliente) |
 
