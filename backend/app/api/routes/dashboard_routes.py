@@ -228,7 +228,7 @@ def normalizar_nombre_estado(nombre: str) -> str:
 @router.get("/stats")
 def get_dashboard_stats(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("dashboard", "leer")),
+    current_user: User = Depends(require_permiso("dashboard", "read")),
 ):
     """
     Obtiene estadísticas generales para el dashboard

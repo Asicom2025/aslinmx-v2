@@ -32,7 +32,7 @@ class Modulo(Base):
 
 
 class Accion(Base):
-    """Acciones disponibles (crear, leer, actualizar, eliminar, etc.)"""
+    """Acciones disponibles (create, read, update, delete, etc.)"""
     __tablename__ = "acciones"
     
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))

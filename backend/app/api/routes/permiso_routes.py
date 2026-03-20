@@ -53,7 +53,7 @@ def get_modulos(
     limit: int = Query(100, ge=1, le=1000),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("permisos", "leer")),
+    current_user: User = Depends(require_permiso("permisos", "read")),
 ):
     """Obtener lista de módulos"""
     modulos = ModuloService.get_modulos(db, skip=skip, limit=limit, activo=activo)
@@ -64,7 +64,7 @@ def get_modulos(
 def get_modulo(
     modulo_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("permisos", "leer")),
+    current_user: User = Depends(require_permiso("permisos", "read")),
 ):
     """Obtener un módulo por ID"""
     modulo = ModuloService.get_modulo_by_id(db, modulo_id)
@@ -80,7 +80,7 @@ def get_modulo(
 def create_modulo(
     modulo: ModuloCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("permisos", "crear")),
+    current_user: User = Depends(require_permiso("permisos", "create")),
 ):
     """Crear un nuevo módulo"""
     return ModuloService.create_modulo(db, modulo)
@@ -211,7 +211,7 @@ def get_permisos_rol(
 def get_configuracion_permisos(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("permisos", "leer")),
+    current_user: User = Depends(require_permiso("permisos", "read")),
 ):
     """
     Obtener la configuración completa de permisos de un rol
@@ -264,7 +264,7 @@ def actualizar_permisos_bulk(
     rol_id: str,
     bulk_update: RolPermisosBulkUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("permisos", "actualizar")),
+    current_user: User = Depends(require_permiso("permisos", "update")),
 ):
     """
     Actualizar múltiples permisos de un rol a la vez

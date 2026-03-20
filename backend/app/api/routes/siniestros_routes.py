@@ -28,6 +28,7 @@ router = APIRouter(prefix="/siniestros", tags=["Siniestros"])
 def list_siniestros(
     activo: Optional[bool] = Query(None, description="Filtrar por estado activo"),
     estado_id: Optional[UUID] = Query(None, description="Filtrar por estado de siniestro"),
+    proveniente_id: Optional[UUID] = Query(None, description="Filtrar por proveniente"),
     area_id: Optional[UUID] = Query(None, description="Filtrar por área principal"),
     usuario_asignado: Optional[UUID] = Query(None, description="Filtrar por usuario asignado"),
     prioridad: Optional[str] = Query(None, description="Filtrar por prioridad (baja, media, alta, critica)"),
@@ -37,7 +38,7 @@ def list_siniestros(
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(1000, ge=1, le=10000, description="Número máximo de registros a retornar"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "leer")),
+    current_user: User = Depends(require_permiso("siniestros", "read")),
 ):
     """
     Lista todos los siniestros con filtros opcionales.
@@ -48,6 +49,7 @@ def list_siniestros(
         empresa_id=current_user.empresa_id,
         activo=activo,
         estado_id=estado_id,
+        proveniente_id=proveniente_id,
         area_id=area_id,
         usuario_asignado=usuario_asignado,
         prioridad=prioridad,
@@ -79,7 +81,7 @@ def get_siniestro(
 def create_siniestro(
     payload: SiniestroCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "crear")),
+    current_user: User = Depends(require_permiso("siniestros", "create")),
 ):
     """
     Crea un nuevo siniestro.
@@ -132,7 +134,7 @@ def update_siniestro(
     siniestro_id: UUID,
     payload: SiniestroUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "actualizar")),
+    current_user: User = Depends(require_permiso("siniestros", "update")),
 ):
     """
     Actualiza un siniestro existente.
@@ -171,7 +173,7 @@ def update_siniestro(
 def delete_siniestro(
     siniestro_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "eliminar")),
+    current_user: User = Depends(require_permiso("siniestros", "delete")),
 ):
     """
     Elimina lógicamente un siniestro (soft delete).

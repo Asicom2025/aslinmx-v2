@@ -290,11 +290,9 @@ def eliminar_etapa(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Elimina (soft delete) una etapa"""
-    # Importante: consultar la etapa aunque ya esté soft-eliminada.
-    # EtapaFlujoService.delete_etapa() ya es idempotente, pero este endpoint validaba
-    # contra get_etapa_by_id() (que filtra eliminado_en IS NULL), provocando "Etapa no encontrada"
-    # si había un doble delete o un estado de UI desactualizado.
+    """
+    Elimina SOLO visualmente una etapa (sin modificar la base de datos).
+    """
     etapa = db.query(EtapaFlujo).filter(EtapaFlujo.id == etapa_id).first()
 
     if not etapa:
@@ -310,15 +308,7 @@ def eliminar_etapa(
             detail="No tiene permiso para eliminar esta etapa"
         )
 
-    # Si ya está eliminada, devolver éxito (idempotente)
-    if etapa.eliminado_en is not None:
-        return None
-
-    if not EtapaFlujoService.delete_etapa(db, etapa_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Etapa no encontrada"
-        )
+    # No se persiste ningún cambio (requerimiento: visual únicamente).
 
     return None
 
@@ -331,8 +321,9 @@ def eliminar_etapa_por_flujo(
     current_user: User = Depends(get_current_active_user),
 ):
     """
-    Elimina (soft delete) una etapa asegurando que pertenece al flujo indicado.
-    Esto evita que por un ID incorrecto se borre una etapa de otro flujo.
+    Elimina SOLO visualmente una etapa asegurando que pertenece al flujo indicado.
+    Esto evita que por un ID incorrecto se afecte otra etapa.
+    Importante: no modifica la base de datos.
     """
     etapa = db.query(EtapaFlujo).filter(EtapaFlujo.id == etapa_id).first()
     if not etapa or str(etapa.flujo_trabajo_id) != str(flujo_id):
@@ -348,15 +339,7 @@ def eliminar_etapa_por_flujo(
             detail="No tiene permiso para eliminar esta etapa",
         )
 
-    # Idempotencia: si ya estaba eliminada, devolvemos éxito
-    if etapa.eliminado_en is not None:
-        return None
-
-    if not EtapaFlujoService.delete_etapa(db, etapa_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Etapa no encontrada",
-        )
+    # No se persiste ningún cambio (requerimiento: visual únicamente).
 
     return None
 

@@ -4,14 +4,16 @@ Rutas para generación de PDFs
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.core.security import get_current_user
 from app.core.permisos import require_permiso
 from app.schemas.pdf_schema import (
     PDFGenerateRequest,
     PDFGenerateFromTemplateRequest,
-    PDFResponse
+    PDFResponse,
+    PageSize,
+    PageOrientation,
 )
 from app.services.pdf_service import PDFService
 from app.services.legal_service import (
@@ -22,18 +24,22 @@ from app.services.legal_service import (
 )
 from app.services.empresa_service import EmpresaService
 from app.models.user import User
+from app.models.legal import Area, Proveniente, SiniestroArea, Institucion, Autoridad
 from typing import Optional, Any, Dict, Tuple
 from datetime import datetime as dt
 from uuid import UUID as PyUUID
 import re
 import io
 import base64
+import logging
 from pypdf import PdfReader, PdfWriter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Altura reservada para el header fijo (repetido en todas las páginas)
-PDF_HEADER_MARGIN_TOP = "3.5cm"
+# Altura reservada para el header repetido por página (running header).
+PDF_HEADER_MARGIN_TOP = "6cm"
 
 
 def _get_siniestro_asegurado_variables(
@@ -54,8 +60,52 @@ def _get_siniestro_asegurado_variables(
         return out
     out["numero_poliza"] = (siniestro.numero_poliza or "").strip()
     out["numero_siniestro"] = (siniestro.numero_siniestro or "").strip()
-    out["fecha_reporte"] = getattr(siniestro, "fecha_registro", None)
-    out["fecha_asignacion"] = getattr(siniestro, "fecha_siniestro", None)
+
+    # Unificación de fechas:
+    # - La app asume que fecha_captura == fecha_registro
+    # - Y que fecha_reporte deriva de fecha_registro
+    # En algunos casos tempranos puede venir vacío fecha_registro,
+    # así que hacemos fallback a fecha_siniestro y formateamos como DD/MM/YYYY.
+    fecha_reg = getattr(siniestro, "fecha_registro", None) or getattr(
+        siniestro, "fecha_siniestro", None
+    )
+    out["fecha_reporte"] = _fecha_pdf_corta(fecha_reg)
+
+    # Si se requiere hora en plantillas, la devolvemos desde fecha_reg.
+    # (Si no hay valor, queda como cadena vacía).
+    if isinstance(fecha_reg, dt):
+        out["hora_fecha_reporte"] = fecha_reg.strftime("%H:%M:%S")
+    else:
+        out["hora_fecha_reporte"] = ""
+
+    # `fecha_asignacion` vive en la relación siniestro-área.
+    # Si existen múltiples áreas, usamos la más reciente.
+    area_asig = (
+        db.query(SiniestroArea)
+        .filter(
+            SiniestroArea.siniestro_id == siniestro_id,
+            SiniestroArea.activo == True,  # noqa: E712
+        )
+        .order_by(SiniestroArea.fecha_asignacion.desc())
+        .first()
+    )
+    out["fecha_asignacion"] = getattr(area_asig, "fecha_asignacion", None)
+    autoridad_nombre = ""
+    if getattr(siniestro, "autoridad_id", None):
+        autoridad = (
+            db.query(Institucion)
+            .filter(Institucion.id == siniestro.autoridad_id)
+            .first()
+        )
+        if not autoridad:
+            autoridad = (
+                db.query(Autoridad)
+                .filter(Autoridad.id == siniestro.autoridad_id)
+                .first()
+            )
+        if autoridad and getattr(autoridad, "nombre", None):
+            autoridad_nombre = str(autoridad.nombre).strip()
+
     if getattr(siniestro, "asegurado_id", None):
         asegurado = AseguradoService.get_by_id(db, siniestro.asegurado_id, empresa_id)
         if asegurado:
@@ -66,6 +116,179 @@ def _get_siniestro_asegurado_variables(
                 partes = [getattr(asegurado, "ciudad", None), getattr(asegurado, "estado", None)]
                 partes = [p for p in partes if p and str(p).strip()]
                 out["lugar_ocurrido"] = ", ".join(partes) if partes else ""
+    # Compatibilidad con plantillas que usan {{radicado_en}}
+    out["radicado_en"] = autoridad_nombre
+    return out
+
+
+def _fecha_pdf_corta(val: Any) -> str:
+    """DD/MM/YYYY — misma idea que getVariablesForPdf en el frontend."""
+    if val is None:
+        return ""
+    if isinstance(val, dt):
+        d = val
+    else:
+        try:
+            s = str(val).strip().replace("Z", "+00:00").replace("z", "+00:00")
+            if not s:
+                return ""
+            d = dt.fromisoformat(s)
+        except (ValueError, TypeError):
+            return ""
+    return f"{d.day:02d}/{d.month:02d}/{d.year}"
+
+
+def _variables_plantilla_alineadas_frontend(
+    db: Session,
+    doc: Any,
+    siniestro: Any,
+    current_user: User,
+    empresa_id: Optional[PyUUID],
+) -> Dict[str, Any]:
+    """
+    Claves equivalentes a getVariablesForPdf (frontend app/siniestros/[id]/page.tsx)
+    para reemplazar {{variable}} al generar PDF en servidor (adjunto de correo, etc.).
+    """
+    out: Dict[str, Any] = {}
+    if not siniestro:
+        return out
+
+    hoy = dt.now()
+
+    nombre_asegurado = ""
+    autoridad_nombre = ""
+    if getattr(siniestro, "autoridad_id", None):
+        autoridad = (
+            db.query(Institucion)
+            .filter(Institucion.id == siniestro.autoridad_id)
+            .first()
+        )
+        if not autoridad:
+            autoridad = (
+                db.query(Autoridad)
+                .filter(Autoridad.id == siniestro.autoridad_id)
+                .first()
+            )
+        if autoridad and getattr(autoridad, "nombre", None):
+            autoridad_nombre = str(autoridad.nombre).strip()
+
+    if getattr(siniestro, "asegurado_id", None) and empresa_id:
+        aseg = AseguradoService.get_by_id(db, siniestro.asegurado_id, empresa_id)
+        if aseg:
+            parts = [
+                getattr(aseg, "nombre", None),
+                getattr(aseg, "apellido_paterno", None),
+                getattr(aseg, "apellido_materno", None),
+            ]
+            nombre_asegurado = " ".join(
+                str(p).strip() for p in parts if p and str(p).strip()
+            ).strip()
+
+    area_nombre = ""
+    if getattr(doc, "area_id", None):
+        area_row = db.query(Area).filter(Area.id == doc.area_id).first()
+        if area_row and getattr(area_row, "nombre", None):
+            area_nombre = str(area_row.nombre).strip()
+
+    autor = ""
+    try:
+        u = (
+            db.query(User)
+            .options(joinedload(User.perfil))
+            .filter(User.id == current_user.id)
+            .first()
+        )
+        if u:
+            fn = u.full_name
+            autor = (fn or "").strip() if fn else (u.correo or "").strip()
+    except Exception:
+        autor = (getattr(current_user, "correo", None) or "").strip()
+
+    codigo_prov = ""
+    if getattr(siniestro, "proveniente_id", None):
+        prov = (
+            db.query(Proveniente)
+            .filter(Proveniente.id == siniestro.proveniente_id)
+            .first()
+        )
+        if prov and prov.codigo:
+            codigo_prov = str(prov.codigo).strip()
+
+    sc = (getattr(siniestro, "codigo", None) or "").strip()
+    consecutivo = sc.zfill(3)[:3] if sc else ""
+    fecha_ref = getattr(siniestro, "fecha_registro", None) or getattr(
+        siniestro, "fecha_siniestro", None
+    )
+    anualidad = ""
+    if fecha_ref is not None and hasattr(fecha_ref, "year"):
+        try:
+            anualidad = str(int(fecha_ref.year) % 100).zfill(2)
+        except (TypeError, ValueError):
+            pass
+
+    id_formato = ""
+    if codigo_prov and consecutivo and anualidad:
+        id_formato = f"{codigo_prov}-{consecutivo}-{anualidad}"
+
+    creado_src = (
+        getattr(doc, "creado_en", None)
+        or getattr(siniestro, "fecha_registro", None)
+        or getattr(siniestro, "creado_en", None)
+    )
+    creado_en = _fecha_pdf_corta(creado_src)
+
+    nr = getattr(siniestro, "numero_reporte", None)
+    ns = getattr(siniestro, "numero_siniestro", None)
+    np = getattr(siniestro, "numero_poliza", None)
+
+    # Fecha asignación: preferimos la relación exacta por área del documento.
+    fecha_asig_src = None
+    if getattr(doc, "area_id", None) is not None and getattr(siniestro, "id", None) is not None:
+        area_asig = (
+            db.query(SiniestroArea)
+            .filter(
+                SiniestroArea.siniestro_id == siniestro.id,
+                SiniestroArea.area_id == doc.area_id,
+                SiniestroArea.activo == True,  # noqa: E712
+            )
+            .order_by(SiniestroArea.fecha_asignacion.desc())
+            .first()
+        )
+        fecha_asig_src = getattr(area_asig, "fecha_asignacion", None)
+    if fecha_asig_src is None:
+        area_asig = (
+            db.query(SiniestroArea)
+            .filter(
+                SiniestroArea.siniestro_id == siniestro.id,
+                SiniestroArea.activo == True,  # noqa: E712
+            )
+            .order_by(SiniestroArea.fecha_asignacion.desc())
+            .first()
+        )
+        fecha_asig_src = getattr(area_asig, "fecha_asignacion", None)
+
+    out.update(
+        {
+            "creado_en": creado_en,
+            "creado_por": autor,
+            "id": id_formato,
+            "asegurado": nombre_asegurado,
+            "nombre_asegurado": nombre_asegurado,
+            "area": area_nombre,
+            "radicado_en": autoridad_nombre,
+            "fecha_registro": creado_en,
+            "autor": autor,
+            # Se deja como datetime para que _expand_datetime_variables
+            # genere automáticamente:
+            # - fecha_asignacion (DD/MM/YYYY)
+            # - hora_fecha_asignacion (HH:mm:ss)
+            "fecha_asignacion": fecha_asig_src,
+            "fecha": _fecha_pdf_corta(hoy),
+            "numero_reporte": (str(nr).strip() if nr is not None else ""),
+            "numero_siniestro": (str(ns).strip() if ns is not None else ""),
+            "numero_poliza": (str(np).strip() if np is not None else ""),
+        }
+    )
     return out
 
 
@@ -274,13 +497,30 @@ def _empresa_id_from_user(user: User) -> Optional[PyUUID]:
 
 
 def _wrap_header_for_all_pages(header_html: str, body_html: str) -> str:
-    """Envuelve el header en un bloque fijo (repetido en todas las páginas) y el cuerpo con margen superior."""
+    """
+    Envuelve el header con running elements de WeasyPrint.
+    Esto evita solapamiento en páginas 2+ porque el motor reserva el top margin
+    en cada página renderizada.
+    """
+    header_page_style = (
+        "<style>"
+        "@page withRunningHeader {"
+        f"  margin-top: {PDF_HEADER_MARGIN_TOP};"
+        "  @top-center { content: element(pdfHeader); }"
+        "}"
+        ".pdf-page-header-running { position: running(pdfHeader); }"
+        ".pdf-page-header-running { line-height: 1.2; }"
+        ".pdf-page-header-running p { margin: 0; }"
+        ".pdf-page-header-running table { margin: 0; }"
+        ".pdf-with-running-header { page: withRunningHeader; }"
+        "</style>"
+    )
     header_block = (
-        f'<div class="pdf-page-header" style="position: fixed; top: 0; left: 0; right: 0; z-index: 1; background: white;">'
+        f'<div class="pdf-page-header-running" style="background: white;">'
         f"{header_html.strip()}</div>"
     )
-    body_block = f'<div class="pdf-body-content" style="margin-top: {PDF_HEADER_MARGIN_TOP};">{body_html}</div>'
-    return header_block + "\n" + body_block
+    body_block = f'<div class="pdf-with-running-header">{body_html}</div>'
+    return header_page_style + "\n" + header_block + "\n" + body_block
 
 
 def _get_plantilla_header_and_body(
@@ -330,6 +570,75 @@ def _merge_pdfs(pdf_bytes_list: list) -> bytes:
     writer.write(out)
     writer.close()
     return out.getvalue()
+
+
+def _try_pdf_from_document_contenido(
+    db: Session,
+    doc: Any,
+    current_user: User,
+    plantilla: Any,
+    pdf_opts: Dict[str, Any],
+) -> Optional[Tuple[bytes, str]]:
+    """
+    Misma lógica que POST /pdf/generate con html_content del documento guardado:
+    header de plantilla, continuación, variables. Así el PDF del correo coincide con la app.
+    """
+    if not doc or not getattr(doc, "contenido", None) or not str(doc.contenido).strip():
+        return None
+    if not plantilla or not getattr(plantilla, "activo", True):
+        return None
+    try:
+        segunda = None
+        if getattr(plantilla, "plantilla_continuacion_id", None):
+            seg = PlantillaDocumentoService.get_by_id(
+                db, plantilla_id=plantilla.plantilla_continuacion_id
+            )
+            if seg and getattr(seg, "activo", True) and getattr(seg, "contenido", None):
+                segunda = seg
+        if segunda:
+            html1 = _build_section_html(
+                db, plantilla, current_user, body_override=doc.contenido
+            )
+            html2 = _build_section_html(db, segunda, current_user)
+            pdf1 = PDFService.generate_pdf(html_content=html1, **pdf_opts)
+            pdf2 = PDFService.generate_pdf(html_content=html2, **pdf_opts)
+            pdf_bytes = _merge_pdfs([pdf1, pdf2])
+        else:
+            header_html = ""
+            if plantilla.header_plantilla_id:
+                header = PlantillaDocumentoService.get_by_id(
+                    db, plantilla_id=plantilla.header_plantilla_id
+                )
+                if header and header.activo and header.contenido:
+                    header_html = (
+                        _build_header_html_with_logo(
+                            db, header.contenido, current_user, header_plantilla=header
+                        )
+                        + "\n"
+                    )
+            body_content = doc.contenido
+            if header_html:
+                html_content = _wrap_header_for_all_pages(header_html, body_content)
+            else:
+                html_content = body_content
+            if not plantilla.header_plantilla_id:
+                html_content = _prepend_logo_if_empresa_has_one(
+                    db, html_content, current_user
+                )
+            pdf_bytes = PDFService.generate_pdf(html_content=html_content, **pdf_opts)
+        base_name = (
+            doc.nombre_archivo or getattr(plantilla, "nombre", None) or "documento"
+        ).strip()
+        if not base_name.lower().endswith(".pdf"):
+            base_name += ".pdf"
+        return (pdf_bytes, base_name)
+    except Exception as exc:
+        logger.warning(
+            "PDF desde contenido del documento %s falló: %s",
+            getattr(doc, "id", None),
+            exc,
+        )
+        return None
 
 
 @router.post("/generate", response_model=PDFResponse)
@@ -764,20 +1073,32 @@ def generar_pdf_bytes_para_documento(
     current_user: User,
 ) -> Optional[Tuple[bytes, str]]:
     """
-    Genera el PDF de un documento que tiene plantilla (informe).
-    Retorna (bytes, nombre_archivo) o None si el documento no es un informe o falla la generación.
+    Genera el PDF de un informe para adjuntar en correo u otros usos.
+    Retorna (bytes_pdf, nombre_archivo) o None.
+
+    Prioridad:
+    1) HTML guardado en documento.contenido (igual que la vista previa en el frontend).
+    2) Generación solo desde la plantilla en catálogo (si el documento aún no tiene cuerpo guardado).
     """
     from app.services.legal_service import DocumentoService
 
     doc = DocumentoService.get_by_id(db, documento_id)
     if not doc or not getattr(doc, "plantilla_documento_id", None):
         return None
-    plantilla = PlantillaDocumentoService.get_by_id(db, plantilla_id=doc.plantilla_documento_id)
-    if not plantilla or not getattr(plantilla, "activo", True) or not getattr(plantilla, "contenido", None):
+    plantilla = PlantillaDocumentoService.get_by_id(
+        db, plantilla_id=doc.plantilla_documento_id
+    )
+    if not plantilla or not getattr(plantilla, "activo", True):
         return None
+
     siniestro_id = doc.siniestro_id
-    merged_variables = {}
+    merged_variables: Dict[str, Any] = {}
     empresa_id = _empresa_id_from_user(current_user)
+    siniestro = (
+        SiniestroService.get_by_id(db, siniestro_id, empresa_id)
+        if empresa_id
+        else None
+    )
     siniestro_vars = _get_siniestro_asegurado_variables(db, siniestro_id, empresa_id)
     merged_variables = {**siniestro_vars}
     respuesta = RespuestaFormularioService.get_or_none(
@@ -789,17 +1110,43 @@ def generar_pdf_bytes_para_documento(
         merged_variables = {**merged_variables, **respuesta.valores}
     merged_variables = _expand_datetime_variables(merged_variables)
     merged_variables = _format_currency_variables(merged_variables, plantilla)
+    # Tras expandir fechas y moneda: mismas claves que getVariablesForPdf (frontend) para {{variable}}
+    merged_variables = {
+        **merged_variables,
+        **_variables_plantilla_alineadas_frontend(
+            db, doc, siniestro, current_user, empresa_id
+        ),
+    }
     pdf_opts = dict(
-        page_size="A4",
+        page_size=PageSize.A4,
+        orientation=PageOrientation.PORTRAIT,
         margin_top="1cm",
         margin_bottom="1cm",
         margin_left="1cm",
         margin_right="1cm",
         variables=merged_variables,
     )
+
+    # 1) Informe editado: el cuerpo vive en documento.contenido (no exigir plantilla.contenido).
+    from_contenido = _try_pdf_from_document_contenido(
+        db, doc, current_user, plantilla, pdf_opts
+    )
+    if from_contenido:
+        return from_contenido
+
+    # 2) Fallback: armar solo desde plantilla (p. ej. documento nuevo sin guardar cuerpo).
+    if not getattr(plantilla, "contenido", None) or not str(plantilla.contenido).strip():
+        logger.warning(
+            "Sin PDF para documento %s: no hay contenido en documento ni cuerpo en plantilla",
+            documento_id,
+        )
+        return None
+
     segunda = None
     if getattr(plantilla, "plantilla_continuacion_id", None):
-        seg = PlantillaDocumentoService.get_by_id(db, plantilla_id=plantilla.plantilla_continuacion_id)
+        seg = PlantillaDocumentoService.get_by_id(
+            db, plantilla_id=plantilla.plantilla_continuacion_id
+        )
         if seg and getattr(seg, "activo", True) and getattr(seg, "contenido", None):
             segunda = seg
     try:
@@ -810,12 +1157,17 @@ def generar_pdf_bytes_para_documento(
             pdf2 = PDFService.generate_pdf(html_content=html2, **pdf_opts)
             pdf_bytes = _merge_pdfs([pdf1, pdf2])
         else:
-            html_content = _build_full_html_from_plantilla(db, plantilla, current_user, header_on_every_page=True)
+            html_content = _build_full_html_from_plantilla(
+                db, plantilla, current_user, header_on_every_page=True
+            )
             pdf_bytes = PDFService.generate_pdf(html_content=html_content, **pdf_opts)
-        base_name = (doc.nombre_archivo or getattr(plantilla, "nombre", None) or "documento").strip()
+        base_name = (
+            doc.nombre_archivo or getattr(plantilla, "nombre", None) or "documento"
+        ).strip()
         if not base_name.lower().endswith(".pdf"):
             base_name += ".pdf"
         return (pdf_bytes, base_name)
-    except Exception:
+    except Exception as exc:
+        logger.exception("generar_pdf_bytes_para_documento (plantilla): %s", exc)
         return None
 

@@ -134,6 +134,23 @@ Para más información detallada, consulta la carpeta `docs/`:
 - **Variables de entorno** para credenciales sensibles
 - **Health checks** para monitoreo de servicios
 
+## 🔄 Despliegue (GitHub Actions + Docker)
+
+El workflow `.github/workflows/deploy.yml` construye y publica imágenes en GHCR; el servidor ejecuta `docker-compose.prod.yml`.
+
+### Secretos del repositorio (Actions)
+
+Configura en **Settings → Secrets and variables → Actions** (además de los secretos de SSH/servidor que ya usa el workflow) al menos:
+
+| Secreto | Uso |
+|--------|-----|
+| `NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID` | Build del frontend (Google Calendar en el cliente) |
+| `NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY` | Build del frontend (Google Calendar en el cliente) |
+
+En **Next.js**, las variables `NEXT_PUBLIC_*` se resuelven **al hacer `next build`** dentro de la imagen Docker. Por eso deben pasarse como `--build-arg` en CI (ya configurado en el workflow), no solo en el `.env` del servidor tras un `docker compose up`.
+
+Desarrollo local con `docker-compose.dev.yml`: define las mismas claves en tu `.env` en la raíz del proyecto (o en `frontend/.env.local` si corres Next fuera de Docker).
+
 ## 🚀 Características Principales
 
 - **Arquitectura modular** con separación clara de responsabilidades

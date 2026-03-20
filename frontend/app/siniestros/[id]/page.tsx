@@ -63,7 +63,8 @@ import {
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
-import type { Siniestro } from "@/types/siniestros";
+import { DocumentoAcciones } from "@/components/siniestros/DocumentoAcciones";
+import type { Siniestro, ProvenienteContacto } from "@/types/siniestros";
 import type {
   SiniestroArea,
   SiniestroUsuario,
@@ -101,7 +102,16 @@ interface PlantillaDocumento {
   tipo_documento_id: string;
   categoria_id?: string;
   plantilla_continuacion_id?: string | null;
-  campos_formulario?: Array<{ clave: string; tipo: string; titulo: string; placeholder?: string; tamano?: string; requerido?: boolean; opciones?: string[]; orden?: number }> | null;
+  campos_formulario?: Array<{
+    clave: string;
+    tipo: string;
+    titulo: string;
+    placeholder?: string;
+    tamano?: string;
+    requerido?: boolean;
+    opciones?: string[];
+    orden?: number;
+  }> | null;
 }
 
 interface DocumentoEtapa {
@@ -152,14 +162,37 @@ export default function SiniestroDetailPage() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const [pdfFilename, setPdfFilename] = useState<string>("");
+  /** Vista previa de archivos subidos (PDF/imagen) vía object URL */
+  const [archivoPreviewUrl, setArchivoPreviewUrl] = useState<string | null>(
+    null,
+  );
+  const [archivoPreviewMime, setArchivoPreviewMime] = useState<string>("");
+  const [documentoEnVistaPrevia, setDocumentoEnVistaPrevia] = useState<
+    any | null
+  >(null);
+
+  const revokeArchivoPreviewUrl = () => {
+    setArchivoPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setArchivoPreviewMime("");
+  };
   const [documentosExistentes, setDocumentosExistentes] = useState<
     DocumentoEtapa[]
   >([]);
 
   // Estado para modal de formulario de continuación (llenar datos para documento de continuación)
-  const [showFormularioContinuacionModal, setShowFormularioContinuacionModal] = useState(false);
-  const [formularioContinuacionPlantillaId, setFormularioContinuacionPlantillaId] = useState<string>("");
-  const [formularioContinuacionPlantillaNombre, setFormularioContinuacionPlantillaNombre] = useState<string>("");
+  const [showFormularioContinuacionModal, setShowFormularioContinuacionModal] =
+    useState(false);
+  const [
+    formularioContinuacionPlantillaId,
+    setFormularioContinuacionPlantillaId,
+  ] = useState<string>("");
+  const [
+    formularioContinuacionPlantillaNombre,
+    setFormularioContinuacionPlantillaNombre,
+  ] = useState<string>("");
 
   // Estado para subir archivo (fotos, PDF, etc.) como documento
   const [showUploadDocModal, setShowUploadDocModal] = useState(false);
@@ -169,10 +202,17 @@ export default function SiniestroDetailPage() {
   const [uploadDocTipoId, setUploadDocTipoId] = useState("");
   const [uploadDocCategoriaId, setUploadDocCategoriaId] = useState("");
   const [uploadDocPlantillaId, setUploadDocPlantillaId] = useState("");
-  const [uploadTiposDocumento, setUploadTiposDocumento] = useState<{ id: string; nombre: string }[]>([]);
-  const [uploadCategorias, setUploadCategorias] = useState<{ id: string; nombre: string }[]>([]);
-  const [uploadPlantillas, setUploadPlantillas] = useState<{ id: string; nombre: string }[]>([]);
-  const [uploadDocLoadingCatalogos, setUploadDocLoadingCatalogos] = useState(false);
+  const [uploadTiposDocumento, setUploadTiposDocumento] = useState<
+    { id: string; nombre: string }[]
+  >([]);
+  const [uploadCategorias, setUploadCategorias] = useState<
+    { id: string; nombre: string }[]
+  >([]);
+  const [uploadPlantillas, setUploadPlantillas] = useState<
+    { id: string; nombre: string }[]
+  >([]);
+  const [uploadDocLoadingCatalogos, setUploadDocLoadingCatalogos] =
+    useState(false);
   const [uploadDocHoras, setUploadDocHoras] = useState("");
   const [uploadDocComentario, setUploadDocComentario] = useState("");
 
@@ -181,19 +221,17 @@ export default function SiniestroDetailPage() {
   const [emailSending, setEmailSending] = useState(false);
   const [emailForm, setEmailForm] = useState<{
     configuracion_smtp_id: string;
-    destinatarios: string;
     asunto: string;
     mensaje: string;
-    adjuntos: File[];
+    archivos_adicionales: File[];
     documento_id: string | null;
     tipo_documento_nombre: string;
     categoria_nombre: string;
   }>({
     configuracion_smtp_id: "",
-    destinatarios: "",
     asunto: "",
     mensaje: "",
-    adjuntos: [],
+    archivos_adicionales: [],
     documento_id: null,
     tipo_documento_nombre: "",
     categoria_nombre: "",
@@ -202,6 +240,15 @@ export default function SiniestroDetailPage() {
   const [emailDestinatariosUsuarios, setEmailDestinatariosUsuarios] = useState<
     string[]
   >([]);
+  const [showContactosModal, setShowContactosModal] = useState(false);
+  const [provenienteContactos, setProvenienteContactos] = useState<
+    ProvenienteContacto[]
+  >([]);
+  const [selectedContactos, setSelectedContactos] = useState<string[]>([]);
+  const [nuevoContactoForm, setNuevoContactoForm] = useState({
+    nombre: "",
+    correo: "",
+  });
 
   // Estado para tabs internos (Etapas, Documentos, Bitácora)
   const [activeContentTab, setActiveContentTab] = useState<
@@ -227,7 +274,7 @@ export default function SiniestroDetailPage() {
 
   // Estados para status y calificación
   const [estadosSiniestro, setEstadosSiniestro] = useState<EstadoSiniestro[]>(
-    []
+    [],
   );
   const [calificacionesSiniestro, setCalificacionesSiniestro] = useState<
     CalificacionSiniestro[]
@@ -249,7 +296,8 @@ export default function SiniestroDetailPage() {
   const [savingSiniestro, setSavingSiniestro] = useState(false);
   const [editForm, setEditForm] = useState({
     numero_siniestro: "",
-    fecha_siniestro: "",
+    fecha_registro: "",
+    fecha_asignacion: "",
     ubicacion: "",
     numero_poliza: "",
     deducible: 0,
@@ -263,7 +311,8 @@ export default function SiniestroDetailPage() {
     asegurado_id: "" as string,
   });
   const [editModalAsegurados, setEditModalAsegurados] = useState<any[]>([]);
-  const [crearAseguradoDesdeEditModal, setCrearAseguradoDesdeEditModal] = useState(false);
+  const [crearAseguradoDesdeEditModal, setCrearAseguradoDesdeEditModal] =
+    useState(false);
 
   // Estados para administrar áreas e involucrados
   const [areasAdicionales, setAreasAdicionales] = useState<SiniestroArea[]>([]);
@@ -293,7 +342,8 @@ export default function SiniestroDetailPage() {
   // Modal agregar/cambiar asegurado
   const [showModalAsegurado, setShowModalAsegurado] = useState(false);
   const [aseguradosCatalogo, setAseguradosCatalogo] = useState<any[]>([]);
-  const [aseguradoSeleccionadoModal, setAseguradoSeleccionadoModal] = useState<string>("");
+  const [aseguradoSeleccionadoModal, setAseguradoSeleccionadoModal] =
+    useState<string>("");
   const [showCrearAseguradoModal, setShowCrearAseguradoModal] = useState(false);
   const [asignandoAsegurado, setAsignandoAsegurado] = useState(false);
 
@@ -329,7 +379,7 @@ export default function SiniestroDetailPage() {
     etapa: EtapaFlujo,
     siniestroData: Siniestro | null,
     autorUsuario: any,
-    asegurado: any
+    asegurado: any,
   ): string => {
     if (!contenido) return contenido;
 
@@ -376,7 +426,11 @@ export default function SiniestroDetailPage() {
       const raw = firmaRaw.trim();
       if (raw.startsWith("data:")) {
         firmaSrc = raw;
-      } else if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/")) {
+      } else if (
+        raw.startsWith("http://") ||
+        raw.startsWith("https://") ||
+        raw.startsWith("/")
+      ) {
         firmaSrc = raw;
       } else {
         firmaSrc = `data:image/png;base64,${raw}`;
@@ -400,9 +454,8 @@ export default function SiniestroDetailPage() {
         ? siniestroData.codigo.toString().padStart(3, "0")
         : "";
 
-      // Anualidad: últimos 2 dígitos del año de fecha_siniestro (o fecha_registro / creado_en)
+      // Anualidad: año de fecha de reporte (`fecha_registro`) o creación
       const baseFecha =
-        siniestroData.fecha_siniestro ||
         (siniestroData as any)?.fecha_registro ||
         siniestroData.creado_en;
 
@@ -418,12 +471,20 @@ export default function SiniestroDetailPage() {
 
     const idFormato = construirIdFormato();
 
+    const areaPrincipalId = (siniestroData as any)?.area_principal_id;
+    const relacionPrincipal = areaPrincipalId
+      ? areasAdicionales.find(
+          (ar) => String(ar.area_id) === String(areaPrincipalId),
+        )
+      : areasAdicionales[0];
+    const fechaAsignacionSrc = relacionPrincipal?.fecha_asignacion;
+
     const replacements: Record<string, string> = {
-      fecha_asignacion: formatoFecha(siniestroData?.fecha_siniestro),
+      fecha_asignacion: formatoFecha(fechaAsignacionSrc),
       fecha: formatoFecha(hoy),
       numero_reporte: siniestroData?.numero_reporte || "",
       fecha_registro: formatoFecha(
-        (siniestroData as any)?.fecha_registro || siniestroData?.creado_en
+        (siniestroData as any)?.fecha_registro || siniestroData?.creado_en,
       ),
       id: idFormato,
       // Nombre del asegurado
@@ -454,7 +515,7 @@ export default function SiniestroDetailPage() {
     doc: { creado_en?: string | null; area_id?: string | null } | null,
     areaNombre: string,
     aseguradoData: any,
-    autorNombre: string
+    autorNombre: string,
   ): Record<string, string> => {
     const hoy = new Date();
     const formatoFecha = (fecha?: string | Date | null) => {
@@ -478,7 +539,7 @@ export default function SiniestroDetailPage() {
     const creadoEn = doc?.creado_en
       ? formatoFecha(doc.creado_en)
       : formatoFecha(
-          (siniestroData as any)?.fecha_registro || siniestroData?.creado_en
+          (siniestroData as any)?.fecha_registro || siniestroData?.creado_en,
         );
 
     const construirIdFormato = (): string => {
@@ -488,14 +549,19 @@ export default function SiniestroDetailPage() {
         ? siniestroData.codigo.toString().padStart(3, "0")
         : "";
       const baseFecha =
-        siniestroData.fecha_siniestro ||
-        (siniestroData as any)?.fecha_registro ||
-        siniestroData.creado_en;
+        (siniestroData as any)?.fecha_registro || siniestroData.creado_en;
       const yearSource = baseFecha ? new Date(baseFecha) : hoy;
       const anualidad = yearSource.getFullYear().toString().slice(-2);
       if (!codigoProveniente || !consecutivo || !anualidad) return "";
       return `${codigoProveniente}-${consecutivo}-${anualidad}`;
     };
+
+    const relacionParaFechaAsignacion = doc?.area_id
+      ? areasAdicionales.find(
+          (ar) => String(ar.area_id) === String(doc.area_id),
+        )
+      : areasAdicionales[0];
+    const fechaAsignacionSrc = relacionParaFechaAsignacion?.fecha_asignacion;
 
     return {
       creado_en: creadoEn,
@@ -506,7 +572,7 @@ export default function SiniestroDetailPage() {
       fecha_registro: creadoEn,
       nombre_asegurado: nombreAsegurado,
       autor: autorNombre,
-      fecha_asignacion: formatoFecha(siniestroData?.fecha_siniestro),
+      fecha_asignacion: formatoFecha(fechaAsignacionSrc),
       fecha: formatoFecha(hoy),
       numero_reporte: siniestroData?.numero_reporte || "",
       numero_siniestro: siniestroData?.numero_siniestro ?? "",
@@ -576,8 +642,6 @@ export default function SiniestroDetailPage() {
         doc.area_id || "",
       ].join("::");
 
-
-
       const actual = informesPorClave.get(clave);
       if (!actual) {
         informesPorClave.set(clave, doc);
@@ -641,7 +705,7 @@ export default function SiniestroDetailPage() {
       if (
         siniestroId === "nuevo" ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          siniestroId
+          siniestroId,
         )
       ) {
         router.push("/siniestros");
@@ -652,14 +716,25 @@ export default function SiniestroDetailPage() {
 
       // Registrar en "recientes visitados" para el dashboard
       try {
-        const fecha = (data as any).fecha_siniestro ?? (data as any).fecha_registro ?? (data as any).creado_en;
-        const areaId = (data as any).siniestro_areas?.[0]?.area_id ?? (data as any).area_id ?? undefined;
+        const fecha =
+          (data as any).fecha_registro ??
+          (data as any).creado_en;
+        const areaId =
+          (data as any).siniestro_areas?.[0]?.area_id ??
+          (data as any).area_id ??
+          undefined;
         addRecentVisitedSiniestro({
           id: String((data as any).id),
           numero_siniestro: (data as any).numero_siniestro ?? null,
-          fecha_siniestro: fecha ? (typeof fecha === "string" ? fecha : (fecha as Date).toISOString?.()) : null,
+          fecha_registro: fecha
+            ? typeof fecha === "string"
+              ? fecha
+              : (fecha as Date).toISOString?.()
+            : null,
           prioridad: (data as any).prioridad ?? "media",
-          estado_id: (data as any).estado_id ? String((data as any).estado_id) : null,
+          estado_id: (data as any).estado_id
+            ? String((data as any).estado_id)
+            : null,
           area_principal_id: areaId ? String(areaId) : null,
         });
       } catch {
@@ -711,15 +786,19 @@ export default function SiniestroDetailPage() {
       if (siniestroData.asegurado_id) {
         try {
           const asegurado = await apiService.getAseguradoById(
-            siniestroData.asegurado_id
+            siniestroData.asegurado_id,
           );
           setAseguradoInfo(asegurado);
         } catch (e: any) {
           // Cualquier fallo (404 = ID de usuario antiguo, 500, red, etc.): mostrar "Sin asegurado" y limpiar
           setAseguradoInfo(null);
           try {
-            await apiService.updateSiniestro(siniestroData.id, { asegurado_id: null as any });
-            setSiniestro((prev) => (prev ? { ...prev, asegurado_id: undefined } : null));
+            await apiService.updateSiniestro(siniestroData.id, {
+              asegurado_id: null as any,
+            });
+            setSiniestro((prev) =>
+              prev ? { ...prev, asegurado_id: undefined } : null,
+            );
           } catch (_) {
             // Si falla el update (ej. permisos), al menos la UI ya muestra "Sin asegurado"
           }
@@ -733,7 +812,7 @@ export default function SiniestroDetailPage() {
         try {
           const instituciones = await apiService.getInstituciones();
           const institucion = instituciones.find(
-            (inst: any) => inst.id === siniestroData.institucion_id
+            (inst: any) => inst.id === siniestroData.institucion_id,
           );
           if (institucion) setInstitucionInfo(institucion);
         } catch (e) {
@@ -746,7 +825,7 @@ export default function SiniestroDetailPage() {
         try {
           const autoridades = await apiService.getAutoridades();
           const autoridad = autoridades.find(
-            (auth: any) => auth.id === siniestroData.autoridad_id
+            (auth: any) => auth.id === siniestroData.autoridad_id,
           );
           if (autoridad) setAutoridadInfo(autoridad);
         } catch (e) {
@@ -759,7 +838,7 @@ export default function SiniestroDetailPage() {
         try {
           const provenientes = await apiService.getProvenientes();
           const proveniente = provenientes.find(
-            (prov: any) => prov.id === siniestroData.proveniente_id
+            (prov: any) => prov.id === siniestroData.proveniente_id,
           );
           if (proveniente) setProvenienteInfo(proveniente);
         } catch (e) {
@@ -794,9 +873,13 @@ export default function SiniestroDetailPage() {
       await apiService.updateSiniestro(siniestroId, {
         asegurado_id: aseguradoSeleccionadoModal,
       });
-      const asegurado = await apiService.getAseguradoById(aseguradoSeleccionadoModal);
+      const asegurado = await apiService.getAseguradoById(
+        aseguradoSeleccionadoModal,
+      );
       setAseguradoInfo(asegurado);
-      setSiniestro((prev) => (prev ? { ...prev, asegurado_id: aseguradoSeleccionadoModal } : null));
+      setSiniestro((prev) =>
+        prev ? { ...prev, asegurado_id: aseguradoSeleccionadoModal } : null,
+      );
       await loadLogsAuditoria();
       setShowModalAsegurado(false);
       swalSuccess("Asegurado asignado correctamente");
@@ -818,7 +901,9 @@ export default function SiniestroDetailPage() {
         setCrearAseguradoDesdeEditModal(false);
         setEditModalAsegurados(list);
         setEditForm((prev) => ({ ...prev, asegurado_id: nuevoId }));
-        swalSuccess("Asegurado creado. Selecciónalo en el listado y guarda los cambios.");
+        swalSuccess(
+          "Asegurado creado. Selecciónalo en el listado y guarda los cambios.",
+        );
         return;
       }
 
@@ -827,10 +912,14 @@ export default function SiniestroDetailPage() {
       if (!siniestroId) return;
       setAsignandoAsegurado(true);
       try {
-        await apiService.updateSiniestro(siniestroId, { asegurado_id: nuevoId });
+        await apiService.updateSiniestro(siniestroId, {
+          asegurado_id: nuevoId,
+        });
         const asegurado = await apiService.getAseguradoById(nuevoId);
         setAseguradoInfo(asegurado);
-        setSiniestro((prev) => (prev ? { ...prev, asegurado_id: nuevoId } : null));
+        setSiniestro((prev) =>
+          prev ? { ...prev, asegurado_id: nuevoId } : null,
+        );
         await loadLogsAuditoria();
         setShowModalAsegurado(false);
         swalSuccess("Asegurado creado y asignado correctamente");
@@ -840,13 +929,13 @@ export default function SiniestroDetailPage() {
         setAsignandoAsegurado(false);
       }
     },
-    [siniestroId, crearAseguradoDesdeEditModal]
+    [siniestroId, crearAseguradoDesdeEditModal],
   );
 
   // Cargar documentos filtrados por área y flujo (solo si tiene permiso)
   const loadDocumentosFiltrados = async (
     areaId?: string,
-    flujoTrabajoId?: string
+    flujoTrabajoId?: string,
   ) => {
     if (!canVerDocumentos) {
       setDocumentosFiltrados([]);
@@ -870,7 +959,7 @@ export default function SiniestroDetailPage() {
   // Cargar bitácoras filtradas por área y flujo (solo si tiene permiso)
   const loadBitacorasFiltradas = async (
     areaId?: string,
-    flujoTrabajoId?: string
+    flujoTrabajoId?: string,
   ) => {
     if (!canVerBitacora) {
       setBitacorasFiltradas([]);
@@ -918,7 +1007,7 @@ export default function SiniestroDetailPage() {
       console.error("Error al cargar estados de siniestro:", error);
       console.error("Error response:", error.response);
       swalError(
-        error.response?.data?.detail || "Error al cargar estados de siniestro"
+        error.response?.data?.detail || "Error al cargar estados de siniestro",
       );
     } finally {
       setLoadingEstados(false);
@@ -937,7 +1026,7 @@ export default function SiniestroDetailPage() {
       console.error("Error response:", error.response);
       swalError(
         error.response?.data?.detail ||
-          "Error al cargar calificaciones de siniestro"
+          "Error al cargar calificaciones de siniestro",
       );
     } finally {
       setLoadingCalificaciones(false);
@@ -980,7 +1069,7 @@ export default function SiniestroDetailPage() {
     } catch (error: any) {
       console.error("Error al actualizar calificación:", error);
       swalError(
-        error.response?.data?.detail || "Error al actualizar calificación"
+        error.response?.data?.detail || "Error al actualizar calificación",
       );
     } finally {
       setUpdatingCalificacion(false);
@@ -991,13 +1080,29 @@ export default function SiniestroDetailPage() {
   const handleOpenEditModal = async () => {
     if (!siniestro) return;
 
-    const fechaSiniestro = siniestro.fecha_siniestro
-      ? new Date(siniestro.fecha_siniestro).toISOString().split("T")[0]
+    const fechaReporte = siniestro.fecha_registro
+      ? new Date(siniestro.fecha_registro).toISOString().split("T")[0]
       : "";
+
+    const areaPrincipalId = (siniestro as any)?.area_principal_id;
+    const relacionPrincipal =
+      areaPrincipalId
+        ? areasAdicionales.find(
+            (ar) => String(ar.area_id) === String(areaPrincipalId),
+          )
+        : areasAdicionales[0];
+
+    const fechaAsignacion =
+      relacionPrincipal?.fecha_asignacion
+        ? String(relacionPrincipal.fecha_asignacion).includes("T")
+          ? String(relacionPrincipal.fecha_asignacion).split("T")[0]
+          : String(relacionPrincipal.fecha_asignacion).slice(0, 10)
+        : "";
 
     setEditForm({
       numero_siniestro: siniestro.numero_siniestro || "",
-      fecha_siniestro: fechaSiniestro,
+      fecha_registro: fechaReporte,
+      fecha_asignacion: fechaAsignacion,
       ubicacion: siniestro.ubicacion || "",
       numero_poliza: siniestro.numero_poliza || "",
       deducible: siniestro.deducible || 0,
@@ -1026,15 +1131,32 @@ export default function SiniestroDetailPage() {
     try {
       setSavingSiniestro(true);
 
-      // Preparar datos para actualizar (fecha_siniestro debe ser ISO datetime con "T", no solo YYYY-MM-DD)
-      const fechaSiniestroIso = editForm.fecha_siniestro
-        ? (editForm.fecha_siniestro.includes("T")
-            ? editForm.fecha_siniestro
-            : `${editForm.fecha_siniestro}T00:00:00`)
+      const fechaRegistroIso = editForm.fecha_registro
+        ? editForm.fecha_registro.includes("T")
+          ? editForm.fecha_registro
+          : `${editForm.fecha_registro}T00:00:00`
         : undefined;
+
+      const fechaAsignacionIso = editForm.fecha_asignacion
+        ? editForm.fecha_asignacion.includes("T")
+          ? editForm.fecha_asignacion
+          : `${editForm.fecha_asignacion}T00:00:00`
+        : undefined;
+
+      const areaPrincipalId = (siniestro as any)?.area_principal_id;
+      const relacionPrincipal =
+        areaPrincipalId
+          ? areasAdicionales.find(
+              (ar) => String(ar.area_id) === String(areaPrincipalId),
+            )
+          : areasAdicionales[0];
+      const relacionPrincipalId = relacionPrincipal?.id;
       const updateData: any = {
-        numero_siniestro: editForm.numero_siniestro && editForm.numero_siniestro.trim() ? editForm.numero_siniestro : null,
-        fecha_siniestro: fechaSiniestroIso,
+        numero_siniestro:
+          editForm.numero_siniestro && editForm.numero_siniestro.trim()
+            ? editForm.numero_siniestro
+            : null,
+        fecha_registro: fechaRegistroIso,
         ubicacion: editForm.ubicacion || undefined,
         numero_poliza: editForm.numero_poliza || undefined,
         deducible: editForm.deducible || undefined,
@@ -1043,20 +1165,35 @@ export default function SiniestroDetailPage() {
         suma_asegurada: editForm.suma_asegurada || undefined,
         prioridad: editForm.prioridad || undefined,
         forma_contacto: editForm.forma_contacto || undefined,
-        numero_reporte: editForm.numero_reporte && editForm.numero_reporte.trim() ? editForm.numero_reporte : null,
+        numero_reporte:
+          editForm.numero_reporte && editForm.numero_reporte.trim()
+            ? editForm.numero_reporte
+            : null,
         observaciones: editForm.observaciones || undefined,
-        asegurado_id: editForm.asegurado_id && editForm.asegurado_id.trim() ? editForm.asegurado_id : null,
+        asegurado_id:
+          editForm.asegurado_id && editForm.asegurado_id.trim()
+            ? editForm.asegurado_id
+            : null,
       };
 
       await apiService.updateSiniestro(siniestroId, updateData);
+
+      // Actualizar `fecha_asignacion` de la relación siniestro-área (si aplica)
+      if (relacionPrincipalId && fechaAsignacionIso) {
+        await apiService.updateAreaAdicional(relacionPrincipalId, {
+          fecha_asignacion: fechaAsignacionIso,
+        });
+      }
+
       await loadSiniestro();
+      await loadAreasAdicionales();
       await loadLogsAuditoria();
       setShowEditModal(false);
       swalSuccess("Siniestro actualizado correctamente");
     } catch (error: any) {
       console.error("Error al actualizar siniestro:", error);
       swalError(
-        error.response?.data?.detail || "Error al actualizar siniestro"
+        error.response?.data?.detail || "Error al actualizar siniestro",
       );
     } finally {
       setSavingSiniestro(false);
@@ -1067,7 +1204,7 @@ export default function SiniestroDetailPage() {
   const handleEditFormChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >
+    >,
   ) => {
     const { name, value } = e.target;
     setEditForm((prev) => ({
@@ -1092,14 +1229,14 @@ export default function SiniestroDetailPage() {
       try {
         const flujosGeneralesData: FlujoTrabajo[] = await apiService.getFlujos(
           "null",
-          true
+          true,
         );
         const flujosGeneralesConEtapas: FlujoConEtapas[] = [];
 
         for (const flujo of flujosGeneralesData) {
           try {
             const flujoCompleto: FlujoCompleto = await apiService.getFlujoById(
-              flujo.id
+              flujo.id,
             );
             flujosGeneralesConEtapas.push({
               flujo: flujoCompleto,
@@ -1169,7 +1306,7 @@ export default function SiniestroDetailPage() {
           // Cargar flujos de esta área específica
           const flujos: FlujoTrabajo[] = await apiService.getFlujos(
             areaId,
-            true
+            true,
           );
 
           // Para cada flujo, cargar sus etapas
@@ -1211,7 +1348,7 @@ export default function SiniestroDetailPage() {
     } catch (e: any) {
       console.error("Error al cargar flujos por áreas:", e);
       swalError(
-        e.response?.data?.detail || "Error al cargar flujos de trabajo"
+        e.response?.data?.detail || "Error al cargar flujos de trabajo",
       );
     } finally {
       setLoadingFlujos(false);
@@ -1245,6 +1382,7 @@ export default function SiniestroDetailPage() {
       await apiService.addAreaAdicional(siniestroId, {
         area_id: areaId,
         activo: true,
+        fecha_asignacion: new Date().toISOString(),
       });
       await loadAreasAdicionales();
       await loadFlujosPorAreas(); // Recargar flujos para reflejar cambios
@@ -1259,7 +1397,7 @@ export default function SiniestroDetailPage() {
     try {
       const confirmed = await swalConfirm(
         "¿Estás seguro de eliminar esta área?",
-        "Esta acción no se puede deshacer"
+        "Esta acción no se puede deshacer",
       );
       if (!confirmed) return;
 
@@ -1280,7 +1418,7 @@ export default function SiniestroDetailPage() {
       setLoadingInvolucrados(true);
       const involucradosData = await apiService.getInvolucrados(
         siniestroId,
-        true
+        true,
       );
       setInvolucrados(involucradosData);
 
@@ -1299,7 +1437,7 @@ export default function SiniestroDetailPage() {
 
   const handleAddInvolucrado = async (
     usuarioId: string,
-    tipoRelacion: "asegurado" | "proveniente" | "testigo" | "tercero"
+    tipoRelacion: "asegurado" | "proveniente" | "testigo" | "tercero",
   ) => {
     if (!siniestroId) return;
     try {
@@ -1320,7 +1458,7 @@ export default function SiniestroDetailPage() {
     try {
       const confirmed = await swalConfirm(
         "¿Estás seguro de eliminar este involucrado?",
-        "Esta acción no se puede deshacer"
+        "Esta acción no se puede deshacer",
       );
       if (!confirmed) return;
 
@@ -1330,7 +1468,7 @@ export default function SiniestroDetailPage() {
       swalSuccess("Involucrado eliminado correctamente");
     } catch (error: any) {
       swalError(
-        error.response?.data?.detail || "Error al eliminar involucrado"
+        error.response?.data?.detail || "Error al eliminar involucrado",
       );
     }
   };
@@ -1374,7 +1512,7 @@ export default function SiniestroDetailPage() {
       }
       swalError(
         error.response?.data?.detail ||
-          "Error al actualizar información de póliza"
+          "Error al actualizar información de póliza",
       );
     } finally {
       setSavingPoliza(false);
@@ -1401,7 +1539,10 @@ export default function SiniestroDetailPage() {
 
     try {
       setLoadingLogs(true);
-      const logs = await apiService.getHistorialRegistro("siniestros", siniestroId);
+      const logs = await apiService.getHistorialRegistro(
+        "siniestros",
+        siniestroId,
+      );
       setLogsAuditoria(logs || []);
     } catch (error: any) {
       console.error("Error al cargar logs de auditoría:", error);
@@ -1463,7 +1604,7 @@ export default function SiniestroDetailPage() {
               formulario_actualizado: "Formulario actualizado",
               error: "Error",
             };
-            return labels[value?.toLowerCase()] || (value || "Acción");
+            return labels[value?.toLowerCase()] || value || "Acción";
           };
 
           const getAccionIcon = (value: string) => {
@@ -1569,7 +1710,7 @@ export default function SiniestroDetailPage() {
           return (
             <span
               className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full border ${getAccionColor(
-                accionUpper
+                accionUpper,
               )}`}
             >
               {getAccionIcon(accionUpper)}
@@ -1582,7 +1723,9 @@ export default function SiniestroDetailPage() {
         accessorKey: "descripcion",
         header: "Descripción",
         cell: ({ row }) => (
-          <span className="text-gray-900">{row.original.descripcion || "-"}</span>
+          <span className="text-gray-900">
+            {row.original.descripcion || "-"}
+          </span>
         ),
       },
       {
@@ -1605,12 +1748,14 @@ export default function SiniestroDetailPage() {
         },
       },
     ],
-    []
+    [],
   );
 
   // Función para abrir el editor de documento de una etapa
   // Función para ver el documento como PDF desde una etapa
   const handleViewDocument = async (etapa: EtapaFlujo) => {
+    revokeArchivoPreviewUrl();
+    setDocumentoEnVistaPrevia(null);
     setCurrentEtapa(etapa);
     setPdfLoading(true);
     setShowPdfModal(true);
@@ -1628,13 +1773,13 @@ export default function SiniestroDetailPage() {
 
       // Buscar documentos de esta etapa
       const documentosEtapa = documentosExistentes.filter(
-        (doc: any) => doc.etapa_flujo_id === etapa.id
+        (doc: any) => doc.etapa_flujo_id === etapa.id,
       );
 
       console.log("documentosEtapa", documentosEtapa);
       console.log("flujoTrabajoIdActual", flujoTrabajoIdActual);
       console.log("areaIdActual", areaIdActual);
-      
+
       // Buscar documento del flujo actual (debe coincidir exactamente)
       // Si no hay flujo específico activo, usar el más reciente
       let docExistente: any = null;
@@ -1644,16 +1789,17 @@ export default function SiniestroDetailPage() {
           documentosEtapa.find(
             (doc: any) =>
               doc.flujo_trabajo_id === flujoTrabajoIdActual &&
-              (!!areaIdActual ? doc.area_id === areaIdActual : true)
+              (!!areaIdActual ? doc.area_id === areaIdActual : true),
           ) ||
           documentosEtapa.find(
-            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
+            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual,
           );
       } else {
         // Si no hay flujo específico, usar el más reciente
         if (documentosEtapa.length > 0) {
-          docExistente = documentosEtapa.sort((a: any, b: any) => 
-            new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime()
+          docExistente = documentosEtapa.sort(
+            (a: any, b: any) =>
+              new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime(),
           )[0];
         }
       }
@@ -1664,9 +1810,11 @@ export default function SiniestroDetailPage() {
         return;
       }
 
+      setDocumentoEnVistaPrevia(docExistente);
+
       const areaNombre =
         areasConFlujos.find(
-          (acf) => acf.area.id === (docExistente.area_id || activeAreaTab)
+          (acf) => acf.area.id === (docExistente.area_id || activeAreaTab),
         )?.area.nombre || "";
       const autorNombre =
         `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
@@ -1678,7 +1826,7 @@ export default function SiniestroDetailPage() {
         docExistente,
         areaNombre,
         aseguradoInfo,
-        autorNombre
+        autorNombre,
       );
 
       const plantillaId =
@@ -1689,7 +1837,10 @@ export default function SiniestroDetailPage() {
       // Incluir respuestas del formulario de continuación para reemplazar {{clave}} en el HTML
       if (plantillaId && siniestroId) {
         try {
-          const respuesta = await apiService.getRespuestaFormulario(plantillaId, siniestroId);
+          const respuesta = await apiService.getRespuestaFormulario(
+            plantillaId,
+            siniestroId,
+          );
           if (respuesta?.valores && typeof respuesta.valores === "object") {
             variables = { ...variables, ...respuesta.valores };
           }
@@ -1715,8 +1866,11 @@ export default function SiniestroDetailPage() {
       setPdfFilename(filename);
     } catch (error: any) {
       console.error("Error al generar PDF:", error);
-      swalError(error.response?.data?.detail || "Error al generar el PDF del documento");
+      swalError(
+        error.response?.data?.detail || "Error al generar el PDF del documento",
+      );
       setShowPdfModal(false);
+      setDocumentoEnVistaPrevia(null);
     } finally {
       setPdfLoading(false);
     }
@@ -1724,69 +1878,140 @@ export default function SiniestroDetailPage() {
 
   // Función para ver un documento directamente (desde la lista de documentos)
   const handleViewDocumento = async (documento: any) => {
+    revokeArchivoPreviewUrl();
+    setDocumentoEnVistaPrevia(documento);
+    setCurrentEtapa(null);
     setPdfLoading(true);
     setShowPdfModal(true);
     setPdfBase64(null);
+    setPdfFilename(documento.nombre_archivo || "documento");
 
     try {
-      if (!documento.contenido) {
-        swalError("No hay contenido del documento para mostrar");
-        setShowPdfModal(false);
+      // Informe con HTML (plantilla)
+      if (documento.contenido) {
+        const areaNombre =
+          areasConFlujos.find(
+            (acf) => acf.area.id === (documento.area_id || activeAreaTab),
+          )?.area.nombre || "";
+        const autorNombre =
+          `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
+          (user as any)?.full_name ||
+          (user as any)?.email ||
+          "";
+        let variables = getVariablesForPdf(
+          siniestro,
+          documento,
+          areaNombre,
+          aseguradoInfo,
+          autorNombre,
+        );
+
+        const plantillaIdDoc = documento.plantilla_documento_id;
+        if (plantillaIdDoc && siniestroId) {
+          try {
+            const respuesta = await apiService.getRespuestaFormulario(
+              plantillaIdDoc,
+              siniestroId,
+            );
+            if (respuesta?.valores && typeof respuesta.valores === "object") {
+              variables = { ...variables, ...respuesta.valores };
+            }
+          } catch {
+            // Sin respuesta de formulario, seguir con las variables base
+          }
+        }
+
+        const filename =
+          documento.nombre_archivo.replace(".html", ".pdf") || "documento.pdf";
+        const pdfResponse = await apiService.generatePDF({
+          html_content: documento.contenido,
+          plantilla_id: documento.plantilla_documento_id || undefined,
+          siniestro_id: siniestroId,
+          variables,
+          page_size: "A4",
+          orientation: "portrait",
+          filename: filename,
+        });
+
+        setPdfBase64(pdfResponse.pdf_base64);
+        setPdfFilename(filename);
+
+        // Botón Editar en el modal: misma resolución de etapa que handleEditDocumento
+        // En algunos casos el objeto "documento" llega agrupado y puede venir sin etapa_flujo_id,
+        // así que intentamos recuperarla desde documentosExistentes por id.
+        const etapaId =
+          documento.etapa_flujo_id ??
+          (documento.id
+            ? (
+                documentosExistentes.find(
+                  (d: any) => String(d.id) === String(documento.id),
+                ) || ({} as any)
+              ).etapa_flujo_id
+            : undefined);
+
+        if (etapaId) {
+          let etapaEncontrada: EtapaFlujo | null = null;
+          if (flujosGenerales) {
+            for (const flujoConEtapas of flujosGenerales.flujos) {
+              etapaEncontrada =
+                flujoConEtapas.etapas.find((e) => e.id === etapaId) || null;
+              if (etapaEncontrada) break;
+            }
+          }
+          if (!etapaEncontrada) {
+            for (const areaConFlujos of areasConFlujos) {
+              for (const flujoConEtapas of areaConFlujos.flujos) {
+                etapaEncontrada =
+                  flujoConEtapas.etapas.find((e) => e.id === etapaId) || null;
+                if (etapaEncontrada) break;
+              }
+              if (etapaEncontrada) break;
+            }
+          }
+          setCurrentEtapa(etapaEncontrada);
+        }
         return;
       }
 
-      const areaNombre =
-        areasConFlujos.find(
-          (acf) => acf.area.id === (documento.area_id || activeAreaTab)
-        )?.area.nombre || "";
-      const autorNombre =
-        `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
-        (user as any)?.full_name ||
-        (user as any)?.email ||
-        "";
-      let variables = getVariablesForPdf(
-        siniestro,
-        documento,
-        areaNombre,
-        aseguradoInfo,
-        autorNombre
-      );
-
-      // Incluir respuestas del formulario de continuación para reemplazar {{clave}} en el HTML
-      const plantillaIdDoc = documento.plantilla_documento_id;
-      if (plantillaIdDoc && siniestroId) {
-        try {
-          const respuesta = await apiService.getRespuestaFormulario(plantillaIdDoc, siniestroId);
-          if (respuesta?.valores && typeof respuesta.valores === "object") {
-            variables = { ...variables, ...respuesta.valores };
-          }
-        } catch {
-          // Sin respuesta de formulario, seguir con las variables base
-        }
+      // Archivo subido (foto, PDF, etc.): vista previa con blob autenticado
+      if (documento.id) {
+        const { blob, contentType } =
+          await apiService.fetchDocumentoArchivoBlob(documento.id);
+        const url = URL.createObjectURL(blob);
+        setArchivoPreviewUrl(url);
+        setArchivoPreviewMime(contentType || "application/octet-stream");
+        setPdfFilename(documento.nombre_archivo || "archivo");
+        return;
       }
 
-      const filename =
-        documento.nombre_archivo.replace(".html", ".pdf") || "documento.pdf";
-      const pdfResponse = await apiService.generatePDF({
-        html_content: documento.contenido,
-        plantilla_id: documento.plantilla_documento_id || undefined,
-        siniestro_id: siniestroId,
-        variables,
-        page_size: "A4",
-        orientation: "portrait",
-        filename: filename,
-      });
-
-      setPdfBase64(pdfResponse.pdf_base64);
-      setPdfFilename(filename);
-    } catch (error: any) {
-      console.error("Error al generar PDF:", error);
-      swalError(error.response?.data?.detail || "Error al generar el PDF del documento");
+      swalError("No hay contenido del documento para mostrar");
       setShowPdfModal(false);
+      setDocumentoEnVistaPrevia(null);
+    } catch (error: any) {
+      console.error("Error al visualizar documento:", error);
+      swalError(
+        error.response?.data?.detail ||
+          "Error al visualizar el documento o el archivo",
+      );
+      setShowPdfModal(false);
+      revokeArchivoPreviewUrl();
+      setDocumentoEnVistaPrevia(null);
     } finally {
       setPdfLoading(false);
     }
   };
+
+  const loadProvenienteContactos = useCallback(async () => {
+    if (!siniestro?.proveniente_id) {
+      setProvenienteContactos([]);
+      setSelectedContactos([]);
+      return;
+    }
+    const contactos = (await apiService.getProvenienteContactos(
+      siniestro.proveniente_id,
+    )) as ProvenienteContacto[];
+    setProvenienteContactos(contactos || []);
+  }, [siniestro?.proveniente_id]);
 
   // Abrir modal de envío de correo desde un documento (plantilla "Te envían un archivo"; si es informe se adjunta PDF)
   const handleOpenEmailModalFromDocumento = (documento: any) => {
@@ -1816,22 +2041,75 @@ export default function SiniestroDetailPage() {
       ...prev,
       asunto: asuntoBase,
       mensaje: mensajeBase,
+      archivos_adicionales: [],
       documento_id: documento.id ?? null,
       tipo_documento_nombre: tipoNombre,
       categoria_nombre: categoriaNombre,
     }));
 
+    loadProvenienteContactos().catch((error) => {
+      console.error("Error al cargar contactos del proveniente:", error);
+    });
     setShowEmailModal(true);
   };
 
   const handleEmailAdjuntosChange = (
-    e: React.ChangeEvent<HTMLInputElement>
+    e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
     setEmailForm((prev) => ({
       ...prev,
-      adjuntos: files,
+      // Permite seleccionar archivos en tandas y acumularlos.
+      archivos_adicionales: [...prev.archivos_adicionales, ...files],
     }));
+    // Permite volver a elegir el mismo archivo si el usuario lo quita y lo agrega de nuevo.
+    e.target.value = "";
+  };
+
+  const handleRemoveArchivoAdicional = (indexToRemove: number) => {
+    setEmailForm((prev) => ({
+      ...prev,
+      archivos_adicionales: prev.archivos_adicionales.filter(
+        (_, idx) => idx !== indexToRemove,
+      ),
+    }));
+  };
+
+  const fileToBase64 = async (file: File): Promise<string> =>
+    await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("No fue posible leer el archivo"));
+      reader.readAsDataURL(file);
+    });
+
+  const handleCrearNuevoContacto = async () => {
+    if (!siniestro?.proveniente_id) {
+      swalError("El siniestro no tiene proveniente asociado");
+      return;
+    }
+    const nombre = nuevoContactoForm.nombre.trim();
+    const correo = nuevoContactoForm.correo.trim().toLowerCase();
+    if (!nombre || !correo) {
+      swalError("Debes capturar nombre y correo");
+      return;
+    }
+    const duplicado = provenienteContactos.some(
+      (c) => c.correo.trim().toLowerCase() === correo,
+    );
+    if (duplicado) {
+      swalError("Ese correo ya existe en los contactos del proveniente");
+      return;
+    }
+
+    const creado = (await apiService.createProvenienteContacto(
+      siniestro.proveniente_id,
+      { nombre, correo },
+    )) as ProvenienteContacto;
+    setProvenienteContactos((prev) => [...prev, creado]);
+    setSelectedContactos((prev) => Array.from(new Set([...prev, creado.id])));
+    setNuevoContactoForm({ nombre: "", correo: "" });
   };
 
   const handleSendEmailWithDocument = async () => {
@@ -1842,10 +2120,10 @@ export default function SiniestroDetailPage() {
       return;
     }
 
-    const destinatariosTexto = emailForm.destinatarios
-      .split(/[;,]/)
-      .map((d) => d.trim())
-      .filter((d) => d.length > 0);
+    const correosContactos = provenienteContactos
+      .filter((c) => selectedContactos.includes(c.id))
+      .map((c) => c.correo?.trim())
+      .filter((c): c is string => !!c);
 
     // Correos de usuarios internos seleccionados
     const correosInternos = emailDestinatariosUsuarios
@@ -1857,7 +2135,7 @@ export default function SiniestroDetailPage() {
 
     // Unificar y eliminar duplicados
     const destinatariosLimpios = Array.from(
-      new Set([...destinatariosTexto, ...correosInternos])
+      new Set([...correosContactos, ...correosInternos]),
     );
 
     if (destinatariosLimpios.length === 0) {
@@ -1869,14 +2147,26 @@ export default function SiniestroDetailPage() {
       setEmailSending(true);
 
       if (emailForm.documento_id) {
+        const archivosAdjuntos =
+          emailForm.archivos_adicionales.length > 0
+            ? await Promise.all(
+                emailForm.archivos_adicionales.map(async (archivo) => ({
+                  nombre: archivo.name,
+                  tipo_mime: archivo.type || "application/octet-stream",
+                  contenido_base64: await fileToBase64(archivo),
+                })),
+              )
+            : undefined;
         await apiService.enviarArchivoCorreo({
           siniestro_id: siniestro.id,
           configuracion_smtp_id: emailForm.configuracion_smtp_id,
           destinatarios: destinatariosLimpios,
           mensaje: emailForm.mensaje || "",
+          asunto: emailForm.asunto?.trim() || undefined,
           documento_id: emailForm.documento_id,
           tipo_documento_nombre: emailForm.tipo_documento_nombre || undefined,
           categoria_nombre: emailForm.categoria_nombre || undefined,
+          archivos_adjuntos: archivosAdjuntos,
         });
       } else {
         const payload = {
@@ -1899,7 +2189,7 @@ export default function SiniestroDetailPage() {
       swalError(
         error.response?.data?.detail ||
           error.response?.data?.message ||
-          "Error al enviar el correo"
+          "Error al enviar el correo",
       );
     } finally {
       setEmailSending(false);
@@ -1922,7 +2212,7 @@ export default function SiniestroDetailPage() {
       for (const flujoConEtapas of flujosGenerales.flujos) {
         etapaEncontrada =
           flujoConEtapas.etapas.find(
-            (e) => e.id === documento.etapa_flujo_id
+            (e) => e.id === documento.etapa_flujo_id,
           ) || null;
         if (etapaEncontrada) break;
       }
@@ -1934,7 +2224,7 @@ export default function SiniestroDetailPage() {
         for (const flujoConEtapas of areaConFlujos.flujos) {
           etapaEncontrada =
             flujoConEtapas.etapas.find(
-              (e) => e.id === documento.etapa_flujo_id
+              (e) => e.id === documento.etapa_flujo_id,
             ) || null;
           if (etapaEncontrada) break;
         }
@@ -1954,10 +2244,90 @@ export default function SiniestroDetailPage() {
   // Descargar archivo de un documento (documentos subidos: fotos, PDF, etc.)
   const handleDownloadDocumento = async (documento: any) => {
     try {
-      await apiService.downloadDocumentoArchivo(documento.id, documento.nombre_archivo);
+      await apiService.downloadDocumentoArchivo(
+        documento.id,
+        documento.nombre_archivo,
+      );
       swalSuccess("Descarga iniciada");
     } catch (e: any) {
       swalError(e.response?.data?.detail || "Error al descargar el archivo");
+    }
+  };
+
+  // Descargar PDF de un informe desde la tabla de documentos (HTML + variables + continuación)
+  const handleDownloadInforme = async (documento: any) => {
+    try {
+      if (!siniestro) return;
+      if (!documento?.contenido || !documento?.plantilla_documento_id) {
+        swalError(
+          "No se puede descargar: el documento no tiene contenido de informe.",
+        );
+        return;
+      }
+      if (!siniestroId) {
+        swalError("No se puede descargar: siniestro no disponible.");
+        return;
+      }
+
+      const areaNombre =
+        areasConFlujos.find(
+          (acf) => acf.area.id === (documento.area_id || activeAreaTab),
+        )?.area.nombre || "";
+      const autorNombre =
+        `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
+        (user as any)?.full_name ||
+        (user as any)?.email ||
+        "";
+
+      let variables = getVariablesForPdf(
+        siniestro,
+        documento,
+        areaNombre,
+        aseguradoInfo,
+        autorNombre,
+      );
+
+      const plantillaIdDoc = documento.plantilla_documento_id;
+      if (plantillaIdDoc && siniestroId) {
+        try {
+          const respuesta = await apiService.getRespuestaFormulario(
+            plantillaIdDoc,
+            siniestroId,
+          );
+          if (respuesta?.valores && typeof respuesta.valores === "object") {
+            variables = { ...variables, ...respuesta.valores };
+          }
+        } catch {
+          // Sin respuesta de formulario: descargar con variables base
+        }
+      }
+
+      const baseName: string = documento.nombre_archivo || "documento";
+      const filename = baseName.toLowerCase().endsWith(".pdf")
+        ? baseName
+        : baseName.replace(/\.[^/.]+$/, "") + ".pdf";
+
+      const pdfResponse = await apiService.generatePDF({
+        html_content: documento.contenido,
+        plantilla_id: documento.plantilla_documento_id,
+        siniestro_id: siniestroId,
+        variables,
+        page_size: "A4",
+        orientation: "portrait",
+        filename,
+      });
+
+      // Descargar desde base64 como PDF
+      const link = document.createElement("a");
+      link.href = `data:application/pdf;base64,${pdfResponse.pdf_base64}`;
+      link.download = pdfResponse.filename || filename;
+      link.click();
+      swalSuccess("Descarga iniciada");
+    } catch (error: any) {
+      console.error("Error al descargar informe:", error);
+      swalError(
+        error.response?.data?.detail || "Error al descargar el informe",
+      );
     }
   };
 
@@ -1987,7 +2357,14 @@ export default function SiniestroDetailPage() {
     apiService
       .getPlantillas(true)
       .then((data: any[]) => {
-        setUploadTiposDocumento(Array.isArray(data) ? data.map((t: any) => ({ id: t.id, nombre: t.nombre || t.name || String(t.id) })) : []);
+        setUploadTiposDocumento(
+          Array.isArray(data)
+            ? data.map((t: any) => ({
+                id: t.id,
+                nombre: t.nombre || t.name || String(t.id),
+              }))
+            : [],
+        );
       })
       .catch(() => setUploadTiposDocumento([]))
       .finally(() => setUploadDocLoadingCatalogos(false));
@@ -2008,7 +2385,14 @@ export default function SiniestroDetailPage() {
     apiService
       .getCategoriasDocumento(uploadDocTipoId, true)
       .then((cats: any[]) => {
-        setUploadCategorias(Array.isArray(cats) ? cats.map((c: any) => ({ id: c.id, nombre: c.nombre || c.name || String(c.id) })) : []);
+        setUploadCategorias(
+          Array.isArray(cats)
+            ? cats.map((c: any) => ({
+                id: c.id,
+                nombre: c.nombre || c.name || String(c.id),
+              }))
+            : [],
+        );
       })
       .catch(() => setUploadCategorias([]))
       .finally(() => setUploadDocLoadingCatalogos(false));
@@ -2023,7 +2407,14 @@ export default function SiniestroDetailPage() {
     apiService
       .getPlantillasDocumento(uploadDocTipoId, categoriaId, true)
       .then((plants: any[]) => {
-        setUploadPlantillas(Array.isArray(plants) ? plants.map((p: any) => ({ id: p.id, nombre: p.nombre || p.name || String(p.id) })) : []);
+        setUploadPlantillas(
+          Array.isArray(plants)
+            ? plants.map((p: any) => ({
+                id: p.id,
+                nombre: p.nombre || p.name || String(p.id),
+              }))
+            : [],
+        );
       })
       .catch(() => setUploadPlantillas([]))
       .finally(() => setUploadDocLoadingCatalogos(false));
@@ -2042,14 +2433,17 @@ export default function SiniestroDetailPage() {
         flujoId = activeFlujoTab.replace("area-", "");
         areaIdForContext = activeAreaTab;
       }
-      const horasNum = uploadDocHoras.trim() ? parseFloat(uploadDocHoras) : undefined;
+      const horasNum = uploadDocHoras.trim()
+        ? parseFloat(uploadDocHoras)
+        : undefined;
       await apiService.uploadDocumento(siniestroId, uploadDocFile, {
         descripcion: uploadDocDescripcion.trim() || undefined,
         area_id: areaIdForContext || undefined,
         flujo_trabajo_id: flujoId,
         tipo_documento_id: uploadDocTipoId || undefined,
         plantilla_documento_id: uploadDocPlantillaId || undefined,
-        horas_trabajadas: horasNum != null && !Number.isNaN(horasNum) ? horasNum : undefined,
+        horas_trabajadas:
+          horasNum != null && !Number.isNaN(horasNum) ? horasNum : undefined,
         comentarios: uploadDocComentario.trim() || undefined,
       });
       await swalSuccess("Archivo subido correctamente");
@@ -2066,20 +2460,29 @@ export default function SiniestroDetailPage() {
   };
 
   // Abrir modal de formulario de continuación (para llenar datos del documento de continuación)
-  const handleOpenFormularioContinuacion = async (plantillaId: string, plantillaNombre?: string) => {
+  const handleOpenFormularioContinuacion = async (
+    plantillaId: string,
+    plantillaNombre?: string,
+  ) => {
     if (!plantillaId || !siniestroId) return;
     try {
-      const plantilla = await apiService.getPlantillaDocumentoById(plantillaId) as PlantillaDocumento;
+      const plantilla = (await apiService.getPlantillaDocumentoById(
+        plantillaId,
+      )) as PlantillaDocumento;
       const tieneForm =
         plantilla?.plantilla_continuacion_id &&
         Array.isArray(plantilla?.campos_formulario) &&
         plantilla.campos_formulario.length > 0;
       if (!tieneForm) {
-        swalError("Esta plantilla no tiene formulario de continuación configurado.");
+        swalError(
+          "Esta plantilla no tiene formulario de continuación configurado.",
+        );
         return;
       }
       setFormularioContinuacionPlantillaId(plantillaId);
-      setFormularioContinuacionPlantillaNombre(plantilla?.nombre || plantillaNombre || "");
+      setFormularioContinuacionPlantillaNombre(
+        plantilla?.nombre || plantillaNombre || "",
+      );
       setShowFormularioContinuacionModal(true);
     } catch (e: any) {
       swalError(e.response?.data?.detail || "Error al cargar el formulario.");
@@ -2109,9 +2512,9 @@ export default function SiniestroDetailPage() {
       // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
       // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
       const documentosEtapa = documentosExistentes.filter(
-        (doc: any) => doc.etapa_flujo_id === etapa.id
+        (doc: any) => doc.etapa_flujo_id === etapa.id,
       );
-      
+
       // Buscar documento del flujo actual (debe coincidir exactamente)
       // Si no hay flujo específico activo, usar el más reciente
       let docExistente: any = null;
@@ -2121,16 +2524,17 @@ export default function SiniestroDetailPage() {
           documentosEtapa.find(
             (doc: any) =>
               doc.flujo_trabajo_id === flujoTrabajoIdActual &&
-              (!!areaIdActual ? doc.area_id === areaIdActual : true)
+              (!!areaIdActual ? doc.area_id === areaIdActual : true),
           ) ||
           documentosEtapa.find(
-            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual
+            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual,
           );
       } else {
         // Si no hay flujo específico, usar el más reciente
         if (documentosEtapa.length > 0) {
-          docExistente = documentosEtapa.sort((a: any, b: any) => 
-            new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime()
+          docExistente = documentosEtapa.sort(
+            (a: any, b: any) =>
+              new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime(),
           )[0];
         }
       }
@@ -2148,7 +2552,7 @@ export default function SiniestroDetailPage() {
           const plantillas = await apiService.getPlantillasDocumento(
             etapa.tipo_documento_principal_id,
             etapa.categoria_documento_id || undefined,
-            true
+            true,
           );
 
           if (plantillas.length > 0) {
@@ -2159,9 +2563,8 @@ export default function SiniestroDetailPage() {
 
         if (plantillaId) {
           // Cargar el contenido de la plantilla
-          const plantilla = await apiService.getPlantillaDocumentoById(
-            plantillaId
-          );
+          const plantilla =
+            await apiService.getPlantillaDocumentoById(plantillaId);
           setPlantillaActual(plantilla);
           const contenidoBase =
             plantilla.contenido || "<p>Contenido de la plantilla...</p>";
@@ -2172,14 +2575,14 @@ export default function SiniestroDetailPage() {
             etapa,
             siniestro,
             user,
-            aseguradoInfo
+            aseguradoInfo,
           );
 
           setDocumentoContenido(contenidoConDatos);
         } else {
           // Sin plantilla, iniciar con contenido vacío
           setDocumentoContenido(
-            "<p>Escribe el contenido del documento aquí...</p>"
+            "<p>Escribe el contenido del documento aquí...</p>",
           );
         }
       }
@@ -2202,7 +2605,7 @@ export default function SiniestroDetailPage() {
       const fecha = new Date().toISOString().split("T")[0];
       const nombreArchivo = `${currentEtapa.nombre.replace(
         /\s+/g,
-        "_"
+        "_",
       )}_${fecha}.html`;
 
       // Determinar area_id y flujo_trabajo_id basándose en el contexto actual
@@ -2218,7 +2621,9 @@ export default function SiniestroDetailPage() {
         areaId = activeAreaTab; // El área actual del tab
       }
 
-      const horasBita = docHorasBitacora.trim() ? parseFloat(docHorasBitacora) : undefined;
+      const horasBita = docHorasBitacora.trim()
+        ? parseFloat(docHorasBitacora)
+        : undefined;
       const comentarioBita = docComentarioBitacora.trim() || undefined;
 
       if (documentoExistente) {
@@ -2228,7 +2633,10 @@ export default function SiniestroDetailPage() {
           nombre_archivo: nombreArchivo,
           area_id: areaId,
           flujo_trabajo_id: flujoTrabajoId,
-          horas_trabajadas_bitacora: horasBita != null && !Number.isNaN(horasBita) ? horasBita : undefined,
+          horas_trabajadas_bitacora:
+            horasBita != null && !Number.isNaN(horasBita)
+              ? horasBita
+              : undefined,
           comentarios_bitacora: comentarioBita,
         });
         await swalSuccess("Documento actualizado correctamente");
@@ -2254,7 +2662,10 @@ export default function SiniestroDetailPage() {
           descripcion: `Documento generado para la etapa: ${currentEtapa.nombre}`,
           es_principal: currentEtapa.es_obligatoria,
           activo: true,
-          horas_trabajadas_bitacora: horasBita != null && !Number.isNaN(horasBita) ? horasBita : undefined,
+          horas_trabajadas_bitacora:
+            horasBita != null && !Number.isNaN(horasBita)
+              ? horasBita
+              : undefined,
           comentarios_bitacora: comentarioBita,
         });
         await swalSuccess("Documento guardado correctamente");
@@ -2281,7 +2692,7 @@ export default function SiniestroDetailPage() {
     } catch (error: any) {
       console.error("Error al guardar documento:", error);
       swalError(
-        error.response?.data?.detail || "Error al guardar el documento"
+        error.response?.data?.detail || "Error al guardar el documento",
       );
     } finally {
       setSavingDocument(false);
@@ -2374,11 +2785,10 @@ export default function SiniestroDetailPage() {
                   const consecutivo = siniestro.codigo.padStart(3, "0");
 
                   // Obtener anualidad (últimos 2 dígitos del año)
-                  const anualidad = siniestro.fecha_siniestro
-                    ? new Date(siniestro.fecha_siniestro)
-                        .getFullYear()
-                        .toString()
-                        .slice(-2)
+                  const refAnualidad =
+                    siniestro.fecha_registro || siniestro.creado_en;
+                  const anualidad = refAnualidad
+                    ? new Date(refAnualidad).getFullYear().toString().slice(-2)
                     : new Date().getFullYear().toString().slice(-2);
 
                   if (!codigoProveniente) {
@@ -2395,7 +2805,7 @@ export default function SiniestroDetailPage() {
                   elementos.push(
                     <span key="codigo" className="font-semibold text-gray-800">
                       ID: {codigoCompleto}
-                    </span>
+                    </span>,
                   );
                 }
 
@@ -2404,13 +2814,17 @@ export default function SiniestroDetailPage() {
                   elementos.push(
                     <span key="numero" className="font-semibold text-gray-800">
                       Num Siniestro: {siniestro.numero_siniestro}
-                    </span>
+                    </span>,
                   );
                 }
 
                 // Nombre completo del asegurado
                 const nombreCompletoAsegurado = aseguradoInfo
-                  ? [aseguradoInfo.nombre, aseguradoInfo.apellido_paterno, aseguradoInfo.apellido_materno]
+                  ? [
+                      aseguradoInfo.nombre,
+                      aseguradoInfo.apellido_paterno,
+                      aseguradoInfo.apellido_materno,
+                    ]
                       .filter(Boolean)
                       .join(" ")
                   : "";
@@ -2421,7 +2835,7 @@ export default function SiniestroDetailPage() {
                       className="font-semibold text-gray-800"
                     >
                       {nombreCompletoAsegurado}
-                    </span>
+                    </span>,
                   );
                 }
 
@@ -2517,14 +2931,14 @@ export default function SiniestroDetailPage() {
                           // Al cambiar de área, seleccionar el primer flujo disponible
                           if (areaConFlujos.flujos.length > 0) {
                             setActiveFlujoTab(
-                              `area-${areaConFlujos.flujos[0].flujo.id}`
+                              `area-${areaConFlujos.flujos[0].flujo.id}`,
                             );
                           } else if (
                             flujosGenerales &&
                             flujosGenerales.flujos.length > 0
                           ) {
                             setActiveFlujoTab(
-                              `general-${flujosGenerales.flujos[0].flujo.id}`
+                              `general-${flujosGenerales.flujos[0].flujo.id}`,
                             );
                           } else {
                             setActiveFlujoTab("");
@@ -2569,7 +2983,7 @@ export default function SiniestroDetailPage() {
                               key={`general-${flujoConEtapas.flujo.id}`}
                               onClick={() =>
                                 setActiveFlujoTab(
-                                  `general-${flujoConEtapas.flujo.id}`
+                                  `general-${flujoConEtapas.flujo.id}`,
                                 )
                               }
                               className={`px-6 py-2 text-xs font-medium border-b-2 transition-colors ${
@@ -2605,7 +3019,7 @@ export default function SiniestroDetailPage() {
                             key={`area-${flujoConEtapas.flujo.id}`}
                             onClick={() =>
                               setActiveFlujoTab(
-                                `area-${flujoConEtapas.flujo.id}`
+                                `area-${flujoConEtapas.flujo.id}`,
                               )
                             }
                             className={`px-6 py-2 text-xs font-medium border-b-2 transition-colors ${
@@ -2644,7 +3058,7 @@ export default function SiniestroDetailPage() {
                                     flujosGenerales.flujos.find(
                                       (f) =>
                                         `general-${f.flujo.id}` ===
-                                        activeFlujoTab
+                                        activeFlujoTab,
                                     );
                                   if (!flujoConEtapas) return null;
                                   return (
@@ -2690,7 +3104,8 @@ export default function SiniestroDetailPage() {
                                                     icon: (
                                                       <FiFileText className="w-4 h-4" />
                                                     ),
-                                                    count: documentosFiltrados.length,
+                                                    count:
+                                                      documentosFiltrados.length,
                                                   },
                                                 ]
                                               : []),
@@ -2702,7 +3117,8 @@ export default function SiniestroDetailPage() {
                                                     icon: (
                                                       <FiClock className="w-4 h-4" />
                                                     ),
-                                                    count: bitacorasFiltradas.length,
+                                                    count:
+                                                      bitacorasFiltradas.length,
                                                   },
                                                 ]
                                               : []),
@@ -2713,7 +3129,7 @@ export default function SiniestroDetailPage() {
                                               tabId as
                                                 | "etapas"
                                                 | "documentos"
-                                                | "bitacora"
+                                                | "bitacora",
                                             )
                                           }
                                         />
@@ -2734,50 +3150,67 @@ export default function SiniestroDetailPage() {
                                             doc?.plantilla_documento_id &&
                                             handleOpenFormularioContinuacion(
                                               doc.plantilla_documento_id,
-                                              doc.nombre_archivo
+                                              doc.nombre_archivo,
                                             )
                                           }
                                           empresaColors={empresaColors}
-                                          flujoTrabajoId={flujoConEtapas.flujo.id}
+                                          flujoTrabajoId={
+                                            flujoConEtapas.flujo.id
+                                          }
                                           areaId={activeAreaTab}
                                           canVerPdf={canGenerarPdf}
-                                          canEditarDocumento={canActualizarSiniestro}
+                                          canEditarDocumento={
+                                            canActualizarSiniestro
+                                          }
                                           canCrearDocumento={canCrearSiniestro}
                                         />
                                       )}
 
-                                      {activeContentTab === "documentos" && canVerDocumentos && (
-                                        <DocumentosList
-                                          documentos={documentosFiltrados}
-                                          loading={loadingDocumentos}
-                                          onViewDocument={handleViewDocumento}
-                                          onEditDocument={handleEditDocumento}
-                                          onSendByEmail={handleOpenEmailModalFromDocumento}
-                                          onDownloadDocument={handleDownloadDocumento}
-                                          onUploadClick={canSubirArchivo ? handleOpenUploadDocModal : undefined}
-                                          siniestroId={siniestroId}
-                                          empresaColors={empresaColors}
-                                        />
-                                      )}
+                                      {activeContentTab === "documentos" &&
+                                        canVerDocumentos && (
+                                          <DocumentosList
+                                            documentos={documentosFiltrados}
+                                            loading={loadingDocumentos}
+                                            onViewDocument={handleViewDocumento}
+                                            onEditDocument={handleEditDocumento}
+                                            onSendByEmail={
+                                              handleOpenEmailModalFromDocumento
+                                            }
+                                            onDownloadDocument={
+                                              handleDownloadDocumento
+                                            }
+                                            onDownloadInforme={
+                                              handleDownloadInforme
+                                            }
+                                            onUploadClick={
+                                              canSubirArchivo
+                                                ? handleOpenUploadDocModal
+                                                : undefined
+                                            }
+                                            siniestroId={siniestroId}
+                                            empresaColors={empresaColors}
+                                          />
+                                        )}
 
-                                      {activeContentTab === "bitacora" && canVerBitacora && (
-                                        <BitacoraList
-                                          bitacoras={bitacorasFiltradas}
-                                          loading={loadingBitacoras}
-                                          siniestroId={siniestroId}
-                                          areaId={activeAreaTab}
-                                          flujoTrabajoId={
-                                            flujoConEtapas.flujo.id
-                                          }
-                                          onRefresh={async () => {
-                                            await loadBitacorasFiltradas(
-                                              undefined,
+                                      {activeContentTab === "bitacora" &&
+                                        canVerBitacora && (
+                                          <BitacoraList
+                                            bitacoras={bitacorasFiltradas}
+                                            loading={loadingBitacoras}
+                                            siniestroId={siniestroId}
+                                            areaId={activeAreaTab}
+                                            flujoTrabajoId={
                                               flujoConEtapas.flujo.id
-                                            );
-                                            await loadLogsAuditoria();
-                                          }}
-                                        />
-                                      )}
+                                            }
+                                            onRefresh={async () => {
+                                              await loadBitacorasFiltradas(
+                                                undefined,
+                                                flujoConEtapas.flujo.id,
+                                              );
+                                              await loadLogsAuditoria();
+                                            }}
+                                          />
+                                        )}
                                     </div>
                                   );
                                 })()}
@@ -2788,10 +3221,11 @@ export default function SiniestroDetailPage() {
                             <>
                               {(() => {
                                 const areaActual = areasConFlujos.find(
-                                  (a) => a.area.id === activeAreaTab
+                                  (a) => a.area.id === activeAreaTab,
                                 );
                                 const flujoConEtapas = areaActual?.flujos.find(
-                                  (f) => `area-${f.flujo.id}` === activeFlujoTab
+                                  (f) =>
+                                    `area-${f.flujo.id}` === activeFlujoTab,
                                 );
                                 if (!flujoConEtapas) return null;
                                 return (
@@ -2859,7 +3293,8 @@ export default function SiniestroDetailPage() {
                                             }`}
                                           >
                                             <FiClock className="w-4 h-4 inline mr-2" />
-                                            Bitácora ({bitacorasFiltradas.length})
+                                            Bitácora (
+                                            {bitacorasFiltradas.length})
                                           </button>
                                         )}
                                       </div>
@@ -2878,48 +3313,65 @@ export default function SiniestroDetailPage() {
                                           doc?.plantilla_documento_id &&
                                           handleOpenFormularioContinuacion(
                                             doc.plantilla_documento_id,
-                                            doc.nombre_archivo
+                                            doc.nombre_archivo,
                                           )
                                         }
                                         empresaColors={empresaColors}
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
                                         areaId={activeAreaTab}
                                         canVerPdf={canGenerarPdf}
-                                        canEditarDocumento={canActualizarSiniestro}
+                                        canEditarDocumento={
+                                          canActualizarSiniestro
+                                        }
                                         canCrearDocumento={canCrearSiniestro}
                                       />
                                     )}
 
-                                    {activeContentTab === "documentos" && canVerDocumentos && (
-                                      <DocumentosList
-                                        documentos={documentosFiltrados}
-                                        loading={loadingDocumentos}
-                                        onViewDocument={handleViewDocumento}
-                                        onEditDocument={handleEditDocumento}
-                                        onSendByEmail={handleOpenEmailModalFromDocumento}
-                                        onDownloadDocument={handleDownloadDocumento}
-                                        onUploadClick={canSubirArchivo ? handleOpenUploadDocModal : undefined}
-                                        siniestroId={siniestroId}
-                                        empresaColors={empresaColors}
-                                      />
-                                    )}
+                                    {activeContentTab === "documentos" &&
+                                      canVerDocumentos && (
+                                        <DocumentosList
+                                          documentos={documentosFiltrados}
+                                          loading={loadingDocumentos}
+                                          onViewDocument={handleViewDocumento}
+                                          onEditDocument={handleEditDocumento}
+                                          onSendByEmail={
+                                            handleOpenEmailModalFromDocumento
+                                          }
+                                          onDownloadDocument={
+                                            handleDownloadDocumento
+                                          }
+                                          onDownloadInforme={
+                                            handleDownloadInforme
+                                          }
+                                          onUploadClick={
+                                            canSubirArchivo
+                                              ? handleOpenUploadDocModal
+                                              : undefined
+                                          }
+                                          siniestroId={siniestroId}
+                                          empresaColors={empresaColors}
+                                        />
+                                      )}
 
-                                    {activeContentTab === "bitacora" && canVerBitacora && (
-                                      <BitacoraList
-                                        bitacoras={bitacorasFiltradas}
-                                        loading={loadingBitacoras}
-                                        siniestroId={siniestroId}
-                                        areaId={activeAreaTab}
-                                        flujoTrabajoId={flujoConEtapas.flujo.id}
-                                        onRefresh={async () => {
-                                          await loadBitacorasFiltradas(
-                                            activeAreaTab,
+                                    {activeContentTab === "bitacora" &&
+                                      canVerBitacora && (
+                                        <BitacoraList
+                                          bitacoras={bitacorasFiltradas}
+                                          loading={loadingBitacoras}
+                                          siniestroId={siniestroId}
+                                          areaId={activeAreaTab}
+                                          flujoTrabajoId={
                                             flujoConEtapas.flujo.id
-                                          );
-                                          await loadLogsAuditoria();
-                                        }}
-                                      />
-                                    )}
+                                          }
+                                          onRefresh={async () => {
+                                            await loadBitacorasFiltradas(
+                                              activeAreaTab,
+                                              flujoConEtapas.flujo.id,
+                                            );
+                                            await loadLogsAuditoria();
+                                          }}
+                                        />
+                                      )}
                                   </div>
                                 );
                               })()}
@@ -2991,7 +3443,9 @@ export default function SiniestroDetailPage() {
                             .filter(Boolean)
                             .join(" ") || "N/A"}
                         </p>
-                        {(aseguradoInfo.telefono || aseguradoInfo.tel_casa || aseguradoInfo.tel_oficina) && (
+                        {(aseguradoInfo.telefono ||
+                          aseguradoInfo.tel_casa ||
+                          aseguradoInfo.tel_oficina) && (
                           <p className="text-sm text-gray-600">
                             <span className="font-medium">Teléfono:</span>{" "}
                             {aseguradoInfo.telefono ||
@@ -3002,7 +3456,9 @@ export default function SiniestroDetailPage() {
                         {(aseguradoInfo.ciudad || aseguradoInfo.estado) && (
                           <p className="text-sm text-gray-600">
                             <span className="font-medium">Ubicación:</span>{" "}
-                            {[aseguradoInfo.ciudad, aseguradoInfo.estado].filter(Boolean).join(", ")}
+                            {[aseguradoInfo.ciudad, aseguradoInfo.estado]
+                              .filter(Boolean)
+                              .join(", ")}
                           </p>
                         )}
                       </>
@@ -3095,31 +3551,43 @@ export default function SiniestroDetailPage() {
                       />
                       <h3 className="font-semibold text-gray-700">Fechas</h3>
                     </div>
-                    {siniestro.fecha_siniestro && (
-                      <p className="text-sm text-gray-600">
-                        <span className="font-medium">
-                          Fecha del Siniestro:
-                        </span>{" "}
-                        {new Date(siniestro.fecha_siniestro).toLocaleDateString(
-                          "es-MX",
-                          {
-                            year: "numeric",
-                            month: "long",
-                            day: "numeric",
-                          }
-                        )}
-                      </p>
-                    )}
+                    {(() => {
+                      const areaPrincipalId = (siniestro as any)?.area_principal_id;
+                      const relacionPrincipal = areaPrincipalId
+                        ? areasAdicionales.find(
+                            (ar) => String(ar.area_id) === String(areaPrincipalId),
+                          )
+                        : areasAdicionales[0];
+
+                      const fechaAsignacion = relacionPrincipal?.fecha_asignacion;
+                      if (!fechaAsignacion) return null;
+
+                      return (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">
+                            Fecha Asignacion:
+                          </span>{" "}
+                          {new Date(fechaAsignacion).toLocaleDateString(
+                            "es-MX",
+                            {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                            },
+                          )}
+                        </p>
+                      );
+                    })()}
                     {siniestro.fecha_registro && (
                       <p className="text-sm text-gray-600">
-                        <span className="font-medium">Fecha de Registro:</span>{" "}
+                        <span className="font-medium">Fecha Reporte:</span>{" "}
                         {new Date(siniestro.fecha_registro).toLocaleDateString(
                           "es-MX",
                           {
                             year: "numeric",
                             month: "long",
                             day: "numeric",
-                          }
+                          },
                         )}
                       </p>
                     )}
@@ -3142,10 +3610,10 @@ export default function SiniestroDetailPage() {
                           siniestro.prioridad === "critica"
                             ? "danger"
                             : siniestro.prioridad === "alta"
-                            ? "warning"
-                            : siniestro.prioridad === "media"
-                            ? "info"
-                            : "secondary"
+                              ? "warning"
+                              : siniestro.prioridad === "media"
+                                ? "info"
+                                : "secondary"
                         }
                       >
                         {siniestro.prioridad.charAt(0).toUpperCase() +
@@ -3312,7 +3780,10 @@ export default function SiniestroDetailPage() {
           </div>
 
           {/* Columna derecha - Administración */}
-          <div data-tour="detalle-panel-lateral" className="lg:col-span-1 space-y-6">
+          <div
+            data-tour="detalle-panel-lateral"
+            className="lg:col-span-1 space-y-6"
+          >
             {/* Sección: Administrar Áreas */}
             <EmpresaCard className="p-6">
               <div className="flex items-center justify-between mb-4">
@@ -3343,7 +3814,7 @@ export default function SiniestroDetailPage() {
                     ) : (
                       areasAdicionales.map((areaRelacion) => {
                         const area = todasLasAreas.find(
-                          (a) => a.id === areaRelacion.area_id
+                          (a) => a.id === areaRelacion.area_id,
                         );
                         return (
                           <div
@@ -3355,7 +3826,9 @@ export default function SiniestroDetailPage() {
                             </span>
                             {canAsignarAreas && (
                               <button
-                                onClick={() => handleRemoveArea(areaRelacion.id)}
+                                onClick={() =>
+                                  handleRemoveArea(areaRelacion.id)
+                                }
                                 className="p-1 text-red-600 hover:text-red-800 transition-colors"
                                 title="Eliminar área"
                               >
@@ -3389,8 +3862,8 @@ export default function SiniestroDetailPage() {
                           .filter(
                             (area) =>
                               !areasAdicionales.some(
-                                (ar) => ar.area_id === area.id
-                              )
+                                (ar) => ar.area_id === area.id,
+                              ),
                           )
                           .map((area) => (
                             <option key={area.id} value={area.id}>
@@ -3406,139 +3879,139 @@ export default function SiniestroDetailPage() {
 
             {/* Sección: Administrar Involucrados (visible solo con ver_involucrados) */}
             {canVerInvolucrados && (
-            <EmpresaCard className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2
-                  className="text-lg font-bold"
-                  style={{ color: empresaColors.primary }}
-                >
-                  Administrar Involucrados
-                </h2>
-                <FiUser
-                  className="w-5 h-5"
-                  style={{ color: empresaColors.primary }}
-                />
-              </div>
-
-              {loadingInvolucrados ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+              <EmpresaCard className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h2
+                    className="text-lg font-bold"
+                    style={{ color: empresaColors.primary }}
+                  >
+                    Abogados designados
+                  </h2>
+                  <FiUser
+                    className="w-5 h-5"
+                    style={{ color: empresaColors.primary }}
+                  />
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* Lista de involucrados */}
-                  <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                    {involucrados.length === 0 ? (
-                      <p className="text-sm text-gray-500 text-center py-4">
-                        No hay involucrados asignados
-                      </p>
-                    ) : (
-                      involucrados.map((involucrado) => {
-                        const usuario = todosLosUsuarios.find(
-                          (u) => u.id === involucrado.usuario_id
-                        );
 
-                        const rolUsuario =
-                          usuario?.rol?.nombre ||
-                          (usuario?.rol_id
-                            ? `Rol ID: ${usuario.rol_id}`
-                            : "Sin rol");
+                {loadingInvolucrados ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Lista de involucrados */}
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                      {involucrados.length === 0 ? (
+                        <p className="text-sm text-gray-500 text-center py-4">
+                          No hay involucrados asignados
+                        </p>
+                      ) : (
+                        involucrados.map((involucrado) => {
+                          const usuario = todosLosUsuarios.find(
+                            (u) => u.id === involucrado.usuario_id,
+                          );
 
-                        return (
-                          <div
-                            key={involucrado.id}
-                            className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-700 truncate">
-                                  {usuario?.full_name ||
-                                    usuario?.email ||
-                                    "Usuario desconocido"}
-                                </p>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  Rol del usuario:{" "}
-                                  <span className="font-medium text-gray-700">
-                                    {rolUsuario}
-                                  </span>
-                                  {involucrado.es_principal && (
-                                    <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
-                                      Principal
+                          const rolUsuario =
+                            usuario?.rol?.nombre ||
+                            (usuario?.rol_id
+                              ? `Rol ID: ${usuario.rol_id}`
+                              : "Sin rol");
+
+                          return (
+                            <div
+                              key={involucrado.id}
+                              className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium text-gray-700 truncate">
+                                    {usuario?.full_name ||
+                                      usuario?.email ||
+                                      "Usuario desconocido"}
+                                  </p>
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    Rol del usuario:{" "}
+                                    <span className="font-medium text-gray-700">
+                                      {rolUsuario}
                                     </span>
-                                  )}
-                                </p>
+                                    {involucrado.es_principal && (
+                                      <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+                                        Principal
+                                      </span>
+                                    )}
+                                  </p>
+                                </div>
+                                {canActualizarSiniestro && (
+                                  <button
+                                    onClick={() =>
+                                      handleRemoveInvolucrado(involucrado.id)
+                                    }
+                                    className="p-1 text-red-600 hover:text-red-800 transition-colors ml-2 flex-shrink-0"
+                                    title="Eliminar involucrado"
+                                  >
+                                    <FiTrash2 className="w-4 h-4" />
+                                  </button>
+                                )}
                               </div>
-                              {canActualizarSiniestro && (
-                                <button
-                                  onClick={() =>
-                                    handleRemoveInvolucrado(involucrado.id)
-                                  }
-                                  className="p-1 text-red-600 hover:text-red-800 transition-colors ml-2 flex-shrink-0"
-                                  title="Eliminar involucrado"
-                                >
-                                  <FiTrash2 className="w-4 h-4" />
-                                </button>
-                              )}
                             </div>
-                          </div>
-                        );
-                      })
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {/* Agregar nuevo involucrado (solo con permiso actualizar) */}
+                    {canActualizarSiniestro && (
+                      <div className="pt-4 border-t border-gray-200 space-y-3">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Agregar Involucrado
+                        </label>
+                        <div className="flex flex-col md:flex-row gap-2">
+                          <select
+                            className="w-full md:flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                            value={nuevoInvolucradoUsuarioId}
+                            onChange={(e) =>
+                              setNuevoInvolucradoUsuarioId(e.target.value)
+                            }
+                          >
+                            <option value="">Seleccionar usuario...</option>
+                            {todosLosUsuarios
+                              .filter(
+                                (usuario) =>
+                                  !involucrados.some(
+                                    (inv) => inv.usuario_id === usuario.id,
+                                  ),
+                              )
+                              .map((usuario) => (
+                                <option key={usuario.id} value={usuario.id}>
+                                  {usuario.full_name ||
+                                    usuario.email ||
+                                    "Usuario"}
+                                </option>
+                              ))}
+                          </select>
+
+                          <Button
+                            type="button"
+                            variant="primary"
+                            size="sm"
+                            disabled={!nuevoInvolucradoUsuarioId}
+                            onClick={async () => {
+                              if (!nuevoInvolucradoUsuarioId) return;
+                              await handleAddInvolucrado(
+                                nuevoInvolucradoUsuarioId,
+                                "tercero",
+                              );
+                              setNuevoInvolucradoUsuarioId("");
+                            }}
+                          >
+                            Agregar
+                          </Button>
+                        </div>
+                      </div>
                     )}
                   </div>
-
-                  {/* Agregar nuevo involucrado (solo con permiso actualizar) */}
-                  {canActualizarSiniestro && (
-                    <div className="pt-4 border-t border-gray-200 space-y-3">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Agregar Involucrado
-                      </label>
-                      <div className="flex flex-col md:flex-row gap-2">
-                        <select
-                          className="w-full md:flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                          value={nuevoInvolucradoUsuarioId}
-                          onChange={(e) =>
-                            setNuevoInvolucradoUsuarioId(e.target.value)
-                          }
-                        >
-                          <option value="">Seleccionar usuario...</option>
-                          {todosLosUsuarios
-                            .filter(
-                              (usuario) =>
-                                !involucrados.some(
-                                  (inv) => inv.usuario_id === usuario.id
-                                )
-                            )
-                            .map((usuario) => (
-                              <option key={usuario.id} value={usuario.id}>
-                                {usuario.full_name ||
-                                  usuario.email ||
-                                  "Usuario"}
-                              </option>
-                            ))}
-                        </select>
-
-                        <Button
-                          type="button"
-                          variant="primary"
-                          size="sm"
-                          disabled={!nuevoInvolucradoUsuarioId}
-                          onClick={async () => {
-                            if (!nuevoInvolucradoUsuarioId) return;
-                            await handleAddInvolucrado(
-                              nuevoInvolucradoUsuarioId,
-                              "tercero"
-                            );
-                            setNuevoInvolucradoUsuarioId("");
-                          }}
-                        >
-                          Agregar
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </EmpresaCard>
+                )}
+              </EmpresaCard>
             )}
 
             {/* Sección: Información de Póliza */}
@@ -3745,7 +4218,7 @@ export default function SiniestroDetailPage() {
                     <p className="text-xs text-green-600 mt-1">
                       Versión {documentoExistente.version} • Creado:{" "}
                       {new Date(
-                        documentoExistente.creado_en
+                        documentoExistente.creado_en,
                       ).toLocaleDateString("es-MX")}
                     </p>
                   </div>
@@ -3765,7 +4238,9 @@ export default function SiniestroDetailPage() {
               {/* Bitácora: horas y comentario (carga/actualización de informe) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Horas (para bitácora)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Horas (para bitácora)
+                  </label>
                   <input
                     type="number"
                     min={0}
@@ -3779,7 +4254,9 @@ export default function SiniestroDetailPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Comentario (para bitácora)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Comentario (para bitácora)
+                  </label>
                   <input
                     type="text"
                     value={docComentarioBitacora}
@@ -3834,12 +4311,16 @@ export default function SiniestroDetailPage() {
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-600">
-            Sube imágenes, PDFs u otros archivos. Se asociarán al siniestro y aparecerán en la lista de documentos. Clasifica el archivo por tipo y, si aplica, por categoría o plantilla.
+            Sube imágenes, PDFs u otros archivos. Se asociarán al siniestro y
+            aparecerán en la lista de documentos. Clasifica el archivo por tipo
+            y, si aplica, por categoría o plantilla.
           </p>
 
           {/* Tipo de documento */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de documento</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tipo de documento
+            </label>
             <select
               value={uploadDocTipoId}
               onChange={(e) => setUploadDocTipoId(e.target.value)}
@@ -3848,7 +4329,9 @@ export default function SiniestroDetailPage() {
             >
               <option value="">Seleccionar tipo...</option>
               {uploadTiposDocumento.map((t) => (
-                <option key={t.id} value={t.id}>{t.nombre}</option>
+                <option key={t.id} value={t.id}>
+                  {t.nombre}
+                </option>
               ))}
             </select>
           </div>
@@ -3856,7 +4339,9 @@ export default function SiniestroDetailPage() {
           {/* Categoría (se lista al elegir tipo) */}
           {uploadDocTipoId && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Categoría (opcional)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Categoría (opcional)
+              </label>
               <select
                 value={uploadDocCategoriaId}
                 onChange={(e) => setUploadDocCategoriaId(e.target.value)}
@@ -3865,7 +4350,9 @@ export default function SiniestroDetailPage() {
               >
                 <option value="">Sin categoría</option>
                 {uploadCategorias.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
                 ))}
               </select>
             </div>
@@ -3874,7 +4361,9 @@ export default function SiniestroDetailPage() {
           {/* Plantilla (se lista según tipo y categoría) */}
           {uploadDocTipoId && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Plantilla (opcional)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Plantilla (opcional)
+              </label>
               <select
                 value={uploadDocPlantillaId}
                 onChange={(e) => setUploadDocPlantillaId(e.target.value)}
@@ -3883,14 +4372,18 @@ export default function SiniestroDetailPage() {
               >
                 <option value="">Ninguna</option>
                 {uploadPlantillas.map((p) => (
-                  <option key={p.id} value={p.id}>{p.nombre}</option>
+                  <option key={p.id} value={p.id}>
+                    {p.nombre}
+                  </option>
                 ))}
               </select>
             </div>
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Archivo *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Archivo *
+            </label>
             <input
               type="file"
               accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
@@ -3898,11 +4391,16 @@ export default function SiniestroDetailPage() {
               onChange={(e) => setUploadDocFile(e.target.files?.[0] || null)}
             />
             {uploadDocFile && (
-              <p className="mt-1 text-xs text-gray-500">{uploadDocFile.name} ({(uploadDocFile.size / 1024).toFixed(1)} KB)</p>
+              <p className="mt-1 text-xs text-gray-500">
+                {uploadDocFile.name} ({(uploadDocFile.size / 1024).toFixed(1)}{" "}
+                KB)
+              </p>
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Descripción (opcional)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Descripción (opcional)
+            </label>
             <input
               type="text"
               value={uploadDocDescripcion}
@@ -3912,7 +4410,9 @@ export default function SiniestroDetailPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Horas (para bitácora)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Horas (para bitácora)
+            </label>
             <input
               type="number"
               min={0}
@@ -3925,7 +4425,9 @@ export default function SiniestroDetailPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Comentario (para bitácora)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Comentario (para bitácora)
+            </label>
             <textarea
               value={uploadDocComentario}
               onChange={(e) => setUploadDocComentario(e.target.value)}
@@ -3975,6 +4477,8 @@ export default function SiniestroDetailPage() {
           setShowPdfModal(false);
           setPdfBase64(null);
           setPdfFilename("");
+          revokeArchivoPreviewUrl();
+          setDocumentoEnVistaPrevia(null);
         }}
         title={`Ver Documento - ${
           pdfFilename || currentEtapa?.nombre || "Documento"
@@ -3987,7 +4491,7 @@ export default function SiniestroDetailPage() {
             <div className="flex items-center justify-center py-20">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">Generando PDF...</p>
+                <p className="text-gray-600">Cargando vista previa…</p>
               </div>
             </div>
           ) : pdfBase64 ? (
@@ -3997,41 +4501,135 @@ export default function SiniestroDetailPage() {
                 className="w-full h-[70vh] border border-gray-300 rounded-lg"
                 title="Vista previa del PDF"
               />
-              <div className="mt-4 flex justify-end gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => setShowPdfModal(false)}
-                >
-                  Cerrar
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    // Descargar el PDF
-                    const link = document.createElement("a");
-                    link.href = `data:application/pdf;base64,${pdfBase64}`;
-                    link.download =
-                      pdfFilename ||
-                      `${currentEtapa?.nombre || "documento"}.pdf`;
-                    link.click();
-                  }}
-                >
-                  <FiSave className="w-4 h-4 mr-2" />
-                  Descargar PDF
-                </Button>
-                {currentEtapa && (
-                  <Button
-                    variant="primary"
-                    onClick={() => {
-                      setShowPdfModal(false);
-                      handleOpenDocumentEditor(currentEtapa);
-                    }}
-                  >
-                    <FiEdit3 className="w-4 h-4 mr-2" />
-                    Editar
-                  </Button>
-                )}
-              </div>
+              <DocumentoAcciones
+                variant="modal-preview"
+                kind="informe"
+                documento={documentoEnVistaPrevia}
+                showEditar={!!currentEtapa}
+                descargarLabel="Descargar PDF"
+                onCerrar={() => {
+                  setShowPdfModal(false);
+                  setPdfBase64(null);
+                  setPdfFilename("");
+                  revokeArchivoPreviewUrl();
+                  setDocumentoEnVistaPrevia(null);
+                }}
+                onDescargar={() => {
+                  const link = document.createElement("a");
+                  link.href = `data:application/pdf;base64,${pdfBase64}`;
+                  link.download =
+                    pdfFilename || `${currentEtapa?.nombre || "documento"}.pdf`;
+                  link.click();
+                }}
+                onEnviar={() => {
+                  const doc = documentoEnVistaPrevia;
+                  if (!doc?.id) {
+                    swalError(
+                      "No se puede enviar: el documento no tiene identificador en el sistema.",
+                    );
+                    return;
+                  }
+                  handleOpenEmailModalFromDocumento(doc);
+                  setShowPdfModal(false);
+                  setPdfBase64(null);
+                  setPdfFilename("");
+                  revokeArchivoPreviewUrl();
+                  setDocumentoEnVistaPrevia(null);
+                }}
+                onEditar={
+                  currentEtapa
+                    ? () => {
+                        setShowPdfModal(false);
+                        revokeArchivoPreviewUrl();
+                        setPdfBase64(null);
+                        setPdfFilename("");
+                        setDocumentoEnVistaPrevia(null);
+                        handleOpenDocumentEditor(currentEtapa);
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          ) : archivoPreviewUrl ? (
+            <div className="w-full">
+              {(() => {
+                const mime = (archivoPreviewMime || "").toLowerCase();
+                const ext =
+                  (pdfFilename || "").split(".").pop()?.toLowerCase() || "";
+                const isPdf = mime.includes("pdf") || ext === "pdf";
+                const isImage =
+                  mime.startsWith("image/") ||
+                  ["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"].includes(
+                    ext,
+                  );
+                if (isImage) {
+                  return (
+                    <div className="flex justify-center overflow-auto max-h-[70vh] border border-gray-300 rounded-lg bg-gray-50 p-2">
+                      <img
+                        src={archivoPreviewUrl}
+                        alt={pdfFilename || "Vista previa"}
+                        className="max-h-[68vh] w-auto object-contain"
+                      />
+                    </div>
+                  );
+                }
+                if (isPdf) {
+                  return (
+                    <iframe
+                      src={archivoPreviewUrl}
+                      className="w-full h-[70vh] border border-gray-300 rounded-lg"
+                      title={pdfFilename || "Vista previa"}
+                    />
+                  );
+                }
+                return (
+                  <div className="text-center py-10 px-4 border border-dashed border-gray-300 rounded-lg bg-gray-50">
+                    <p className="text-gray-700 font-medium">
+                      Vista previa no disponible para este tipo de archivo
+                    </p>
+                    <p className="text-sm text-gray-500 mt-2 break-all">
+                      {pdfFilename}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Usa &quot;Descargar archivo&quot; para abrirlo en tu
+                      equipo.
+                    </p>
+                  </div>
+                );
+              })()}
+              <DocumentoAcciones
+                variant="modal-preview"
+                kind="archivo"
+                documento={documentoEnVistaPrevia}
+                descargarLabel="Descargar archivo"
+                onCerrar={() => {
+                  setShowPdfModal(false);
+                  setPdfBase64(null);
+                  setPdfFilename("");
+                  revokeArchivoPreviewUrl();
+                  setDocumentoEnVistaPrevia(null);
+                }}
+                onDescargar={() => {
+                  if (documentoEnVistaPrevia) {
+                    handleDownloadDocumento(documentoEnVistaPrevia);
+                  }
+                }}
+                onEnviar={() => {
+                  const doc = documentoEnVistaPrevia;
+                  if (!doc?.id) {
+                    swalError(
+                      "No se puede enviar: el documento no tiene identificador en el sistema.",
+                    );
+                    return;
+                  }
+                  handleOpenEmailModalFromDocumento(doc);
+                  setShowPdfModal(false);
+                  setPdfBase64(null);
+                  setPdfFilename("");
+                  revokeArchivoPreviewUrl();
+                  setDocumentoEnVistaPrevia(null);
+                }}
+              />
             </div>
           ) : (
             <div className="text-center py-8 text-gray-500">
@@ -4075,23 +4673,28 @@ export default function SiniestroDetailPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">
-                Destinatarios (correos externos)
+                Contactos del proveniente
               </label>
-              <input
-                type="text"
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="correo1@dominio.com; correo2@dominio.com"
-                value={emailForm.destinatarios}
-                onChange={(e) =>
-                  setEmailForm((prev) => ({
-                    ...prev,
-                    destinatarios: e.target.value,
-                  }))
-                }
-              />
-              <p className="mt-1 text-xs text-gray-500">
-                Separa múltiples correos con coma o punto y coma.
-              </p>
+              <div className="mt-1 rounded-md border border-gray-300 px-3 py-2 min-h-[42px] text-sm">
+                {selectedContactos.length === 0 ? (
+                  <span className="text-gray-400">
+                    No hay contactos seleccionados
+                  </span>
+                ) : (
+                  provenienteContactos
+                    .filter((c) => selectedContactos.includes(c.id))
+                    .map((c) => `${c.nombre} (${c.correo})`)
+                    .join(", ")
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-2"
+                onClick={() => setShowContactosModal(true)}
+              >
+                Gestionar contactos
+              </Button>
             </div>
           </div>
 
@@ -4104,14 +4707,15 @@ export default function SiniestroDetailPage() {
               value={emailDestinatariosUsuarios}
               onChange={(value) =>
                 setEmailDestinatariosUsuarios(
-                  Array.isArray(value) ? value : value ? [value] : []
+                  Array.isArray(value) ? value : value ? [value] : [],
                 )
               }
               options={todosLosUsuarios
                 .filter((u) => (u.email || u.correo) && u.is_active !== false)
                 .map((u) => ({
                   value: u.id,
-                  label: `${(u.full_name ||
+                  label: `${(
+                    u.full_name ||
                     u.nombre ||
                     u.correo ||
                     u.email ||
@@ -4177,16 +4781,35 @@ export default function SiniestroDetailPage() {
                   onChange={handleEmailAdjuntosChange}
                 />
               </label>
-              {emailForm.adjuntos.length > 0 && (
+              {emailForm.archivos_adicionales.length > 0 && (
                 <span className="text-xs text-gray-500">
-                  {emailForm.adjuntos.length} archivo(s) seleccionado(s)
+                  {emailForm.archivos_adicionales.length} archivo(s)
+                  seleccionado(s)
                 </span>
               )}
             </div>
+            {emailForm.archivos_adicionales.length > 0 && (
+              <div className="mt-2 max-h-32 overflow-y-auto rounded-md border border-gray-200">
+                {emailForm.archivos_adicionales.map((archivo, index) => (
+                  <div
+                    key={`${archivo.name}-${archivo.lastModified}-${index}`}
+                    className="flex items-center justify-between px-3 py-2 text-sm border-b border-gray-100 last:border-b-0"
+                  >
+                    <span className="truncate pr-3">{archivo.name}</span>
+                    <button
+                      type="button"
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => handleRemoveArchivoAdicional(index)}
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <p className="mt-1 text-xs text-gray-500">
-              Nota: El documento generado se enviará como adjunto principal (lógica en backend).
-              Los archivos adicionales se pueden agregar aquí si se implementa la subida y
-              vinculación en el servidor.
+              El documento seleccionado se envía como adjunto principal y los
+              archivos de esta sección se agregan como anexos adicionales.
             </p>
           </div>
 
@@ -4206,6 +4829,87 @@ export default function SiniestroDetailPage() {
               disabled={emailSending}
             >
               {emailSending ? "Enviando..." : "Enviar correo"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={showContactosModal}
+        onClose={() => setShowContactosModal(false)}
+        title="Contactos del proveniente"
+        maxWidthClass="max-w-2xl"
+      >
+        <div className="space-y-4">
+          <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md">
+            {(provenienteContactos || []).length === 0 ? (
+              <p className="p-3 text-sm text-gray-500">
+                No hay contactos registrados para este proveniente.
+              </p>
+            ) : (
+              provenienteContactos.map((contacto) => (
+                <label
+                  key={contacto.id}
+                  className="flex items-center gap-2 p-3 border-b border-gray-100 last:border-b-0"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedContactos.includes(contacto.id)}
+                    onChange={(e) =>
+                      setSelectedContactos((prev) =>
+                        e.target.checked
+                          ? Array.from(new Set([...prev, contacto.id]))
+                          : prev.filter((id) => id !== contacto.id),
+                      )
+                    }
+                  />
+                  <span className="text-sm">
+                    {contacto.nombre} ({contacto.correo})
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Input
+              label="Nombre"
+              name="nuevo_contacto_nombre"
+              value={nuevoContactoForm.nombre}
+              onChange={(e) =>
+                setNuevoContactoForm((prev) => ({
+                  ...prev,
+                  nombre: e.target.value,
+                }))
+              }
+            />
+            <Input
+              label="Correo"
+              name="nuevo_contacto_correo"
+              type="email"
+              value={nuevoContactoForm.correo}
+              onChange={(e) =>
+                setNuevoContactoForm((prev) => ({
+                  ...prev,
+                  correo: e.target.value,
+                }))
+              }
+            />
+          </div>
+          <div className="flex justify-between items-center">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleCrearNuevoContacto}
+            >
+              Agregar nuevo contacto
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => setShowContactosModal(false)}
+            >
+              Confirmar selección
             </Button>
           </div>
         </div>
@@ -4235,10 +4939,17 @@ export default function SiniestroDetailPage() {
                 onChange={handleEditFormChange}
               />
               <Input
-                label="Fecha del Siniestro"
-                name="fecha_siniestro"
+                label="Fecha Asignacion"
+                name="fecha_asignacion"
                 type="date"
-                value={editForm.fecha_siniestro}
+                value={editForm.fecha_asignacion}
+                onChange={handleEditFormChange}
+              />
+              <Input
+                label="Fecha Reporte"
+                name="fecha_registro"
+                type="date"
+                value={editForm.fecha_registro}
                 onChange={handleEditFormChange}
                 required
               />
@@ -4272,11 +4983,17 @@ export default function SiniestroDetailPage() {
                   name="asegurado_id_edit"
                   value={editForm.asegurado_id}
                   onChange={(v) =>
-                    setEditForm((prev) => ({ ...prev, asegurado_id: (v as string) || "" }))
+                    setEditForm((prev) => ({
+                      ...prev,
+                      asegurado_id: (v as string) || "",
+                    }))
                   }
                   options={editModalAsegurados.map((a: any) => ({
                     value: a.id,
-                    label: [a.nombre, a.apellido_paterno, a.apellido_materno].filter(Boolean).join(" ") || "Sin nombre",
+                    label:
+                      [a.nombre, a.apellido_paterno, a.apellido_materno]
+                        .filter(Boolean)
+                        .join(" ") || "Sin nombre",
                   }))}
                   placeholder="Buscar asegurado..."
                   isSearchable
@@ -4534,7 +5251,10 @@ export default function SiniestroDetailPage() {
             onChange={(v) => setAseguradoSeleccionadoModal(v as string)}
             options={aseguradosCatalogo.map((a: any) => ({
               value: a.id,
-              label: [a.nombre, a.apellido_paterno, a.apellido_materno].filter(Boolean).join(" ") || "Sin nombre",
+              label:
+                [a.nombre, a.apellido_paterno, a.apellido_materno]
+                  .filter(Boolean)
+                  .join(" ") || "Sin nombre",
             }))}
             placeholder="Buscar por nombre..."
             isSearchable
@@ -4610,9 +5330,7 @@ function EtapasTimeline({
   canEditarDocumento?: boolean;
   canCrearDocumento?: boolean;
 }) {
-
   console.log("DocumentosExistentes", documentosExistentes);
-
 
   if (!etapas || etapas.length === 0) {
     return (
@@ -4625,7 +5343,7 @@ function EtapasTimeline({
 
   // Ordenar etapas por orden
   const etapasOrdenadas = [...etapas].sort((a, b) => a.orden - b.orden);
-  
+
   // Determinar si una etapa tiene plantilla/documento disponible
   const tieneDocumentoDisponible = (etapa: EtapaFlujo) => {
     return (
@@ -4746,9 +5464,11 @@ function EtapasTimeline({
                         // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
                         // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
                         const documentosEtapa = documentosExistentes.filter(
-                          (doc: any) => doc.etapa_flujo_id === etapa.id && (!!areaId ? doc.area_id === areaId : true)
+                          (doc: any) =>
+                            doc.etapa_flujo_id === etapa.id &&
+                            (!!areaId ? doc.area_id === areaId : true),
                         );
-                        
+
                         // Buscar documento del flujo actual (debe coincidir exactamente)
                         // Si no hay flujo específico, usar el más reciente
                         let docExistente: any = null;
@@ -4758,23 +5478,30 @@ function EtapasTimeline({
                             documentosEtapa.find(
                               (doc: any) =>
                                 doc.flujo_trabajo_id === flujoTrabajoId &&
-                                (!!areaId ? doc.area_id === areaId : true)
+                                (!!areaId ? doc.area_id === areaId : true),
                             ) ||
                             documentosEtapa.find(
-                              (doc: any) => doc.flujo_trabajo_id === flujoTrabajoId
+                              (doc: any) =>
+                                doc.flujo_trabajo_id === flujoTrabajoId,
                             );
                         } else {
                           // Si no hay flujo específico, usar el más reciente
                           if (documentosEtapa.length > 0) {
-                            docExistente = documentosEtapa.sort((a: any, b: any) => 
-                              new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime()
+                            docExistente = documentosEtapa.sort(
+                              (a: any, b: any) =>
+                                new Date(b.creado_en).getTime() -
+                                new Date(a.creado_en).getTime(),
                             )[0];
                           }
                         }
                         if (docExistente) {
                           // Si existe documento: Ver, Continuar (solo si la plantilla tiene continuación), Editar (según permisos)
-                          const plantillaId = docExistente.plantilla_documento_id;
-                          const puedeContinuar = !!onContinuar && !!plantillaId && docExistente.plantilla_tiene_continuacion === true;
+                          const plantillaId =
+                            docExistente.plantilla_documento_id;
+                          const puedeContinuar =
+                            !!onContinuar &&
+                            !!plantillaId &&
+                            docExistente.plantilla_tiene_continuacion === true;
                           return (
                             <>
                               {canVerPdf && (
@@ -4798,7 +5525,9 @@ function EtapasTimeline({
                               )}
                               {puedeContinuar && canEditarDocumento && (
                                 <button
-                                  onClick={() => onContinuar(etapa, docExistente)}
+                                  onClick={() =>
+                                    onContinuar(etapa, docExistente)
+                                  }
                                   className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
                                   style={{
                                     backgroundColor: empresaColors.secondary,
@@ -4839,7 +5568,7 @@ function EtapasTimeline({
                         } else {
                           // Si no existe, mostrar botón con texto dinámico según la etapa
                           const getDocumentoButtonText = (
-                            etapaNombre: string
+                            etapaNombre: string,
                           ) => {
                             // Convertir el nombre de la etapa a minúsculas para normalizar
                             const nombreLower = etapaNombre.toLowerCase();
@@ -4907,6 +5636,7 @@ function DocumentosList({
   onEditDocument,
   onSendByEmail,
   onDownloadDocument,
+  onDownloadInforme,
   onUploadClick,
   siniestroId,
   empresaColors,
@@ -4917,12 +5647,32 @@ function DocumentosList({
   onEditDocument: (documento: any) => void;
   onSendByEmail: (documento: any) => void;
   onDownloadDocument?: (documento: any) => void;
+  onDownloadInforme?: (documento: any) => void;
   onUploadClick?: () => void;
   siniestroId: string;
   empresaColors: { primary: string; secondary: string; tertiary: string };
 }) {
   const columns = useMemo<ColumnDef<any>[]>(
     () => [
+      {
+        id: "acciones",
+        header: "Acciones",
+        cell: ({ row }) => {
+          const documento = row.original;
+          return (
+            <DocumentoAcciones
+              variant="tabla-fila"
+              documento={documento}
+              empresaColors={empresaColors}
+              onViewDocument={onViewDocument}
+              onEditDocument={onEditDocument}
+              onSendByEmail={onSendByEmail}
+              onDownloadDocument={onDownloadDocument}
+              onDownloadInforme={onDownloadInforme}
+            />
+          );
+        },
+      },
       {
         accessorKey: "nombre_archivo",
         header: "Nombre del Archivo",
@@ -5001,82 +5751,15 @@ function DocumentosList({
           </span>
         ),
       },
-      {
-        id: "acciones",
-        header: "Acciones",
-        cell: ({ row }) => {
-          const documento = row.original;
-          return (
-            <div className="flex items-center gap-2">
-              {documento.contenido ? (
-                <>
-                  <button
-                    onClick={() => onViewDocument(documento)}
-                    className="flex items-center gap-1 px-2 py-1 text-white text-xs font-medium rounded transition-colors"
-                    style={{
-                      backgroundColor: empresaColors.tertiary,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.opacity = "0.9";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.opacity = "1";
-                    }}
-                    title="Ver documento como PDF"
-                  >
-                    <FiEye className="w-3 h-3" />
-                    Ver
-                  </button>
-                  <button
-                    onClick={() => onEditDocument(documento)}
-                    className="flex items-center gap-1 px-2 py-1 text-white text-xs font-medium rounded transition-colors"
-                    style={{
-                      backgroundColor: empresaColors.primary,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.opacity = "0.9";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.opacity = "1";
-                    }}
-                    title="Editar documento"
-                  >
-                    <FiEdit3 className="w-3 h-3" />
-                    Editar
-                  </button>
-                  <button
-                    onClick={() => onSendByEmail(documento)}
-                    className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white text-xs font-medium rounded transition-colors"
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.opacity = "0.9";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.opacity = "1";
-                    }}
-                    title="Enviar por correo"
-                  >
-                    <FiMail className="w-3 h-3" />
-                    Enviar
-                  </button>
-                </>
-              ) : documento.ruta_archivo && onDownloadDocument ? (
-                <button
-                  onClick={() => onDownloadDocument(documento)}
-                  className="flex items-center gap-1 px-2 py-1 text-white text-xs font-medium rounded transition-colors bg-gray-600 hover:bg-gray-700"
-                  title="Descargar archivo"
-                >
-                  <FiFile className="w-3 h-3" />
-                  Descargar
-                </button>
-              ) : (
-                <span className="text-xs text-gray-400">Sin contenido</span>
-              )}
-            </div>
-          );
-        },
-      },
     ],
-    [onViewDocument, onEditDocument, onSendByEmail, onDownloadDocument, empresaColors]
+    [
+      onViewDocument,
+      onEditDocument,
+      onSendByEmail,
+      onDownloadDocument,
+      onDownloadInforme,
+      empresaColors,
+    ],
   );
 
   if (loading) {
@@ -5106,9 +5789,12 @@ function DocumentosList({
         )}
         <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
           <FiFileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-          <p className="text-gray-500 font-medium">No hay documentos generados</p>
+          <p className="text-gray-500 font-medium">
+            No hay documentos generados
+          </p>
           <p className="text-sm text-gray-400 mt-1">
-            Los documentos generados desde las etapas o archivos subidos aparecerán aquí
+            Los documentos generados desde las etapas o archivos subidos
+            aparecerán aquí
           </p>
         </div>
       </div>
@@ -5165,12 +5851,13 @@ function BitacoraList({
   onRefresh: () => void;
 }) {
   const [showFormModal, setShowFormModal] = useState(false);
-  const [editingActividad, setEditingActividad] = useState<BitacoraActividad | null>(null);
+  const [editingActividad, setEditingActividad] =
+    useState<BitacoraActividad | null>(null);
   const [descripcion, setDescripcion] = useState("");
   const [horas, setHoras] = useState("");
   const [comentarios, setComentarios] = useState("");
   const [fechaActividad, setFechaActividad] = useState(
-    new Date().toISOString().slice(0, 16) // para input datetime-local
+    new Date().toISOString().slice(0, 16), // para input datetime-local
   );
   const [saving, setSaving] = useState(false);
 
@@ -5247,7 +5934,7 @@ function BitacoraList({
       console.error("Error al crear actividad de bitácora:", error);
       swalError(
         error?.response?.data?.detail ||
-          "Error al crear la actividad de bitácora"
+          "Error al crear la actividad de bitácora",
       );
     } finally {
       setSaving(false);
@@ -5411,7 +6098,7 @@ function BitacoraList({
               return (
                 <span
                   className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full border ${getTipoActividadColor(
-                    tipo
+                    tipo,
                   )}`}
                 >
                   {getTipoActividadIcon(tipo)}
@@ -5443,15 +6130,16 @@ function BitacoraList({
             accessorKey: "fecha_actividad",
             cell: ({ row }: any) => (
               <span className="text-xs text-gray-700">
-                {new Date(
-                  row.original.fecha_actividad
-                ).toLocaleDateString("es-MX", {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {new Date(row.original.fecha_actividad).toLocaleDateString(
+                  "es-MX",
+                  {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  },
+                )}
               </span>
             ),
           },
@@ -5510,7 +6198,7 @@ function BitacoraList({
                         try {
                           await apiService.updateBitacoraActividad(
                             actividad.id,
-                            { verificado: true } as any
+                            { verificado: true } as any,
                           );
                           swalSuccess("Actividad marcada como verificada");
                           onRefresh();
@@ -5518,7 +6206,7 @@ function BitacoraList({
                           // console.error("Error al verificar actividad:", error);
                           swalError(
                             error?.response?.data?.detail ||
-                              "Error al marcar como verificada"
+                              "Error al marcar como verificada",
                           );
                         }
                       }}
@@ -5537,11 +6225,11 @@ function BitacoraList({
                         setHoras(
                           actividad.horas_trabajadas
                             ? String(actividad.horas_trabajadas)
-                            : ""
+                            : "",
                         );
                         setComentarios(actividad.comentarios || "");
                         setFechaActividad(
-                          actividad.fecha_actividad.slice(0, 16)
+                          actividad.fecha_actividad.slice(0, 16),
                         );
                         setShowFormModal(true);
                       }}
@@ -5574,75 +6262,75 @@ function BitacoraList({
       >
         <div className="space-y-4">
           <form onSubmit={handleCreateActividad} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Fecha y hora
-            </label>
-            <input
-              type="datetime-local"
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-              value={fechaActividad}
-              onChange={(e) => setFechaActividad(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Descripción *
-            </label>
-            <input
-              type="text"
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-              value={descripcion}
-              onChange={(e) => setDescripcion(e.target.value)}
-              placeholder="Describe brevemente la actividad realizada"
-            />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Horas trabajadas
+                Fecha y hora
               </label>
               <input
-                type="number"
-                step="0.1"
-                min="0"
+                type="datetime-local"
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                value={horas}
-                onChange={(e) => setHoras(e.target.value)}
-                placeholder="0"
+                value={fechaActividad}
+                onChange={(e) => setFechaActividad(e.target.value)}
               />
             </div>
-            <div className="md:col-span-2">
+            <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Comentarios
+                Descripción *
               </label>
               <input
                 type="text"
                 className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
-                value={comentarios}
-                onChange={(e) => setComentarios(e.target.value)}
-                placeholder="Notas adicionales (opcional)"
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+                placeholder="Describe brevemente la actividad realizada"
               />
             </div>
-          </div>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowFormModal(false)}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              size="sm"
-              variant="primary"
-              disabled={saving}
-            >
-              {saving ? "Guardando..." : "Guardar actividad"}
-            </Button>
-          </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Horas trabajadas
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                  value={horas}
+                  onChange={(e) => setHoras(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Comentarios
+                </label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 bg-white"
+                  value={comentarios}
+                  onChange={(e) => setComentarios(e.target.value)}
+                  placeholder="Notas adicionales (opcional)"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowFormModal(false)}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                variant="primary"
+                disabled={saving}
+              >
+                {saving ? "Guardando..." : "Guardar actividad"}
+              </Button>
+            </div>
           </form>
         </div>
       </Modal>

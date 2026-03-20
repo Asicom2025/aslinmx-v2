@@ -37,6 +37,8 @@ from app.schemas.legal_schema import (
     ProvenienteCreate,
     ProvenienteUpdate,
     ProvenienteResponse,
+    ProvenienteContactoCreate,
+    ProvenienteContactoResponse,
     TiposDocumentoCreate,
     TiposDocumentoUpdate,
     TiposDocumentoResponse,
@@ -51,7 +53,7 @@ from app.schemas.legal_schema import (
     RespuestaFormularioResponse,
 )
 from app.services.auditoria_service import AuditoriaService
-from app.models.legal import Siniestro
+from app.models.legal import Siniestro, Proveniente, ProvenienteContacto
 from app.services.legal_service import (
     RespuestaFormularioService,
     AreaService,
@@ -62,6 +64,7 @@ from app.services.legal_service import (
     AutoridadService,
     AseguradoService,
     ProvenienteService,
+    ProvenienteContactoService,
     TiposDocumentoService,
     CategoriaDocumentoService,
     PlantillaDocumentoService,
@@ -665,6 +668,76 @@ def delete_proveniente(
     ok = ProvenienteService.delete(db, proveniente_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Proveniente no encontrado")
+    return None
+
+
+@router.get(
+    "/provenientes/{proveniente_id}/contactos",
+    response_model=List[ProvenienteContactoResponse],
+)
+def list_proveniente_contactos(
+    proveniente_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    proveniente = db.query(Proveniente).filter(
+        Proveniente.id == proveniente_id,
+        Proveniente.empresa_id == current_user.empresa_id,
+        Proveniente.eliminado_en.is_(None),
+    ).first()
+    if not proveniente:
+        raise HTTPException(status_code=404, detail="Proveniente no encontrado")
+    return ProvenienteContactoService.list(db, proveniente_id)
+
+
+@router.post(
+    "/provenientes/{proveniente_id}/contactos",
+    response_model=ProvenienteContactoResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_proveniente_contacto(
+    proveniente_id: UUID,
+    payload: ProvenienteContactoCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    proveniente = db.query(Proveniente).filter(
+        Proveniente.id == proveniente_id,
+        Proveniente.empresa_id == current_user.empresa_id,
+        Proveniente.eliminado_en.is_(None),
+    ).first()
+    if not proveniente:
+        raise HTTPException(status_code=404, detail="Proveniente no encontrado")
+    return ProvenienteContactoService.create(db, proveniente_id, payload)
+
+
+@router.delete(
+    "/provenientes/{proveniente_id}/contactos/{contacto_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_proveniente_contacto(
+    proveniente_id: UUID,
+    contacto_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    proveniente = db.query(Proveniente).filter(
+        Proveniente.id == proveniente_id,
+        Proveniente.empresa_id == current_user.empresa_id,
+        Proveniente.eliminado_en.is_(None),
+    ).first()
+    if not proveniente:
+        raise HTTPException(status_code=404, detail="Proveniente no encontrado")
+    contacto = db.query(ProvenienteContacto).filter(
+        ProvenienteContacto.id == contacto_id,
+        ProvenienteContacto.proveniente_id == proveniente_id,
+        ProvenienteContacto.eliminado_en.is_(None),
+    ).first()
+    if not contacto:
+        raise HTTPException(status_code=404, detail="Contacto no encontrado")
+    ok = ProvenienteContactoService.delete(db, contacto_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Contacto no encontrado")
     return None
 
 

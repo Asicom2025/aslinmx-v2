@@ -704,6 +704,21 @@ const catalogService = {
     const res = await api.delete(`/catalogos/provenientes/${id}`);
     return res.data;
   },
+  getProvenienteContactos: async (provenienteId: string) => {
+    const res = await api.get(`/catalogos/provenientes/${provenienteId}/contactos`);
+    return res.data;
+  },
+  createProvenienteContacto: async (
+    provenienteId: string,
+    data: { nombre: string; correo: string; activo?: boolean },
+  ) => {
+    const res = await api.post(`/catalogos/provenientes/${provenienteId}/contactos`, data);
+    return res.data;
+  },
+  deleteProvenienteContacto: async (provenienteId: string, contactoId: string) => {
+    const res = await api.delete(`/catalogos/provenientes/${provenienteId}/contactos/${contactoId}`);
+    return res.data;
+  },
 
   // Plantillas de Documento (legacy - tipos de documento)
   getPlantillas: async (activo?: boolean, areaId?: string) => {
@@ -804,6 +819,7 @@ const siniestroService = {
   getSiniestros: async (filters?: {
     activo?: boolean;
     estado_id?: string;
+    proveniente_id?: string;
     area_id?: string;
     usuario_asignado?: string;
     prioridad?: "baja" | "media" | "alta" | "critica";
@@ -816,6 +832,7 @@ const siniestroService = {
     const params = new URLSearchParams();
     if (filters?.activo !== undefined) params.append("activo", String(filters.activo));
     if (filters?.estado_id) params.append("estado_id", filters.estado_id);
+    if (filters?.proveniente_id) params.append("proveniente_id", filters.proveniente_id);
     if (filters?.area_id) params.append("area_id", filters.area_id);
     if (filters?.usuario_asignado) params.append("usuario_asignado", filters.usuario_asignado);
     if (filters?.prioridad) params.append("prioridad", filters.prioridad);
@@ -835,8 +852,8 @@ const siniestroService = {
   },
 
   createSiniestro: async (data: {
-    numero_siniestro: string;
-    fecha_siniestro: string;
+    numero_siniestro?: string | null;
+    fecha_registro: string;
     ubicacion?: string;
     descripcion_hechos: string;
     numero_poliza?: string;
@@ -858,7 +875,7 @@ const siniestroService = {
 
   updateSiniestro: async (siniestroId: string, data: {
     numero_siniestro?: string;
-    fecha_siniestro?: string;
+    fecha_registro?: string;
     ubicacion?: string;
     descripcion_hechos?: string;
     numero_poliza?: string;
@@ -963,12 +980,14 @@ const siniestroService = {
     area_id: string;
     usuario_responsable?: string;
     observaciones?: string;
+    fecha_asignacion?: string;
     activo?: boolean;
   }) => {
     const response = await api.post(`/siniestros/${siniestroId}/areas-adicionales`, data);
     return response.data;
   },
   updateAreaAdicional: async (relacionId: string, data: {
+    fecha_asignacion?: string;
     usuario_responsable?: string;
     observaciones?: string;
     activo?: boolean;
@@ -1180,6 +1199,21 @@ const documentoService = {
     a.download = nombreArchivo || "archivo";
     a.click();
     window.URL.revokeObjectURL(url);
+  },
+
+  /** Obtiene el archivo como Blob (p. ej. vista previa en modal sin forzar descarga). */
+  fetchDocumentoArchivoBlob: async (
+    documentoId: string
+  ): Promise<{ blob: Blob; contentType: string }> => {
+    const response = await api.get(`/documentos/${documentoId}/archivo`, {
+      responseType: "blob",
+    });
+    const raw =
+      (response.headers["content-type"] as string | undefined) ||
+      (response.headers["Content-Type"] as string | undefined) ||
+      "application/octet-stream";
+    const contentType = raw.split(";")[0].trim();
+    return { blob: response.data as Blob, contentType };
   },
 };
 
@@ -1433,9 +1467,18 @@ const configService = {
     configuracion_smtp_id: string;
     destinatarios: string[];
     mensaje: string;
+    /** Sustituye {{ asunto }} en la plantilla de correo y el asunto renderizado */
+    asunto?: string | null;
     documento_id?: string | null;
+    /** Mismo correo con varios documentos (cada uno: PDF si es informe + archivo en disco si existe). */
+    documentos_ids?: string[];
     tipo_documento_nombre?: string;
     categoria_nombre?: string;
+    archivos_adjuntos?: Array<{
+      nombre: string;
+      contenido_base64: string;
+      tipo_mime?: string;
+    }>;
   }) => {
     const response = await api.post("/configuracion/enviar-archivo-correo", data);
     return response.data;

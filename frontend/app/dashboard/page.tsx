@@ -38,7 +38,8 @@ interface DashboardStats {
 interface RecentSiniestro {
   id: string;
   numero_siniestro: string;
-  fecha_siniestro: string;
+  fecha_registro?: string | null;
+  fecha_siniestro?: string | null;
   prioridad: string;
   estado_id?: string;
   area_principal_id?: string;
@@ -858,8 +859,13 @@ export default function DashboardPage() {
                   <div className="text-xs text-gray-500 space-y-1">
                     <div>Estado: {getEstadoNombre(siniestro.estado_id)}</div>
                     <div>Área: {getAreaNombre(siniestro.area_principal_id)}</div>
-                    {siniestro.fecha_siniestro && (
-                      <div>Fecha: {new Date(siniestro.fecha_siniestro).toLocaleDateString("es-MX")}</div>
+                    {(siniestro.fecha_registro || siniestro.fecha_siniestro) && (
+                      <div>
+                        Fecha:{" "}
+                        {new Date(
+                          siniestro.fecha_registro || siniestro.fecha_siniestro || "",
+                        ).toLocaleDateString("es-MX")}
+                      </div>
                     )}
                   </div>
                 </div>

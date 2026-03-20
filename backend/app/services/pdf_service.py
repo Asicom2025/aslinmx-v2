@@ -27,15 +27,18 @@ class PDFService:
         Returns:
             HTML con variables reemplazadas
         """
-        if not variables:
-            return html_content
-        
-        result = html_content
-        for key, value in variables.items():
-            # Reemplazar {{key}} y {{ key }} (con espacios)
-            pattern = r'\{\{\s*' + re.escape(str(key)) + r'\s*\}\}'
-            result = re.sub(pattern, str(value), result)
-        
+        result = html_content or ""
+
+        if variables:
+            for key, value in variables.items():
+                # Reemplazar {{key}} y {{ key }} (con espacios)
+                pattern = r"\{\{\s*" + re.escape(str(key)) + r"\s*\}\}"
+                replacement = "" if value is None else str(value)
+                result = re.sub(pattern, replacement, result)
+
+        # Limpiar cualquier variable no sustituida para que no aparezca en el PDF final.
+        # Ejemplo: {{hora_fecha_asignacion}} -> ""
+        result = re.sub(r"\{\{\s*[^{}]+\s*\}\}", "", result)
         return result
 
     @staticmethod
@@ -179,6 +182,24 @@ class PDFService:
         /* Estilos para clases comunes de Tailwind/Tiptap */
         .prose {{
             max-width: 100%;
+        }}
+        
+        /* Soporte para header de página en WeasyPrint (running elements) */
+        .pdf-page-header-running {{
+            position: running(pdfHeader);
+            line-height: 1.2;
+        }}
+
+        .pdf-page-header-running p {{
+            margin: 0;
+        }}
+
+        .pdf-page-header-running table {{
+            margin: 0;
+        }}
+        
+        .pdf-with-running-header {{
+            page: withRunningHeader;
         }}
         
         .prose p {{
