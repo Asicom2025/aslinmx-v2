@@ -23,11 +23,16 @@ from app.schemas.flujo_trabajo_schema import (
     AvanzarEtapaRequest,
     InicializarEtapasRequest,
     ReordenarEtapasRequest,
+    RequisitoDocumentoCreate,
+    RequisitoDocumentoUpdate,
+    RequisitoDocumentoResponse,
+    ChecklistDocumentalItem,
 )
 from app.services.flujo_trabajo_service import (
     FlujoTrabajoService,
     EtapaFlujoService,
     SiniestroEtapaService,
+    RequisitoDocumentoService,
 )
 from app.services.auditoria_service import AuditoriaService
 import logging
@@ -475,4 +480,80 @@ def avanzar_etapa_siniestro(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error al avanzar etapa: {str(e)}"
         )
+
+
+# ==========================================================
+# ENDPOINTS DE REQUISITOS DOCUMENTALES POR ETAPA
+# ==========================================================
+
+@router.get(
+    "/{flujo_id}/etapas/{etapa_id}/requisitos",
+    response_model=List[RequisitoDocumentoResponse],
+)
+def listar_requisitos_etapa(
+    flujo_id: UUID,
+    etapa_id: UUID,
+    solo_activos: bool = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Lista todos los requisitos documentales configurados para una etapa."""
+    return RequisitoDocumentoService.list_by_etapa(db, etapa_id, solo_activos=solo_activos)
+
+
+@router.post(
+    "/{flujo_id}/etapas/{etapa_id}/requisitos",
+    response_model=RequisitoDocumentoResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def crear_requisito_etapa(
+    flujo_id: UUID,
+    etapa_id: UUID,
+    data: RequisitoDocumentoCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Crea un nuevo requisito documental para una etapa de flujo."""
+    return RequisitoDocumentoService.create(db, flujo_id, etapa_id, data)
+
+
+@router.put(
+    "/etapas/requisitos/{req_id}",
+    response_model=RequisitoDocumentoResponse,
+)
+def actualizar_requisito(
+    req_id: UUID,
+    data: RequisitoDocumentoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Actualiza un requisito documental."""
+    return RequisitoDocumentoService.update(db, req_id, data)
+
+
+@router.delete(
+    "/etapas/requisitos/{req_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def eliminar_requisito(
+    req_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Elimina (soft-delete) un requisito documental."""
+    RequisitoDocumentoService.delete(db, req_id)
+
+
+@router.get(
+    "/siniestros/{siniestro_id}/etapas/{etapa_id}/checklist",
+    response_model=List[ChecklistDocumentalItem],
+)
+def checklist_documental_etapa(
+    siniestro_id: UUID,
+    etapa_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Devuelve el checklist documental (requisitos + estado) de una etapa para un siniestro."""
+    return RequisitoDocumentoService.get_checklist_siniestro(db, siniestro_id, etapa_id)
 

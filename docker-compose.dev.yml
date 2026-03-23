@@ -9,6 +9,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/aslin_completo.sql:/docker-entrypoint-initdb.d/01_aslin_completo.sql
+      # Scripts adicionales (p. ej. migrate_catalogos_litigio.sql) vía: psql -f /mnt/db/...
+      - ./db:/mnt/db:ro
     networks:
       - aslin_network
     healthcheck:

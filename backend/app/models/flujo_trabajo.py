@@ -54,6 +54,45 @@ class EtapaFlujo(Base):
     tipo_documento_principal = relationship("TipoDocumento", foreign_keys=[tipo_documento_principal_id], lazy="joined")
     categoria_documento = relationship("CategoriaDocumento", foreign_keys=[categoria_documento_id], lazy="joined")
     plantilla_documento = relationship("PlantillaDocumento", foreign_keys=[plantilla_documento_id], lazy="joined")
+    requisitos = relationship(
+        "EtapaFlujoRequisitoDocumento",
+        back_populates="etapa_flujo",
+        cascade="all, delete-orphan",
+        order_by="EtapaFlujoRequisitoDocumento.orden",
+    )
+
+
+class EtapaFlujoRequisitoDocumento(Base):
+    """Documentos esperados/requeridos dentro de una etapa de flujo de trabajo.
+    Cada registro representa un requisito documental configurado por etapa,
+    sin importar si ya fue cumplido o no en un siniestro concreto.
+    """
+    __tablename__ = "etapa_flujo_requisitos_documento"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    flujo_trabajo_id = Column(UUID(as_uuid=True), ForeignKey("flujos_trabajo.id", ondelete="CASCADE"), nullable=False)
+    etapa_flujo_id = Column(UUID(as_uuid=True), ForeignKey("etapas_flujo.id", ondelete="CASCADE"), nullable=False)
+    nombre_documento = Column(String(255), nullable=False)
+    descripcion = Column(Text, nullable=True)
+    tipo_documento_id = Column(UUID(as_uuid=True), ForeignKey("tipos_documento.id", ondelete="SET NULL"), nullable=True)
+    categoria_documento_id = Column(UUID(as_uuid=True), ForeignKey("categorias_documento.id", ondelete="SET NULL"), nullable=True)
+    plantilla_documento_id = Column(UUID(as_uuid=True), ForeignKey("plantillas_documento.id", ondelete="SET NULL"), nullable=True)
+    es_obligatorio = Column(Boolean, nullable=False, default=True)
+    permite_upload = Column(Boolean, nullable=False, default=True)
+    permite_generar = Column(Boolean, nullable=False, default=False)
+    multiple = Column(Boolean, nullable=False, default=False)
+    orden = Column(Integer, nullable=False, default=0)
+    clave = Column(String(100), nullable=True)  # slug normalizado para importación idempotente
+    activo = Column(Boolean, nullable=False, default=True)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+    # Relaciones
+    etapa_flujo = relationship("EtapaFlujo", back_populates="requisitos")
+    tipo_documento = relationship("TipoDocumento", foreign_keys=[tipo_documento_id], lazy="joined")
+    categoria_documento = relationship("CategoriaDocumento", foreign_keys=[categoria_documento_id], lazy="joined")
+    plantilla_documento = relationship("PlantillaDocumento", foreign_keys=[plantilla_documento_id], lazy="joined")
 
 
 class SiniestroEtapa(Base):

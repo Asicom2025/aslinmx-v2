@@ -495,6 +495,64 @@ const flujoTrabajoService = {
     const response = await api.post(`/flujos-trabajo/siniestros/${siniestroId}/avanzar`, {});
     return response.data;
   },
+
+  // Requisitos documentales por etapa
+  getRequisitosEtapa: async (flujoId: string, etapaId: string, soloActivos = true) => {
+    const response = await api.get(
+      `/flujos-trabajo/${flujoId}/etapas/${etapaId}/requisitos?solo_activos=${soloActivos}`
+    );
+    return response.data;
+  },
+
+  createRequisito: async (flujoId: string, etapaId: string, data: {
+    nombre_documento: string;
+    descripcion?: string | null;
+    tipo_documento_id?: string | null;
+    categoria_documento_id?: string | null;
+    plantilla_documento_id?: string | null;
+    es_obligatorio?: boolean;
+    permite_upload?: boolean;
+    permite_generar?: boolean;
+    multiple?: boolean;
+    orden?: number;
+    clave?: string | null;
+    activo?: boolean;
+  }) => {
+    const response = await api.post(
+      `/flujos-trabajo/${flujoId}/etapas/${etapaId}/requisitos`,
+      data
+    );
+    return response.data;
+  },
+
+  updateRequisito: async (reqId: string, data: {
+    nombre_documento?: string;
+    descripcion?: string | null;
+    tipo_documento_id?: string | null;
+    categoria_documento_id?: string | null;
+    plantilla_documento_id?: string | null;
+    es_obligatorio?: boolean;
+    permite_upload?: boolean;
+    permite_generar?: boolean;
+    multiple?: boolean;
+    orden?: number;
+    clave?: string | null;
+    activo?: boolean;
+  }) => {
+    const response = await api.put(`/flujos-trabajo/etapas/requisitos/${reqId}`, data);
+    return response.data;
+  },
+
+  deleteRequisito: async (reqId: string) => {
+    await api.delete(`/flujos-trabajo/etapas/requisitos/${reqId}`);
+  },
+
+  getChecklistEtapa: async (siniestroId: string, etapaId: string) => {
+    const response = await api.get(
+      `/flujos-trabajo/siniestros/${siniestroId}/etapas/${etapaId}/checklist`
+    );
+    return response.data;
+  },
 };
 
 // Servicios de catálogos legales
@@ -1165,8 +1223,10 @@ const documentoService = {
       descripcion?: string;
       area_id?: string;
       flujo_trabajo_id?: string;
+      etapa_flujo_id?: string;
       tipo_documento_id?: string;
       plantilla_documento_id?: string;
+      requisito_documento_id?: string;
       horas_trabajadas?: number;
       comentarios?: string;
     }
@@ -1177,8 +1237,10 @@ const documentoService = {
     if (options?.descripcion) form.append("descripcion", options.descripcion);
     if (options?.area_id) form.append("area_id", options.area_id);
     if (options?.flujo_trabajo_id) form.append("flujo_trabajo_id", options.flujo_trabajo_id);
+    if (options?.etapa_flujo_id) form.append("etapa_flujo_id", options.etapa_flujo_id);
     if (options?.tipo_documento_id) form.append("tipo_documento_id", options.tipo_documento_id);
     if (options?.plantilla_documento_id) form.append("plantilla_documento_id", options.plantilla_documento_id);
+    if (options?.requisito_documento_id) form.append("requisito_documento_id", options.requisito_documento_id);
     if (options?.horas_trabajadas != null && !Number.isNaN(Number(options.horas_trabajadas))) form.append("horas_trabajadas", String(options.horas_trabajadas));
     if (options?.comentarios != null && String(options.comentarios).trim() !== "") form.append("comentarios", options.comentarios);
     const response = await api.post("/documentos/upload", form, {
@@ -1457,7 +1519,17 @@ const configService = {
   deletePlantillaCorreo: async (id: string) => {
     await api.delete(`/configuracion/plantillas-correo/${id}`);
   },
-  enviarCorreo: async (data: any) => {
+  enviarCorreo: async (data: {
+    configuracion_smtp_id: string;
+    plantilla_id?: string | null;
+    destinatarios: string[];
+    cc?: string[];
+    cco?: string[];
+    asunto?: string | null;
+    cuerpo_html?: string | null;
+    variables?: Record<string, any>;
+    adjuntos?: string[];
+  }) => {
     const response = await api.post("/configuracion/enviar-correo", data);
     return response.data;
   },
@@ -1466,6 +1538,8 @@ const configService = {
     siniestro_id: string;
     configuracion_smtp_id: string;
     destinatarios: string[];
+    cc?: string[];
+    cco?: string[];
     mensaje: string;
     /** Sustituye {{ asunto }} en la plantilla de correo y el asunto renderizado */
     asunto?: string | null;

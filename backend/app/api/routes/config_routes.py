@@ -401,7 +401,10 @@ async def enviar_correo(
         )
         
 
-    # Enviar correo a cada destinatario
+    cc_list = [str(e) for e in (request_data.cc or [])]
+    cco_list = [str(e) for e in (request_data.cco or [])]
+
+    # Enviar correo a cada destinatario principal; CC/CCO se incluyen como copia en cada envío
     resultados = []
     for destinatario in request_data.destinatarios:
         success, error = EmailService.send_email_sync(
@@ -417,6 +420,8 @@ async def enviar_correo(
             list_unsubscribe_url=unsubscribe_url,
             list_unsubscribe_mailto=unsubscribe_mailto,
             list_unsubscribe_one_click=True,
+            cc=cc_list,
+            cco=cco_list,
         )
 
         estado = "enviado" if success else "fallido"
@@ -609,10 +614,13 @@ async def enviar_archivo_correo(
                 # Ignorar adjuntos malformados para no frenar todo el envío
                 continue
 
-    # Enviar una sola vez con todos los destinatarios para asegurar entrega múltiple.
+    cc_list = [str(e) for e in (request_data.cc or [])]
+    cco_list = [str(e) for e in (request_data.cco or [])]
+
+    # Enviar una sola vez con todos los destinatarios principales para asegurar entrega múltiple.
     success, error = EmailService.send_email_sync(
         config=config,
-        destinatarios=request_data.destinatarios,
+        destinatarios=list(request_data.destinatarios),
         asunto=asunto or "Te envían un archivo",
         cuerpo_html=cuerpo_html,
         cuerpo_texto=cuerpo_texto,
@@ -623,11 +631,14 @@ async def enviar_archivo_correo(
         list_unsubscribe_url=variables["unsubscribe_url"],
         list_unsubscribe_mailto=f"mailto:{config.remitente_email}?subject=unsubscribe",
         list_unsubscribe_one_click=True,
+        cc=cc_list,
+        cco=cco_list,
     )
 
     estado = "enviado" if success else "fallido"
     resultados = []
-    for destinatario in request_data.destinatarios:
+    todos_destinatarios = list(request_data.destinatarios) + cc_list + cco_list
+    for destinatario in todos_destinatarios:
         EmailService.guardar_historial(
             db=db,
             empresa_id=str(current_user.empresa_id),
