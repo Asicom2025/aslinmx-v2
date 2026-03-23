@@ -13,7 +13,7 @@ import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import apiService from "@/lib/apiService";
 import { ColumnDef } from "@tanstack/react-table";
 import DataTable from "@/components/ui/DataTable";
-import type { FlujoCompleto, EtapaFlujo } from "@/types/flujosTrabajo";
+import type { FlujoCompleto, EtapaFlujo, RequisitoDocumento } from "@/types/flujosTrabajo";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
@@ -167,7 +167,11 @@ export default function FlujoDetallePage() {
     const tNorm = (tipoInfo?.tipo ?? "").toLowerCase();
     const esEditor = tNorm === "editor";
 
-    const existentes = await apiService.getRequisitosEtapa(flujoId, etapaId, false);
+    const existentes: RequisitoDocumento[] = await apiService.getRequisitosEtapa(
+      flujoId,
+      etapaId,
+      false
+    );
 
     // ── Eliminar los que ya no están seleccionados ──────────
     for (const req of existentes) {
