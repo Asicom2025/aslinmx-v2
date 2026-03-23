@@ -35,6 +35,7 @@ export interface EtapaFlujo {
   tipo_documento_principal?: {
     id: string;
     nombre: string;
+    tipo?: string; // "pdf" | "editor" | "imagen"
   } | null;
   categoria_documento?: {
     id: string;
@@ -71,5 +72,74 @@ export interface FlujoCompleto extends FlujoTrabajo {
 export interface SiniestroFlujoResponse {
   flujo: FlujoTrabajo;
   etapas: SiniestroEtapa[];
+}
+
+// ============================================================
+// REQUISITOS DOCUMENTALES POR ETAPA
+// ============================================================
+
+export interface DocumentoRelacionado {
+  id: string;
+  nombre: string;
+}
+
+export interface RequisitoDocumento {
+  id: string;
+  flujo_trabajo_id: string;
+  etapa_flujo_id: string;
+  nombre_documento: string;
+  descripcion?: string | null;
+  tipo_documento_id?: string | null;
+  categoria_documento_id?: string | null;
+  plantilla_documento_id?: string | null;
+  es_obligatorio: boolean;
+  permite_upload: boolean;
+  permite_generar: boolean;
+  multiple: boolean;
+  orden: number;
+  clave?: string | null;
+  activo: boolean;
+  creado_en: string;
+  actualizado_en: string;
+  eliminado_en?: string | null;
+  tipo_documento?: DocumentoRelacionado | null;
+  categoria_documento?: DocumentoRelacionado | null;
+  plantilla_documento?: DocumentoRelacionado | null;
+}
+
+export interface RequisitoDocumentoCreate {
+  nombre_documento: string;
+  descripcion?: string | null;
+  tipo_documento_id?: string | null;
+  categoria_documento_id?: string | null;
+  plantilla_documento_id?: string | null;
+  es_obligatorio?: boolean;
+  permite_upload?: boolean;
+  permite_generar?: boolean;
+  multiple?: boolean;
+  orden?: number;
+  clave?: string | null;
+  activo?: boolean;
+}
+
+export type RequisitoDocumentoUpdate = Partial<RequisitoDocumentoCreate>;
+
+export type EstadoRequisito = "pendiente" | "cargado" | "generado" | "completo" | "opcional";
+
+export interface ChecklistDocumentoInfo {
+  id: string;
+  nombre_archivo: string;
+  ruta_archivo?: string | null;
+  contenido: boolean;
+  version: number;
+  creado_en?: string | null;
+  tipo_mime?: string | null;
+  usuario_subio?: string | null;
+}
+
+export interface ChecklistItem {
+  requisito: RequisitoDocumento;
+  documentos: ChecklistDocumentoInfo[];
+  estado: EstadoRequisito;
 }
 

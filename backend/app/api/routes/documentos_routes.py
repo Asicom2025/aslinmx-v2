@@ -11,7 +11,7 @@ import uuid as uuid_lib
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
@@ -23,6 +23,7 @@ from app.schemas.legal_schema import (
     NotificacionCreate,
 )
 from app.models.legal import PlantillaDocumento, Siniestro
+from app.models.flujo_trabajo import EtapaFlujoRequisitoDocumento
 from app.services.legal_service import (
     DocumentoService,
     BitacoraActividadService,
@@ -36,6 +37,23 @@ router = APIRouter(prefix="/documentos", tags=["Documentos"])
 UPLOAD_BASE = Path(os.environ.get("UPLOAD_DIR", "uploads"))
 ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "application/msword", "application/vnd.", "text/")
 MAX_FILE_SIZE_MB = 25
+
+
+def _categoria_documento_nombre_por_documento(
+    doc,
+    reqs_por_id: dict,
+    plantillas_por_id: dict,
+) -> Optional[str]:
+    """Resuelve el nombre de categoría desde requisito documental o plantilla."""
+    if getattr(doc, "requisito_documento_id", None):
+        req = reqs_por_id.get(doc.requisito_documento_id)
+        if req and req.categoria_documento:
+            return req.categoria_documento.nombre
+    if doc.plantilla_documento_id:
+        pl = plantillas_por_id.get(doc.plantilla_documento_id)
+        if pl and pl.categoria:
+            return pl.categoria.nombre
+    return None
 
 
 @router.get("/siniestros/{siniestro_id}", response_model=List[DocumentoResponse])
@@ -64,16 +82,55 @@ def list_documentos_siniestro(
     if not documents:
         return []
     plantilla_ids = {d.plantilla_documento_id for d in documents if d.plantilla_documento_id}
-    plantillas = db.query(PlantillaDocumento).filter(PlantillaDocumento.id.in_(plantilla_ids)).all()
+    plantillas_por_id = {}
+    if plantilla_ids:
+        plantillas = (
+            db.query(PlantillaDocumento)
+            .options(joinedload(PlantillaDocumento.categoria))
+            .filter(PlantillaDocumento.id.in_(plantilla_ids))
+            .all()
+        )
+        plantillas_por_id = {p.id: p for p in plantillas}
     tiene_continuacion = {
-        str(p.id): bool(getattr(p, "plantilla_continuacion_id", None) and getattr(p, "campos_formulario", None) and len(p.campos_formulario or []) > 0)
-        for p in plantillas
+        str(p.id): bool(
+            getattr(p, "plantilla_continuacion_id", None)
+            and getattr(p, "campos_formulario", None)
+            and len(p.campos_formulario or []) > 0
+        )
+        for p in plantillas_por_id.values()
     }
+    req_ids = {d.requisito_documento_id for d in documents if d.requisito_documento_id}
+    reqs_por_id = {}
+    if req_ids:
+        reqs = (
+            db.query(EtapaFlujoRequisitoDocumento)
+            .options(joinedload(EtapaFlujoRequisitoDocumento.categoria_documento))
+            .filter(EtapaFlujoRequisitoDocumento.id.in_(req_ids))
+            .all()
+        )
+        reqs_por_id = {r.id: r for r in reqs}
     result = []
     for doc in documents:
         resp = DocumentoResponse.model_validate(doc)
-        flag = tiene_continuacion.get(str(doc.plantilla_documento_id), False) if doc.plantilla_documento_id else None
-        result.append(DocumentoResponse(**(resp.model_dump() | {"plantilla_tiene_continuacion": flag})))
+        flag = (
+            tiene_continuacion.get(str(doc.plantilla_documento_id), False)
+            if doc.plantilla_documento_id
+            else None
+        )
+        cat_nombre = _categoria_documento_nombre_por_documento(
+            doc, reqs_por_id, plantillas_por_id
+        )
+        result.append(
+            DocumentoResponse(
+                **(
+                    resp.model_dump()
+                    | {
+                        "plantilla_tiene_continuacion": flag,
+                        "categoria_documento_nombre": cat_nombre,
+                    }
+                )
+            )
+        )
     return result
 
 
@@ -228,8 +285,10 @@ def upload_documento_archivo(
     descripcion: Optional[str] = Form(None),
     area_id: Optional[UUID] = Form(None),
     flujo_trabajo_id: Optional[UUID] = Form(None),
+    etapa_flujo_id: Optional[UUID] = Form(None),
     tipo_documento_id: Optional[UUID] = Form(None),
     plantilla_documento_id: Optional[UUID] = Form(None),
+    requisito_documento_id: Optional[UUID] = Form(None, description="ID del requisito documental al que pertenece"),
     horas_trabajadas: Optional[float] = Form(None, description="Horas para bitácora"),
     comentarios: Optional[str] = Form(None, description="Comentario para bitácora"),
     db: Session = Depends(get_db),
@@ -290,8 +349,10 @@ def upload_documento_archivo(
         usuario_subio=current_user.id,
         area_id=area_id,
         flujo_trabajo_id=flujo_trabajo_id,
+        etapa_flujo_id=etapa_flujo_id,
         tipo_documento_id=tipo_documento_id,
         plantilla_documento_id=plantilla_documento_id,
+        requisito_documento_id=requisito_documento_id,
     )
     documento = DocumentoService.create(db, payload)
 

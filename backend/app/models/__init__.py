@@ -16,7 +16,7 @@ from app.models.user import (
     UsuarioArea,
 )
 from app.models.permiso import Modulo, Accion, RolPermiso
-from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa
+from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa, EtapaFlujoRequisitoDocumento
 
 # Importar modelos adicionales
 from app.models.legal import (
@@ -67,6 +67,7 @@ __all__ = [
     "FlujoTrabajo",
     "EtapaFlujo",
     "SiniestroEtapa",
+    "EtapaFlujoRequisitoDocumento",
     "Area",
     "TipoDocumento",
     "CategoriaDocumento",

@@ -1,6 +1,6 @@
 /**
  * Componente Select reutilizable basado en React Select
- * Soporta selección única y múltiple
+ * Soporta selección única, múltiple y opciones agrupadas
  */
 
 "use client";
@@ -13,12 +13,28 @@ export interface SelectOption {
   label: string;
 }
 
+export interface SelectGroupedOption {
+  label: string;
+  options: SelectOption[];
+}
+
+/** Aplana grupos o lista plana a un array de SelectOption */
+function flattenOptions(
+  options: SelectOption[] | SelectGroupedOption[]
+): SelectOption[] {
+  if (options.length === 0) return [];
+  if ("options" in options[0]) {
+    return (options as SelectGroupedOption[]).flatMap((g) => g.options);
+  }
+  return options as SelectOption[];
+}
+
 interface SelectProps {
   label?: React.ReactNode;
   name: string;
   value: string | string[];
   onChange: (value: string | string[]) => void;
-  options: SelectOption[];
+  options: SelectOption[] | SelectGroupedOption[];
   placeholder?: string;
   required?: boolean;
   disabled?: boolean;
@@ -52,11 +68,12 @@ export default function CustomSelect({
   };
 
   const getValue = () => {
+    const flat = flattenOptions(options);
     if (isMulti) {
       const valuesArray = Array.isArray(value) ? value : value ? [value] : [];
-      return options.filter((opt) => valuesArray.includes(opt.value));
+      return flat.filter((opt) => valuesArray.includes(opt.value));
     } else {
-      return options.find((opt) => opt.value === value) || null;
+      return flat.find((opt) => opt.value === value) || null;
     }
   };
 
@@ -110,6 +127,17 @@ export default function CustomSelect({
       borderRadius: "0.5rem",
       boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
     }),
+    groupHeading: (provided) => ({
+      ...provided,
+      fontSize: "0.7rem",
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.05em",
+      color: "#6b7280",
+      paddingTop: "0.5rem",
+      paddingBottom: "0.25rem",
+      backgroundColor: "#f9fafb",
+    }),
     option: (provided, state) => ({
       ...provided,
       backgroundColor: state.isSelected
@@ -133,11 +161,11 @@ export default function CustomSelect({
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
       )}
-      <Select<SelectOption, boolean>
+      <Select<SelectOption, boolean, GroupBase<SelectOption>>
         name={name}
         value={getValue()}
         onChange={handleChange}
-        options={options}
+        options={options as any}
         placeholder={placeholder}
         isDisabled={disabled}
         isMulti={isMulti}

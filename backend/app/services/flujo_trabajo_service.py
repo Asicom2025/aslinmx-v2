@@ -8,8 +8,8 @@ from sqlalchemy import and_, or_, func, text
 from fastapi import HTTPException, status
 from uuid import UUID
 
-from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa
-from app.models.legal import TipoDocumento, Siniestro
+from app.models.flujo_trabajo import FlujoTrabajo, EtapaFlujo, SiniestroEtapa, EtapaFlujoRequisitoDocumento
+from app.models.legal import TipoDocumento, Siniestro, Documento
 from app.services.auditoria_service import AuditoriaService
 from app.schemas.flujo_trabajo_schema import (
     FlujoTrabajoCreate,
@@ -17,6 +17,10 @@ from app.schemas.flujo_trabajo_schema import (
     EtapaFlujoCreate,
     EtapaFlujoUpdate,
     CompletarEtapaRequest,
+    RequisitoDocumentoCreate,
+    RequisitoDocumentoUpdate,
+    ChecklistItemEstado,
+    ChecklistDocumentalItem,
 )
 
 
@@ -459,3 +463,160 @@ class SiniestroEtapaService:
                 detail=f"Error al avanzar etapa: {str(e)}"
             )
 
+
+# ==========================================================
+# SERVICIO DE REQUISITOS DOCUMENTALES POR ETAPA
+# ==========================================================
+
+class RequisitoDocumentoService:
+    """Gestión CRUD de requisitos documentales por etapa y cálculo de checklist"""
+
+    @staticmethod
+    def list_by_etapa(
+        db: Session,
+        etapa_flujo_id: UUID,
+        solo_activos: bool = True,
+    ) -> List[EtapaFlujoRequisitoDocumento]:
+        q = db.query(EtapaFlujoRequisitoDocumento).filter(
+            EtapaFlujoRequisitoDocumento.etapa_flujo_id == etapa_flujo_id,
+            EtapaFlujoRequisitoDocumento.eliminado_en.is_(None),
+        )
+        if solo_activos:
+            q = q.filter(EtapaFlujoRequisitoDocumento.activo == True)
+        return q.order_by(EtapaFlujoRequisitoDocumento.orden).all()
+
+    @staticmethod
+    def get_by_id(
+        db: Session,
+        req_id: UUID,
+    ) -> EtapaFlujoRequisitoDocumento:
+        obj = db.query(EtapaFlujoRequisitoDocumento).filter(
+            EtapaFlujoRequisitoDocumento.id == req_id,
+            EtapaFlujoRequisitoDocumento.eliminado_en.is_(None),
+        ).first()
+        if not obj:
+            raise HTTPException(status_code=404, detail="Requisito documental no encontrado")
+        return obj
+
+    @staticmethod
+    def create(
+        db: Session,
+        flujo_trabajo_id: UUID,
+        etapa_flujo_id: UUID,
+        data: RequisitoDocumentoCreate,
+    ) -> EtapaFlujoRequisitoDocumento:
+        # Verificar que la etapa existe y pertenece al flujo
+        etapa = db.query(EtapaFlujo).filter(
+            EtapaFlujo.id == etapa_flujo_id,
+            EtapaFlujo.flujo_trabajo_id == flujo_trabajo_id,
+            EtapaFlujo.eliminado_en.is_(None),
+        ).first()
+        if not etapa:
+            raise HTTPException(status_code=404, detail="Etapa no encontrada en el flujo indicado")
+
+        obj = EtapaFlujoRequisitoDocumento(
+            flujo_trabajo_id=flujo_trabajo_id,
+            etapa_flujo_id=etapa_flujo_id,
+            **data.model_dump(exclude_unset=False),
+        )
+        db.add(obj)
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+    @staticmethod
+    def update(
+        db: Session,
+        req_id: UUID,
+        data: RequisitoDocumentoUpdate,
+    ) -> EtapaFlujoRequisitoDocumento:
+        obj = RequisitoDocumentoService.get_by_id(db, req_id)
+        for field, value in data.model_dump(exclude_unset=True).items():
+            setattr(obj, field, value)
+        db.commit()
+        db.refresh(obj)
+        return obj
+
+    @staticmethod
+    def delete(db: Session, req_id: UUID) -> None:
+        """Soft-delete del requisito"""
+        obj = RequisitoDocumentoService.get_by_id(db, req_id)
+        from datetime import datetime, timezone
+        obj.eliminado_en = datetime.now(timezone.utc)
+        db.commit()
+
+    @staticmethod
+    def get_checklist_siniestro(
+        db: Session,
+        siniestro_id: UUID,
+        etapa_flujo_id: UUID,
+    ) -> List[ChecklistDocumentalItem]:
+        """Calcula el checklist documental de una etapa para un siniestro específico.
+
+        Para cada requisito activo de la etapa carga los documentos reales del
+        siniestro asociados a ese requisito (o a la misma etapa si no tienen requisito),
+        y calcula el estado de cumplimiento.
+        """
+        requisitos = RequisitoDocumentoService.list_by_etapa(db, etapa_flujo_id, solo_activos=True)
+
+        # Cargar TODOS los documentos del siniestro en esta etapa de una vez
+        docs_etapa = (
+            db.query(Documento)
+            .filter(
+                Documento.siniestro_id == siniestro_id,
+                Documento.etapa_flujo_id == etapa_flujo_id,
+                Documento.eliminado == False,
+            )
+            .all()
+        )
+
+        # Indexar por requisito_documento_id para búsqueda rápida
+        docs_por_requisito: dict[str, list] = {}
+        docs_sin_requisito: list = []
+        for doc in docs_etapa:
+            rid = str(doc.requisito_documento_id) if doc.requisito_documento_id else None
+            if rid:
+                docs_por_requisito.setdefault(rid, []).append(doc)
+            else:
+                docs_sin_requisito.append(doc)
+
+        checklist: List[ChecklistDocumentalItem] = []
+
+        for req in requisitos:
+            req_key = str(req.id)
+            docs = docs_por_requisito.get(req_key, [])
+
+            # Calcular estado
+            if not docs:
+                estado = ChecklistItemEstado.pendiente if req.es_obligatorio else ChecklistItemEstado.opcional
+            else:
+                tiene_upload = any(d.ruta_archivo for d in docs)
+                tiene_generado = any(d.contenido for d in docs)
+                if tiene_upload and tiene_generado:
+                    estado = ChecklistItemEstado.completo
+                elif tiene_generado:
+                    estado = ChecklistItemEstado.generado
+                else:
+                    estado = ChecklistItemEstado.cargado
+
+            checklist.append(
+                ChecklistDocumentalItem(
+                    requisito=req,
+                    documentos=[
+                        {
+                            "id": str(d.id),
+                            "nombre_archivo": d.nombre_archivo,
+                            "ruta_archivo": d.ruta_archivo,
+                            "contenido": bool(d.contenido),
+                            "version": d.version,
+                            "creado_en": d.creado_en.isoformat() if d.creado_en else None,
+                            "tipo_mime": d.tipo_mime,
+                            "usuario_subio": str(d.usuario_subio) if d.usuario_subio else None,
+                        }
+                        for d in docs
+                    ],
+                    estado=estado,
+                )
+            )
+
+        return checklist

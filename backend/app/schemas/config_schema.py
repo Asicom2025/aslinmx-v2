@@ -102,6 +102,8 @@ class EnviarCorreoRequest(BaseModel):
     configuracion_smtp_id: UUID
     plantilla_id: Optional[UUID] = None
     destinatarios: List[EmailStr]
+    cc: Optional[List[EmailStr]] = None   # Con copia visible
+    cco: Optional[List[EmailStr]] = None  # Con copia oculta (BCC)
     asunto: Optional[str] = None  # Si no se proporciona, usa el de la plantilla
     cuerpo_html: Optional[str] = None  # Si no se proporciona, usa el de la plantilla
     variables: Optional[Dict[str, Any]] = None  # Variables para reemplazar en la plantilla
@@ -113,6 +115,8 @@ class EnviarArchivoCorreoRequest(BaseModel):
     siniestro_id: UUID
     configuracion_smtp_id: UUID
     destinatarios: List[EmailStr]
+    cc: Optional[List[EmailStr]] = None   # Con copia visible
+    cco: Optional[List[EmailStr]] = None  # Con copia oculta (BCC)
     mensaje: str  # textMail: mensaje que coloca el usuario
     # Se inyecta en la plantilla como {{ asunto }} (asunto del correo y cuerpo HTML si la plantilla lo usa).
     asunto: Optional[str] = None

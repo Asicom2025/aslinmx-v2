@@ -1,11 +1,13 @@
 /**
  * Página de detalle de un flujo de trabajo
- * Muestra el flujo y permite gestionar sus etapas
+ * Muestra el flujo y permite gestionar sus etapas.
+ * Cada etapa puede tener MÚLTIPLES categorías y plantillas asociadas
+ * (EtapaFlujoRequisitoDocumento), gestionadas desde el mismo formulario de etapa.
  */
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import apiService from "@/lib/apiService";
@@ -16,13 +18,12 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Modal from "@/components/ui/Modal";
 import Switch from "@/components/ui/Switch";
-import CustomSelect, { SelectOption } from "@/components/ui/Select";
+import CustomSelect from "@/components/ui/Select";
 import { FiArrowLeft, FiPlus, FiFolder, FiFileText } from "react-icons/fi";
 
 interface TipoDocumento {
   id: string;
   nombre: string;
-  descripcion?: string;
   tipo: string;
   activo: boolean;
 }
@@ -31,7 +32,6 @@ interface CategoriaDocumento {
   id: string;
   tipo_documento_id: string;
   nombre: string;
-  descripcion?: string;
   activo: boolean;
 }
 
@@ -40,7 +40,6 @@ interface PlantillaDocumento {
   tipo_documento_id: string;
   categoria_id?: string;
   nombre: string;
-  descripcion?: string;
   activo: boolean;
 }
 
@@ -53,15 +52,21 @@ export default function FlujoDetallePage() {
   const [loading, setLoading] = useState(true);
   const [showEtapaForm, setShowEtapaForm] = useState(false);
   const [etapaEditando, setEtapaEditando] = useState<EtapaFlujo | null>(null);
-  
-  // Tipos de documento y sus relaciones
+
+  // ── Catálogos para la cascada del formulario de etapa ──────
   const [tiposDocumento, setTiposDocumento] = useState<TipoDocumento[]>([]);
   const [categorias, setCategorias] = useState<CategoriaDocumento[]>([]);
   const [plantillasDocumento, setPlantillasDocumento] = useState<PlantillaDocumento[]>([]);
+
+  // Tipo: sigue siendo single-select (define el "tipo principal" de la etapa)
   const [tipoDocumentoSeleccionado, setTipoDocumentoSeleccionado] = useState<string>("");
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>("");
-  const [plantillaSeleccionada, setPlantillaSeleccionada] = useState<string>("");
-  
+
+  // Categorías y plantillas: ahora MULTI-SELECT → cada una genera un requisito
+  const [categoriasSeleccionadas, setCategoriasSeleccionadas] = useState<string[]>([]);
+  const [plantillasSeleccionadas, setPlantillasSeleccionadas] = useState<string[]>([]);
+  const prevTipoDocIdRef = useRef<string>("");
+
+  // Datos del formulario de etapa
   const [formData, setFormData] = useState({
     nombre: "",
     descripcion: "",
@@ -70,59 +75,71 @@ export default function FlujoDetallePage() {
     permite_omision: false,
     inhabilita_siguiente: false,
     tipo_documento_principal_id: "",
-    categoria_documento_id: "",
-    plantilla_documento_id: "",
     activo: true,
   });
 
+  // ── Efectos de cascada ─────────────────────────────────────
   useEffect(() => {
     cargarFlujo();
     cargarTiposDocumento();
   }, [flujoId]);
 
-  // Cargar categorías cuando cambia el tipo de documento
+  // Según el tipo de plantilla del tipo de documento: PDF/imagen → solo categorías; editor → solo plantillas
   useEffect(() => {
-    if (tipoDocumentoSeleccionado) {
-      cargarCategorias(tipoDocumentoSeleccionado);
-      cargarPlantillasDocumento(tipoDocumentoSeleccionado);
-    } else {
+    if (!tipoDocumentoSeleccionado) {
+      prevTipoDocIdRef.current = "";
       setCategorias([]);
       setPlantillasDocumento([]);
+      setCategoriasSeleccionadas([]);
+      setPlantillasSeleccionadas([]);
+      return;
     }
-  }, [tipoDocumentoSeleccionado]);
-
-  // Filtrar plantillas cuando cambia la categoría
-  useEffect(() => {
-    if (tipoDocumentoSeleccionado) {
-      cargarPlantillasDocumento(tipoDocumentoSeleccionado, categoriaSeleccionada || undefined);
+    if (tiposDocumento.length === 0) {
+      if (tipoDocumentoSeleccionado) prevTipoDocIdRef.current = tipoDocumentoSeleccionado;
+      return;
     }
-  }, [categoriaSeleccionada]);
 
+    const info = tiposDocumento.find((t) => t.id === tipoDocumentoSeleccionado);
+    const t = (info?.tipo ?? "").toLowerCase();
+    const tipoCambio = prevTipoDocIdRef.current !== tipoDocumentoSeleccionado;
+    prevTipoDocIdRef.current = tipoDocumentoSeleccionado;
+    if (tipoCambio) {
+      setCategoriasSeleccionadas([]);
+      setPlantillasSeleccionadas([]);
+    }
+    if (t === "editor") {
+      setCategorias([]);
+      cargarPlantillasDocumento(tipoDocumentoSeleccionado);
+    } else {
+      setPlantillasDocumento([]);
+      cargarCategorias(tipoDocumentoSeleccionado);
+    }
+  }, [tipoDocumentoSeleccionado, tiposDocumento]);
+
+  // ── Cargadores ─────────────────────────────────────────────
   const cargarTiposDocumento = async () => {
     try {
       const data = await apiService.getPlantillas(true);
-      setTiposDocumento(data);
-    } catch (error) {
-      console.error("Error al cargar tipos de documento:", error);
+      setTiposDocumento(data ?? []);
+    } catch {
+      console.error("Error al cargar tipos de documento");
     }
   };
 
-  const cargarCategorias = async (tipoDocumentoId: string) => {
+  const cargarCategorias = async (tipoId: string) => {
     try {
-      const data = await apiService.getCategoriasDocumento(tipoDocumentoId, true);
-      setCategorias(data);
-    } catch (error) {
-      console.error("Error al cargar categorías:", error);
+      const data = await apiService.getCategoriasDocumento(tipoId, true);
+      setCategorias(data ?? []);
+    } catch {
       setCategorias([]);
     }
   };
 
-  const cargarPlantillasDocumento = async (tipoDocumentoId: string, categoriaId?: string) => {
+  const cargarPlantillasDocumento = async (tipoId: string) => {
     try {
-      const data = await apiService.getPlantillasDocumento(tipoDocumentoId, categoriaId, true);
-      setPlantillasDocumento(data);
-    } catch (error) {
-      console.error("Error al cargar plantillas:", error);
+      const data = await apiService.getPlantillasDocumento(tipoId, undefined, true);
+      setPlantillasDocumento(data ?? []);
+    } catch {
       setPlantillasDocumento([]);
     }
   };
@@ -140,36 +157,110 @@ export default function FlujoDetallePage() {
     }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    setFormData({
-      ...formData,
-      [name]: type === "checkbox"
-        ? (e.target as HTMLInputElement).checked
-        : type === "number"
-        ? parseInt(value) || 0
-        : value === ""
-        ? null
-        : value,
-    });
+  // ── Sincronizar requisitos documentales al guardar etapa ───
+  /**
+   * Para cada categoría/plantilla seleccionada, crea un EtapaFlujoRequisitoDocumento
+   * si no existe ya (idempotente). Elimina los que ya no están en la selección.
+   */
+  const sincronizarRequisitos = async (etapaId: string) => {
+    const tipoInfo = tiposDocumento.find((t) => t.id === tipoDocumentoSeleccionado);
+    const tNorm = (tipoInfo?.tipo ?? "").toLowerCase();
+    const esEditor = tNorm === "editor";
+
+    const existentes = await apiService.getRequisitosEtapa(flujoId, etapaId, false);
+
+    // ── Eliminar los que ya no están seleccionados ──────────
+    for (const req of existentes) {
+      const esCat = !!req.categoria_documento_id && !req.plantilla_documento_id;
+      const esPlant = !!req.plantilla_documento_id;
+
+      if (esCat && !categoriasSeleccionadas.includes(req.categoria_documento_id!)) {
+        await apiService.deleteRequisito(req.id);
+      }
+      if (esPlant && !plantillasSeleccionadas.includes(req.plantilla_documento_id!)) {
+        await apiService.deleteRequisito(req.id);
+      }
+    }
+
+    // ── Crear requisitos por categoría (solo tipo PDF / imagen / otros no editor) ──
+    if (!esEditor) {
+      const existentesCatIds = existentes
+        .filter((r) => r.categoria_documento_id && !r.plantilla_documento_id)
+        .map((r) => r.categoria_documento_id!);
+
+      for (const [idx, catId] of categoriasSeleccionadas.entries()) {
+        if (!existentesCatIds.includes(catId)) {
+          const cat = categorias.find((c) => c.id === catId);
+          await apiService.createRequisito(flujoId, etapaId, {
+            nombre_documento: cat?.nombre ?? catId,
+            tipo_documento_id: tipoDocumentoSeleccionado || null,
+            categoria_documento_id: catId,
+            plantilla_documento_id: null,
+            es_obligatorio: true,
+            permite_upload: true,
+            permite_generar: false,
+            multiple: false,
+            orden: idx + 1,
+            activo: true,
+          });
+        }
+      }
+    }
+
+    // ── Crear requisitos por plantilla (solo tipo editor) ──
+    if (esEditor) {
+      const existentesPlantIds = existentes
+        .filter((r) => r.plantilla_documento_id)
+        .map((r) => r.plantilla_documento_id!);
+
+      for (const [idx, plantId] of plantillasSeleccionadas.entries()) {
+        if (!existentesPlantIds.includes(plantId)) {
+          const plant = plantillasDocumento.find((p) => p.id === plantId);
+          await apiService.createRequisito(flujoId, etapaId, {
+            nombre_documento: plant?.nombre ?? plantId,
+            tipo_documento_id: tipoDocumentoSeleccionado || null,
+            categoria_documento_id: plant?.categoria_id ?? null,
+            plantilla_documento_id: plantId,
+            es_obligatorio: true,
+            permite_upload: false,
+            permite_generar: true,
+            multiple: false,
+            orden: idx + 1,
+            activo: true,
+          });
+        }
+      }
+    }
   };
 
+  // ── Guardar etapa ──────────────────────────────────────────
   const handleCrearEtapa = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const data = {
         ...formData,
-        tipo_documento_principal_id: formData.tipo_documento_principal_id || undefined,
-        categoria_documento_id: formData.categoria_documento_id || undefined,
-        plantilla_documento_id: formData.plantilla_documento_id || undefined,
+        tipo_documento_principal_id: tipoDocumentoSeleccionado || undefined,
+        categoria_documento_id: undefined,   // ya no se guarda FK única de categoría
+        plantilla_documento_id: undefined,   // ya no se guarda FK única de plantilla
       };
+
+      let etapaId: string;
+
       if (etapaEditando) {
         await apiService.updateEtapa(etapaEditando.id, data);
+        etapaId = etapaEditando.id;
         await swalSuccess("Etapa actualizada correctamente");
       } else {
-        await apiService.createEtapa(flujoId, data);
+        const nueva = await apiService.createEtapa(flujoId, data);
+        etapaId = nueva.id;
         await swalSuccess("Etapa creada correctamente");
       }
+
+      // Sincronizar requisitos (también limpia huérfanos si se vacían las selecciones)
+      if (tipoDocumentoSeleccionado) {
+        await sincronizarRequisitos(etapaId);
+      }
+
       setShowEtapaForm(false);
       setEtapaEditando(null);
       resetForm();
@@ -179,7 +270,8 @@ export default function FlujoDetallePage() {
     }
   };
 
-  const handleEditarEtapa = (etapa: EtapaFlujo) => {
+  // ── Editar etapa: pre-cargar multi-selección ───────────────
+  const handleEditarEtapa = async (etapa: EtapaFlujo) => {
     setEtapaEditando(etapa);
     setFormData({
       nombre: etapa.nombre,
@@ -189,42 +281,75 @@ export default function FlujoDetallePage() {
       permite_omision: etapa.permite_omision,
       inhabilita_siguiente: etapa.inhabilita_siguiente,
       tipo_documento_principal_id: etapa.tipo_documento_principal_id || "",
-      categoria_documento_id: etapa.categoria_documento_id || "",
-      plantilla_documento_id: etapa.plantilla_documento_id || "",
       activo: etapa.activo,
     });
-    // Si hay un tipo de documento principal, seleccionarlo
-    if (etapa.tipo_documento_principal_id) {
-      setTipoDocumentoSeleccionado(etapa.tipo_documento_principal_id);
+
+    const tipoId = etapa.tipo_documento_principal_id || "";
+    // Evita que el useEffect de cascada interprete "cambio de tipo" y vacíe la multi-selección
+    // justo al hidratar desde la API (competía con setCategoriasSeleccionadas asíncrono).
+    prevTipoDocIdRef.current = tipoId;
+    setTipoDocumentoSeleccionado(tipoId);
+
+    if (tipoId) {
+      const tipoNorm = (
+        etapa.tipo_documento_principal?.tipo ??
+        tiposDocumento.find((x) => x.id === tipoId)?.tipo ??
+        ""
+      ).toLowerCase();
+      const esEditorEtapa = tipoNorm === "editor";
+
+      const reqs = await apiService.getRequisitosEtapa(flujoId, etapa.id, false).catch(() => []);
+
+      if (esEditorEtapa) {
+        const plants = await apiService.getPlantillasDocumento(tipoId, undefined, true).catch(() => []);
+        setCategorias([]);
+        setPlantillasDocumento(plants ?? []);
+        const plantIds = (reqs as any[])
+          .filter((r) => r.plantilla_documento_id)
+          .map((r) => r.plantilla_documento_id as string);
+        setCategoriasSeleccionadas([]);
+        setPlantillasSeleccionadas(plantIds);
+      } else {
+        const cats = await apiService.getCategoriasDocumento(tipoId, true).catch(() => []);
+        setCategorias(cats ?? []);
+        setPlantillasDocumento([]);
+        const catIds = (reqs as any[])
+          .filter((r) => {
+            const cid =
+              r.categoria_documento_id ?? r.categoria_documento?.id ?? null;
+            return !!cid && !r.plantilla_documento_id;
+          })
+          .map(
+            (r) =>
+              (r.categoria_documento_id ?? r.categoria_documento?.id) as string,
+          );
+        setCategoriasSeleccionadas(catIds);
+        setPlantillasSeleccionadas([]);
+      }
+    } else {
+      setCategorias([]);
+      setPlantillasDocumento([]);
+      setCategoriasSeleccionadas([]);
+      setPlantillasSeleccionadas([]);
     }
-    // Si hay una categoría, seleccionarla
-    if (etapa.categoria_documento_id) {
-      setCategoriaSeleccionada(etapa.categoria_documento_id);
-    }
-    // Si hay una plantilla, seleccionarla
-    if (etapa.plantilla_documento_id) {
-      setPlantillaSeleccionada(etapa.plantilla_documento_id);
-    }
+
     setShowEtapaForm(true);
   };
 
+  // ── Eliminar etapa ─────────────────────────────────────────
   const handleEliminarEtapa = async (etapaId: string) => {
     const confirmed = await swalConfirmDelete(
       "¿Está seguro de ocultar esta etapa? La base de datos no se modificará."
     );
     if (!confirmed) return;
-
     try {
       await apiService.deleteEtapa(flujoId, etapaId);
       await swalSuccess("Etapa ocultada correctamente");
-
-      // Eliminación SOLO visual: no recargamos desde DB.
       setFlujo((prev) => {
         if (!prev) return prev;
-        const etapas = Array.isArray(prev.etapas) ? prev.etapas : [];
         return {
           ...prev,
-          etapas: etapas.filter((e: any) => String(e.id) !== String(etapaId)),
+          etapas: (prev.etapas ?? []).filter((e: any) => String(e.id) !== String(etapaId)),
         };
       });
     } catch (error: any) {
@@ -232,7 +357,9 @@ export default function FlujoDetallePage() {
     }
   };
 
+  // ── Reset ──────────────────────────────────────────────────
   const resetForm = () => {
+    prevTipoDocIdRef.current = "";
     setFormData({
       nombre: "",
       descripcion: "",
@@ -241,15 +368,24 @@ export default function FlujoDetallePage() {
       permite_omision: false,
       inhabilita_siguiente: false,
       tipo_documento_principal_id: "",
-      categoria_documento_id: "",
-      plantilla_documento_id: "",
       activo: true,
     });
     setTipoDocumentoSeleccionado("");
-    setCategoriaSeleccionada("");
-    setPlantillaSeleccionada("");
+    setCategoriasSeleccionadas([]);
+    setPlantillasSeleccionadas([]);
+    setCategorias([]);
+    setPlantillasDocumento([]);
   };
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target;
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === "number" ? parseInt(value) || 0 : value,
+    }));
+  };
+
+  // ── Render ─────────────────────────────────────────────────
   if (loading || !flujo) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -257,6 +393,12 @@ export default function FlujoDetallePage() {
       </div>
     );
   }
+
+  const tipoDocSel = tiposDocumento.find((t) => t.id === tipoDocumentoSeleccionado);
+  const tipoPlantillaNorm = (tipoDocSel?.tipo ?? "").toLowerCase();
+  const esTipoEditorFlujo = tipoPlantillaNorm === "editor";
+  const mostrarCategoriasEtapa = !!tipoDocumentoSeleccionado && !esTipoEditorFlujo;
+  const mostrarPlantillasEtapa = !!tipoDocumentoSeleccionado && esTipoEditorFlujo;
 
   return (
     <div className="min-h-screen w-full bg-gray-50 p-6">
@@ -300,27 +442,44 @@ export default function FlujoDetallePage() {
           {flujo.etapas && flujo.etapas.length > 0 ? (
             <EtapasTable
               data={[...flujo.etapas].sort((a, b) => a.orden - b.orden)}
+              flujoId={flujoId}
               onEdit={handleEditarEtapa}
               onDelete={handleEliminarEtapa}
             />
           ) : (
-            <p className="text-gray-500 text-center py-8">No hay etapas configuradas. Agrega la primera etapa.</p>
+            <p className="text-gray-500 text-center py-8">
+              No hay etapas configuradas. Agrega la primera etapa.
+            </p>
           )}
         </div>
       </div>
 
-      {/* Modal Crear/Editar Etapa */}
-      <Modal 
-        open={showEtapaForm} 
-        onClose={() => setShowEtapaForm(false)} 
+      {/* ── Modal Crear / Editar Etapa ── */}
+      <Modal
+        open={showEtapaForm}
+        onClose={() => { setShowEtapaForm(false); resetForm(); }}
         title={etapaEditando ? "Editar Etapa" : "Nueva Etapa"}
         maxWidthClass="max-w-3xl"
       >
         <form onSubmit={handleCrearEtapa} className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input label="Nombre de la Etapa" name="nombre" value={formData.nombre} onChange={handleChange} required />
-            <Input label="Orden" name="orden" type="number" value={formData.orden.toString()} onChange={handleChange} required />
+            <Input
+              label="Nombre de la Etapa"
+              name="nombre"
+              value={formData.nombre}
+              onChange={handleChange}
+              required
+            />
+            <Input
+              label="Orden"
+              name="orden"
+              type="number"
+              value={formData.orden.toString()}
+              onChange={handleChange}
+              required
+            />
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Descripción</label>
             <textarea
@@ -331,143 +490,165 @@ export default function FlujoDetallePage() {
               className="w-full border border-gray-300 rounded-md px-3 py-2"
             />
           </div>
-          
-          {/* Sección de Tipo de Documento */}
-          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
-              <FiFileText className="w-4 h-4" />
-              Documento Principal de la Etapa
-            </h3>
-            <p className="text-xs text-gray-500 mb-4">
-              Selecciona el tipo de documento, categoría o plantilla específica para esta etapa.
-            </p>
-            
-            {/* Selector de Tipo de Documento */}
-            <div className="space-y-3">
-              <CustomSelect
-                label="Tipo de Documento"
-                name="tipo_documento"
-                value={tipoDocumentoSeleccionado}
-                onChange={(value) => {
-                  const newValue = value as string;
-                  setTipoDocumentoSeleccionado(newValue);
-                  setCategoriaSeleccionada("");
-                  setPlantillaSeleccionada("");
-                  // Actualizar el formData
-                  setFormData((prev) => ({ 
-                    ...prev, 
-                    tipo_documento_principal_id: newValue,
-                    categoria_documento_id: "",
-                    plantilla_documento_id: ""
-                  }));
-                }}
-                options={[
-                  { value: "", label: "Sin tipo de documento específico" },
-                  ...tiposDocumento.map((tipo) => ({ 
-                    value: tipo.id, 
-                    label: `${tipo.nombre} (${tipo.tipo === "pdf" ? "PDF" : tipo.tipo === "editor" ? "Editor" : "Imagen"})` 
-                  }))
-                ]}
-                placeholder="Selecciona un tipo de documento"
-              />
 
-              {/* Selector de Categoría si existen */}
-              {tipoDocumentoSeleccionado && categorias.length > 0 && (
-                <div className="ml-4 border-l-2 border-blue-200 pl-4">
-                  <CustomSelect
-                    label={
-                      <span className="flex items-center gap-1">
-                        <FiFolder className="w-3 h-3 text-blue-500" />
-                        Categoría
-                      </span>
-                    }
-                    name="categoria"
-                    value={categoriaSeleccionada}
-                    onChange={(value) => {
-                      const newValue = value as string;
-                      setCategoriaSeleccionada(newValue);
-                      setPlantillaSeleccionada("");
-                      // Actualizar el formData con la categoría
-                      setFormData((prev) => ({ 
-                        ...prev, 
-                        categoria_documento_id: newValue,
-                        plantilla_documento_id: ""
-                      }));
-                    }}
-                    options={[
-                      { value: "", label: "Cualquier categoría" },
-                      ...categorias.map((cat) => ({ value: cat.id, label: cat.nombre }))
-                    ]}
-                    placeholder="Seleccionar categoría"
-                  />
-                </div>
-              )}
-
-              {/* Selector de Plantilla Específica */}
-              {tipoDocumentoSeleccionado && plantillasDocumento.length > 0 && (
-                <div className="ml-4 border-l-2 border-green-200 pl-4">
-                  <CustomSelect
-                    label={
-                      <span className="flex items-center gap-1">
-                        <FiFileText className="w-3 h-3 text-green-500" />
-                        Plantilla Específica
-                      </span>
-                    }
-                    name="plantilla"
-                    value={plantillaSeleccionada}
-                    onChange={(value) => {
-                      const newValue = value as string;
-                      setPlantillaSeleccionada(newValue);
-                      // Actualizar el formData con la plantilla
-                      setFormData((prev) => ({ 
-                        ...prev, 
-                        plantilla_documento_id: newValue
-                      }));
-                    }}
-                    options={[
-                      { value: "", label: "Cualquier plantilla de este tipo" },
-                      ...plantillasDocumento.map((p) => ({ value: p.id, label: p.nombre }))
-                    ]}
-                    placeholder="Seleccionar plantilla específica"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">
-                    Si seleccionas una plantilla específica, solo esa plantilla estará disponible para esta etapa.
-                  </p>
-                </div>
-              )}
-
-              {tipoDocumentoSeleccionado && categorias.length === 0 && plantillasDocumento.length === 0 && (
-                <p className="ml-4 text-xs text-amber-600 italic">
-                  Este tipo de documento no tiene categorías ni plantillas configuradas.
-                </p>
-              )}
+          {/* ── Documentos esperados (cascada tipo → multi-categorías + multi-plantillas) ── */}
+          <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-1">
+                <FiFileText className="w-4 h-4" />
+                Documentos esperados en esta etapa
+              </h3>
+              <p className="text-xs text-gray-500">
+                Si el tipo es <strong>PDF</strong> o <strong>imagen</strong>, elige una o varias{" "}
+                <strong>categorías</strong>. Si el tipo es <strong>editor</strong>, elige una o varias{" "}
+                <strong>plantillas</strong>. Cada ítem seleccionado es un documento esperado en el siniestro.
+              </p>
             </div>
+
+            {/* 1. Tipo de documento (single) */}
+            <CustomSelect
+              label="Tipo de documento"
+              name="tipo_documento"
+              value={tipoDocumentoSeleccionado}
+              onChange={(value) => {
+                setTipoDocumentoSeleccionado(value as string);
+                setFormData((prev) => ({ ...prev, tipo_documento_principal_id: value as string }));
+              }}
+              options={[
+                { value: "", label: "Sin tipo de documento" },
+                ...tiposDocumento.map((t) => ({
+                  value: t.id,
+                  label: `${t.nombre} (${t.tipo === "pdf" ? "PDF" : t.tipo === "editor" ? "Editor" : "Imagen"})`,
+                })),
+              ]}
+              placeholder="Selecciona un tipo"
+            />
+
+            {/* PDF / imagen → solo categorías (multi) */}
+            {mostrarCategoriasEtapa && categorias.length > 0 && (
+              <div className="ml-4 border-l-2 border-blue-200 pl-4 space-y-1">
+                <CustomSelect
+                  label={
+                    <span className="flex items-center gap-1">
+                      <FiFolder className="w-3 h-3 text-blue-500" />
+                      Categorías
+                      <span className="text-xs text-blue-400 font-normal">(puede seleccionar varias)</span>
+                    </span>
+                  }
+                  name="categorias_multi"
+                  value={categoriasSeleccionadas}
+                  onChange={(val) => setCategoriasSeleccionadas(val as string[])}
+                  options={categorias.map((c) => ({ value: c.id, label: c.nombre }))}
+                  placeholder="Seleccionar una o más categorías…"
+                  isMulti
+                />
+                {categoriasSeleccionadas.length > 0 && (
+                  <p className="text-xs text-blue-600">
+                    ✓ Se crearán {categoriasSeleccionadas.length} documento(s) esperado(s) de tipo subible.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Editor → solo plantillas (multi) */}
+            {mostrarPlantillasEtapa && plantillasDocumento.length > 0 && (
+              <div className="ml-4 border-l-2 border-green-200 pl-4 space-y-1">
+                <CustomSelect
+                  label={
+                    <span className="flex items-center gap-1">
+                      <FiFileText className="w-3 h-3 text-green-500" />
+                      Plantillas generables
+                      <span className="text-xs text-green-400 font-normal">(puede seleccionar varias)</span>
+                    </span>
+                  }
+                  name="plantillas_multi"
+                  value={plantillasSeleccionadas}
+                  onChange={(val) => setPlantillasSeleccionadas(val as string[])}
+                  options={plantillasDocumento.map((p) => ({ value: p.id, label: p.nombre }))}
+                  placeholder="Seleccionar una o más plantillas…"
+                  isMulti
+                />
+                {plantillasSeleccionadas.length > 0 && (
+                  <p className="text-xs text-green-600">
+                    ✓ Se crearán {plantillasSeleccionadas.length} documento(s) generable(s) desde plantilla.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {mostrarCategoriasEtapa && categorias.length === 0 && (
+              <p className="ml-4 text-xs text-amber-600 italic">
+                Este tipo (PDF/imagen) no tiene categorías configuradas.
+              </p>
+            )}
+            {mostrarPlantillasEtapa && plantillasDocumento.length === 0 && (
+              <p className="ml-4 text-xs text-amber-600 italic">
+                Este tipo (editor) no tiene plantillas configuradas.
+              </p>
+            )}
+
+            {((mostrarCategoriasEtapa && categoriasSeleccionadas.length > 0) ||
+              (mostrarPlantillasEtapa && plantillasSeleccionadas.length > 0)) && (
+              <div className="bg-white border border-gray-200 rounded-lg p-3">
+                <p className="text-xs font-medium text-gray-700 mb-2">Documentos que se agregarán a esta etapa:</p>
+                <ul className="space-y-1">
+                  {mostrarCategoriasEtapa &&
+                    categoriasSeleccionadas.map((id) => {
+                      const cat = categorias.find((c) => c.id === id);
+                      return (
+                        <li key={id} className="text-xs text-gray-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
+                          {cat?.nombre ?? id}
+                          <span className="text-gray-400">(subible)</span>
+                        </li>
+                      );
+                    })}
+                  {mostrarPlantillasEtapa &&
+                    plantillasSeleccionadas.map((id) => {
+                      const plant = plantillasDocumento.find((p) => p.id === id);
+                      return (
+                        <li key={id} className="text-xs text-gray-600 flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                          {plant?.nombre ?? id}
+                          <span className="text-gray-400">(generable)</span>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+            )}
           </div>
 
+          {/* Flags */}
           <div className="flex gap-6 flex-wrap">
             <Switch
               label="Obligatoria"
               checked={!!formData.es_obligatoria}
-              onChange={(checked) => setFormData((prev) => ({ ...prev, es_obligatoria: checked }))}
+              onChange={(v) => setFormData((prev) => ({ ...prev, es_obligatoria: v }))}
             />
             <Switch
               label="Permite omisión"
               checked={!!formData.permite_omision}
-              onChange={(checked) => setFormData((prev) => ({ ...prev, permite_omision: checked }))}
+              onChange={(v) => setFormData((prev) => ({ ...prev, permite_omision: v }))}
             />
             <Switch
               label="Bloquea siguiente"
               checked={!!formData.inhabilita_siguiente}
-              onChange={(checked) => setFormData((prev) => ({ ...prev, inhabilita_siguiente: checked }))}
+              onChange={(v) => setFormData((prev) => ({ ...prev, inhabilita_siguiente: v }))}
             />
             <Switch
               label="Activa"
               checked={!!formData.activo}
-              onChange={(checked) => setFormData((prev) => ({ ...prev, activo: checked }))}
+              onChange={(v) => setFormData((prev) => ({ ...prev, activo: v }))}
             />
           </div>
+
           <div className="pt-2 flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={() => setShowEtapaForm(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => { setShowEtapaForm(false); resetForm(); }}
+            >
               Cancelar
             </Button>
             <Button type="submit" variant="primary">
@@ -480,20 +661,55 @@ export default function FlujoDetallePage() {
   );
 }
 
-function EtapasTable({ data, onEdit, onDelete }: { data: EtapaFlujo[]; onEdit: (row: EtapaFlujo) => void; onDelete: (id: string) => void }) {
+// ─────────────────────────────────────────────────────────────
+// Tabla de etapas
+// ─────────────────────────────────────────────────────────────
+
+function EtapasTable({
+  data,
+  flujoId,
+  onEdit,
+  onDelete,
+}: {
+  data: EtapaFlujo[];
+  flujoId: string;
+  onEdit: (row: EtapaFlujo) => void;
+  onDelete: (id: string) => void;
+}) {
+  // Carga la cantidad de requisitos por etapa para mostrarla en la tabla
+  const [countMap, setCountMap] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const cargar = async () => {
+      const resultados = await Promise.allSettled(
+        data.map((e) =>
+          apiService
+            .getRequisitosEtapa(flujoId, e.id, true)
+            .then((r: any[]) => ({ id: e.id, count: r?.length ?? 0 }))
+        )
+      );
+      const map: Record<string, number> = {};
+      for (const r of resultados) {
+        if (r.status === "fulfilled") map[r.value.id] = r.value.count;
+      }
+      setCountMap(map);
+    };
+    if (data.length > 0) cargar();
+  }, [data, flujoId]);
+
   const columns: ColumnDef<EtapaFlujo>[] = [
-    { 
-      header: "Orden", 
-      accessorKey: "orden", 
+    {
+      header: "Orden",
+      accessorKey: "orden",
       cell: (info) => (
         <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-800 font-semibold text-sm">
           {info.getValue() as number}
         </span>
-      ) 
+      ),
     },
-    { 
-      header: "Nombre", 
-      accessorKey: "nombre", 
+    {
+      header: "Nombre",
+      accessorKey: "nombre",
       cell: (info) => (
         <div>
           <span className="text-sm font-medium text-gray-900">{info.getValue() as string}</span>
@@ -501,37 +717,27 @@ function EtapasTable({ data, onEdit, onDelete }: { data: EtapaFlujo[]; onEdit: (
             <p className="text-xs text-gray-500 mt-1">{info.row.original.descripcion}</p>
           )}
         </div>
-      ) 
+      ),
     },
     {
-      header: "Documento Requerido",
-      id: "documento",
+      header: "Tipo / Documentos",
+      id: "docs",
       cell: ({ row }) => {
         const etapa = row.original;
-        const tieneDoc = etapa.tipo_documento_principal || etapa.tipo_documento_principal_id;
-        const tieneCat = etapa.categoria_documento || etapa.categoria_documento_id;
-        const tienePlantilla = etapa.plantilla_documento || etapa.plantilla_documento_id;
-        
-        if (!tieneDoc && !tieneCat && !tienePlantilla) {
-          return <span className="text-gray-400 italic text-sm">Sin documento</span>;
-        }
-        
+        const count = countMap[etapa.id] ?? 0;
         return (
           <div className="flex flex-col gap-1 text-xs">
             {etapa.tipo_documento_principal?.nombre && (
-              <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded w-fit flex items-center gap-1">
+              <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded w-fit">
                 📁 {etapa.tipo_documento_principal.nombre}
               </span>
             )}
-            {etapa.categoria_documento?.nombre && (
-              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded w-fit flex items-center gap-1">
-                📂 {etapa.categoria_documento.nombre}
+            {count > 0 ? (
+              <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded w-fit">
+                📋 {count} documento{count !== 1 ? "s" : ""} esperado{count !== 1 ? "s" : ""}
               </span>
-            )}
-            {etapa.plantilla_documento?.nombre && (
-              <span className="bg-green-50 text-green-700 px-2 py-0.5 rounded w-fit flex items-center gap-1">
-                📄 {etapa.plantilla_documento.nombre}
-              </span>
+            ) : (
+              <span className="text-gray-400 italic">Sin documentos configurados</span>
             )}
           </div>
         );
@@ -561,12 +767,16 @@ function EtapasTable({ data, onEdit, onDelete }: { data: EtapaFlujo[]; onEdit: (
       header: "",
       cell: ({ row }) => (
         <div className="flex gap-2 justify-end">
-          <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>Editar</Button>
-          <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>Eliminar</Button>
+          <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>
+            Editar
+          </Button>
+          <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>
+            Eliminar
+          </Button>
         </div>
       ),
     },
   ];
+
   return <DataTable columns={columns} data={data} emptyText="Sin etapas" />;
 }
-

@@ -39,6 +39,7 @@ class DocumentoRelacionado(BaseModel):
     """Información básica de documento relacionado"""
     id: UUID
     nombre: str
+    tipo: Optional[str] = None  # "pdf" | "editor" | "imagen" — solo aplica para tipo_documento_principal
 
     class Config:
         from_attributes = True
@@ -205,6 +206,89 @@ class SiniestroFlujoResponse(BaseModel):
     """Flujo completo de un siniestro con estado de etapas"""
     flujo: FlujoTrabajoResponse
     etapas: List[SiniestroEtapaResponse]
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================================
+# ESQUEMAS DE REQUISITOS DOCUMENTALES POR ETAPA
+# ==========================================================
+
+class RequisitoDocumentoBase(BaseModel):
+    """Schema base de requisito documental de etapa"""
+    nombre_documento: str = Field(..., min_length=1, max_length=255)
+    descripcion: Optional[str] = None
+    tipo_documento_id: Optional[UUID] = None
+    categoria_documento_id: Optional[UUID] = None
+    plantilla_documento_id: Optional[UUID] = None
+    es_obligatorio: bool = Field(True, description="Si el documento es obligatorio para completar la etapa")
+    permite_upload: bool = Field(True, description="Si se puede subir un archivo físico")
+    permite_generar: bool = Field(False, description="Si se puede generar desde una plantilla")
+    multiple: bool = Field(False, description="Si se permiten varios documentos para el mismo requisito")
+    orden: int = Field(0, ge=0, description="Orden de presentación dentro de la etapa")
+    clave: Optional[str] = Field(None, max_length=100, description="Slug normalizado usado por el importador")
+    activo: bool = True
+
+
+class RequisitoDocumentoCreate(RequisitoDocumentoBase):
+    """Schema para crear un requisito documental"""
+    pass
+
+
+class RequisitoDocumentoUpdate(BaseModel):
+    """Schema para actualizar un requisito documental"""
+    nombre_documento: Optional[str] = Field(None, min_length=1, max_length=255)
+    descripcion: Optional[str] = None
+    tipo_documento_id: Optional[UUID] = None
+    categoria_documento_id: Optional[UUID] = None
+    plantilla_documento_id: Optional[UUID] = None
+    es_obligatorio: Optional[bool] = None
+    permite_upload: Optional[bool] = None
+    permite_generar: Optional[bool] = None
+    multiple: Optional[bool] = None
+    orden: Optional[int] = Field(None, ge=0)
+    clave: Optional[str] = Field(None, max_length=100)
+    activo: Optional[bool] = None
+
+
+class RequisitoDocumentoResponse(RequisitoDocumentoBase):
+    """Schema de respuesta de requisito documental"""
+    id: UUID
+    flujo_trabajo_id: UUID
+    etapa_flujo_id: UUID
+    creado_en: datetime
+    actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
+    tipo_documento: Optional[DocumentoRelacionado] = None
+    categoria_documento: Optional[DocumentoRelacionado] = None
+    plantilla_documento: Optional[DocumentoRelacionado] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ==========================================================
+# ESQUEMAS DE CHECKLIST DOCUMENTAL POR SINIESTRO/ETAPA
+# ==========================================================
+
+from enum import Enum
+
+
+class ChecklistItemEstado(str, Enum):
+    """Estado de cumplimiento de un requisito documental en un siniestro"""
+    pendiente = "pendiente"    # obligatorio, sin documentos
+    opcional = "opcional"      # no obligatorio, sin documentos
+    cargado = "cargado"        # tiene archivo físico subido
+    generado = "generado"      # tiene informe generado desde plantilla
+    completo = "completo"      # tiene ambos tipos o múltiples
+
+
+class ChecklistDocumentalItem(BaseModel):
+    """Item del checklist documental: un requisito y sus documentos reales"""
+    requisito: RequisitoDocumentoResponse
+    documentos: List[dict] = []   # lista de DocumentoResponse serializada como dict
+    estado: ChecklistItemEstado
 
     class Config:
         from_attributes = True

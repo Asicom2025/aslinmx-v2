@@ -18,7 +18,7 @@ import Modal from "@/components/ui/Modal";
 import JoditEditor from "@/components/ui/JoditEditor";
 import DataTable from "@/components/ui/DataTable";
 import Input from "@/components/ui/Input";
-import CustomSelect, { SelectOption } from "@/components/ui/Select";
+import CustomSelect, { SelectOption, SelectGroupedOption } from "@/components/ui/Select";
 import { ColumnDef } from "@tanstack/react-table";
 import {
   useEmpresaColors,
@@ -60,6 +60,7 @@ import {
   FiCornerDownRight,
   FiAlertTriangle,
   FiUserPlus,
+  FiUpload,
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
@@ -73,6 +74,7 @@ import type {
   FlujoTrabajo,
   FlujoCompleto,
   EtapaFlujo,
+  RequisitoDocumento,
 } from "@/types/flujosTrabajo";
 import type { BitacoraActividad } from "@/types/bitacora";
 import { FaCheck } from "react-icons/fa";
@@ -121,6 +123,8 @@ interface DocumentoEtapa {
   etapa_flujo_id: string;
   area_id?: string;
   plantilla_documento_id?: string;
+  /** Categoría (viene del requisito o de la plantilla) */
+  categoria_documento_nombre?: string | null;
   version: number;
   creado_en: string;
 }
@@ -203,7 +207,7 @@ export default function SiniestroDetailPage() {
   const [uploadDocCategoriaId, setUploadDocCategoriaId] = useState("");
   const [uploadDocPlantillaId, setUploadDocPlantillaId] = useState("");
   const [uploadTiposDocumento, setUploadTiposDocumento] = useState<
-    { id: string; nombre: string }[]
+    { id: string; nombre: string; tipo?: string }[]
   >([]);
   const [uploadCategorias, setUploadCategorias] = useState<
     { id: string; nombre: string }[]
@@ -215,6 +219,16 @@ export default function SiniestroDetailPage() {
     useState(false);
   const [uploadDocHoras, setUploadDocHoras] = useState("");
   const [uploadDocComentario, setUploadDocComentario] = useState("");
+
+  /** Subida desde etapa (PDF/imagen): tipo fijo y lista de requisitos de la etapa */
+  const [uploadModalEtapaContext, setUploadModalEtapaContext] =
+    useState<EtapaFlujo | null>(null);
+  const [uploadEtapaRequisitos, setUploadEtapaRequisitos] = useState<
+    RequisitoDocumento[]
+  >([]);
+  const [uploadRequisitoSeleccionadoId, setUploadRequisitoSeleccionadoId] =
+    useState("");
+  const [uploadEtapaLoadingReqs, setUploadEtapaLoadingReqs] = useState(false);
 
   // Estado para envío de correo con documento
   const [showEmailModal, setShowEmailModal] = useState(false);
@@ -237,14 +251,14 @@ export default function SiniestroDetailPage() {
     categoria_nombre: "",
   });
   const [smtpConfigs, setSmtpConfigs] = useState<any[]>([]);
-  const [emailDestinatariosUsuarios, setEmailDestinatariosUsuarios] = useState<
-    string[]
-  >([]);
-  const [showContactosModal, setShowContactosModal] = useState(false);
+  // Destinatarios unificados (Para / CC / CCO) — emails directos
+  const [emailPara, setEmailPara] = useState<string[]>([]);
+  const [emailCc, setEmailCc] = useState<string[]>([]);
+  const [emailCco, setEmailCco] = useState<string[]>([]);
   const [provenienteContactos, setProvenienteContactos] = useState<
     ProvenienteContacto[]
   >([]);
-  const [selectedContactos, setSelectedContactos] = useState<string[]>([]);
+  const [showNuevoContactoModal, setShowNuevoContactoModal] = useState(false);
   const [nuevoContactoForm, setNuevoContactoForm] = useState({
     nombre: "",
     correo: "",
@@ -606,9 +620,14 @@ export default function SiniestroDetailPage() {
     }
   }, [loadingFlujos, flujosGenerales, areasConFlujos]);
 
-  // Al cambiar de área, asegurar que el flujo activo pertenezca a esa área (si hay flujos del área)
+  // Al cambiar de área, asegurar que el flujo activo pertenezca a esa área (si hay flujos del área).
+  // Los flujos generales (prefijo "general-") son válidos en cualquier área y nunca se resetean.
   useEffect(() => {
     if (!activeAreaTab) return;
+
+    // Un flujo general siempre es seleccionable sin importar el área activa
+    if (activeFlujoTab.startsWith("general-")) return;
+
     const areaActual = areasConFlujos.find((a) => a.area.id === activeAreaTab);
     const flujosArea = areaActual?.flujos || [];
     if (flujosArea.length === 0) return;
@@ -2004,7 +2023,6 @@ export default function SiniestroDetailPage() {
   const loadProvenienteContactos = useCallback(async () => {
     if (!siniestro?.proveniente_id) {
       setProvenienteContactos([]);
-      setSelectedContactos([]);
       return;
     }
     const contactos = (await apiService.getProvenienteContactos(
@@ -2046,6 +2064,9 @@ export default function SiniestroDetailPage() {
       tipo_documento_nombre: tipoNombre,
       categoria_nombre: categoriaNombre,
     }));
+    setEmailPara([]);
+    setEmailCc([]);
+    setEmailCco([]);
 
     loadProvenienteContactos().catch((error) => {
       console.error("Error al cargar contactos del proveniente:", error);
@@ -2108,9 +2129,47 @@ export default function SiniestroDetailPage() {
       { nombre, correo },
     )) as ProvenienteContacto;
     setProvenienteContactos((prev) => [...prev, creado]);
-    setSelectedContactos((prev) => Array.from(new Set([...prev, creado.id])));
+    // Autoseleccionar en "Para" el correo recién creado
+    if (creado.correo) {
+      setEmailPara((prev) => Array.from(new Set([...prev, creado.correo])));
+    }
     setNuevoContactoForm({ nombre: "", correo: "" });
+    setShowNuevoContactoModal(false);
   };
+
+  // Lista agrupada de posibles destinatarios:
+  // - Grupo "Internos": usuarios activos del sistema
+  // - Grupo "Externos (Proveniente)": contactos del proveniente del siniestro
+  // Deduplicada por email (case-insensitive) entre ambos grupos
+  const opcionesDestinatariosUnificadas = useMemo<SelectGroupedOption[]>(() => {
+    const vistos = new Set<string>();
+    const internos: SelectOption[] = [];
+    const externos: SelectOption[] = [];
+
+    todosLosUsuarios
+      .filter((u) => (u.email || u.correo) && u.is_active !== false)
+      .forEach((u) => {
+        const email = (u.email || u.correo || "").trim().toLowerCase();
+        if (!email || vistos.has(email)) return;
+        vistos.add(email);
+        const nombre = (u.full_name || u.nombre || "").toString().trim();
+        internos.push({ value: email, label: nombre ? `${nombre} <${email}>` : email });
+      });
+
+    provenienteContactos
+      .filter((c) => c.correo)
+      .forEach((c) => {
+        const email = (c.correo || "").trim().toLowerCase();
+        if (!email || vistos.has(email)) return;
+        vistos.add(email);
+        externos.push({ value: email, label: c.nombre ? `${c.nombre} <${email}>` : email });
+      });
+
+    const grupos: SelectGroupedOption[] = [];
+    if (internos.length > 0) grupos.push({ label: "Internos", options: internos });
+    if (externos.length > 0) grupos.push({ label: "Externos (Proveniente)", options: externos });
+    return grupos;
+  }, [todosLosUsuarios, provenienteContactos]);
 
   const handleSendEmailWithDocument = async () => {
     if (!siniestro) return;
@@ -2120,26 +2179,12 @@ export default function SiniestroDetailPage() {
       return;
     }
 
-    const correosContactos = provenienteContactos
-      .filter((c) => selectedContactos.includes(c.id))
-      .map((c) => c.correo?.trim())
-      .filter((c): c is string => !!c);
+    const paraLimpios = emailPara.filter((e) => !!e.trim());
+    const ccLimpios = emailCc.filter((e) => !!e.trim());
+    const ccoLimpios = emailCco.filter((e) => !!e.trim());
 
-    // Correos de usuarios internos seleccionados
-    const correosInternos = emailDestinatariosUsuarios
-      .map((usuarioId) => {
-        const u = todosLosUsuarios.find((usr) => usr.id === usuarioId);
-        return u?.email || u?.correo || null;
-      })
-      .filter((c): c is string => !!c && c.length > 0);
-
-    // Unificar y eliminar duplicados
-    const destinatariosLimpios = Array.from(
-      new Set([...correosContactos, ...correosInternos]),
-    );
-
-    if (destinatariosLimpios.length === 0) {
-      swalError("Debes indicar al menos un destinatario");
+    if (paraLimpios.length === 0) {
+      swalError("Debes indicar al menos un destinatario en Para");
       return;
     }
 
@@ -2160,7 +2205,9 @@ export default function SiniestroDetailPage() {
         await apiService.enviarArchivoCorreo({
           siniestro_id: siniestro.id,
           configuracion_smtp_id: emailForm.configuracion_smtp_id,
-          destinatarios: destinatariosLimpios,
+          destinatarios: paraLimpios,
+          cc: ccLimpios.length > 0 ? ccLimpios : undefined,
+          cco: ccoLimpios.length > 0 ? ccoLimpios : undefined,
           mensaje: emailForm.mensaje || "",
           asunto: emailForm.asunto?.trim() || undefined,
           documento_id: emailForm.documento_id,
@@ -2169,17 +2216,17 @@ export default function SiniestroDetailPage() {
           archivos_adjuntos: archivosAdjuntos,
         });
       } else {
-        const payload = {
+        await apiService.enviarCorreo({
           configuracion_smtp_id: emailForm.configuracion_smtp_id,
-          destinatarios: destinatariosLimpios,
+          destinatarios: paraLimpios,
+          cc: ccLimpios.length > 0 ? ccLimpios : undefined,
+          cco: ccoLimpios.length > 0 ? ccoLimpios : undefined,
           asunto: emailForm.asunto || undefined,
           cuerpo_html: emailForm.mensaje
             ? emailForm.mensaje.replace(/\n/g, "<br />")
             : undefined,
           variables: { siniestro_id: siniestro.id },
-          adjuntos: undefined,
-        };
-        await apiService.enviarCorreo(payload);
+        });
       }
 
       swalSuccess("Correo enviado correctamente");
@@ -2331,10 +2378,28 @@ export default function SiniestroDetailPage() {
     }
   };
 
-  // Abrir/cerrar modal de subir archivo
-  const handleOpenUploadDocModal = () => {
+  // Abrir/cerrar modal de subir archivo (opcional: etapa → PDF/imagen bloquea tipo y muestra requisitos)
+  const handleOpenUploadDocModal = (etapa?: EtapaFlujo) => {
     setUploadDocFile(null);
     setUploadDocDescripcion("");
+    setUploadRequisitoSeleccionadoId("");
+    setUploadDocCategoriaId("");
+    setUploadDocPlantillaId("");
+    setUploadEtapaRequisitos([]);
+
+    if (etapa) {
+      const t = (etapa.tipo_documento_principal?.tipo ?? "").toLowerCase();
+      if (t !== "editor" && etapa.tipo_documento_principal_id) {
+        setUploadModalEtapaContext(etapa);
+        setUploadDocTipoId(etapa.tipo_documento_principal_id);
+      } else {
+        setUploadModalEtapaContext(null);
+        setUploadDocTipoId("");
+      }
+    } else {
+      setUploadModalEtapaContext(null);
+      setUploadDocTipoId("");
+    }
     setShowUploadDocModal(true);
   };
   const handleCloseUploadDocModal = () => {
@@ -2348,6 +2413,9 @@ export default function SiniestroDetailPage() {
     setUploadPlantillas([]);
     setUploadDocHoras("");
     setUploadDocComentario("");
+    setUploadModalEtapaContext(null);
+    setUploadEtapaRequisitos([]);
+    setUploadRequisitoSeleccionadoId("");
   };
 
   // Cargar tipos de documento al abrir el modal de subir archivo
@@ -2362,6 +2430,7 @@ export default function SiniestroDetailPage() {
             ? data.map((t: any) => ({
                 id: t.id,
                 nombre: t.nombre || t.name || String(t.id),
+                tipo: String(t.tipo ?? "").toLowerCase(),
               }))
             : [],
         );
@@ -2370,7 +2439,7 @@ export default function SiniestroDetailPage() {
       .finally(() => setUploadDocLoadingCatalogos(false));
   }, [showUploadDocModal]);
 
-  // Al elegir tipo de documento, cargar categorías de ese tipo
+  // PDF/imagen → solo categorías; editor → solo plantillas (omitir si el modal viene desde etapa PDF: ahí van los requisitos)
   useEffect(() => {
     if (!uploadDocTipoId) {
       setUploadCategorias([]);
@@ -2379,50 +2448,121 @@ export default function SiniestroDetailPage() {
       setUploadDocPlantillaId("");
       return;
     }
+    if (uploadModalEtapaContext) {
+      setUploadCategorias([]);
+      setUploadPlantillas([]);
+      setUploadDocCategoriaId("");
+      setUploadDocPlantillaId("");
+      setUploadDocLoadingCatalogos(false);
+      return;
+    }
+    const sel = uploadTiposDocumento.find((x) => x.id === uploadDocTipoId);
+    const t = (sel?.tipo ?? "").toLowerCase();
+    const esEditor = t === "editor";
+
     setUploadDocCategoriaId("");
     setUploadDocPlantillaId("");
     setUploadDocLoadingCatalogos(true);
-    apiService
-      .getCategoriasDocumento(uploadDocTipoId, true)
-      .then((cats: any[]) => {
-        setUploadCategorias(
-          Array.isArray(cats)
-            ? cats.map((c: any) => ({
-                id: c.id,
-                nombre: c.nombre || c.name || String(c.id),
-              }))
-            : [],
-        );
-      })
-      .catch(() => setUploadCategorias([]))
-      .finally(() => setUploadDocLoadingCatalogos(false));
-  }, [uploadDocTipoId]);
 
-  // Al elegir o limpiar categoría, actualizar listado de plantillas (por categoría o solo por tipo)
+    if (esEditor) {
+      setUploadCategorias([]);
+      apiService
+        .getPlantillasDocumento(uploadDocTipoId, undefined, true)
+        .then((plants: any[]) => {
+          setUploadPlantillas(
+            Array.isArray(plants)
+              ? plants.map((p: any) => ({
+                  id: p.id,
+                  nombre: p.nombre || p.name || String(p.id),
+                }))
+              : [],
+          );
+        })
+        .catch(() => setUploadPlantillas([]))
+        .finally(() => setUploadDocLoadingCatalogos(false));
+    } else {
+      setUploadPlantillas([]);
+      apiService
+        .getCategoriasDocumento(uploadDocTipoId, true)
+        .then((cats: any[]) => {
+          setUploadCategorias(
+            Array.isArray(cats)
+              ? cats.map((c: any) => ({
+                  id: c.id,
+                  nombre: c.nombre || c.name || String(c.id),
+                }))
+              : [],
+          );
+        })
+        .catch(() => setUploadCategorias([]))
+        .finally(() => setUploadDocLoadingCatalogos(false));
+    }
+  }, [uploadDocTipoId, uploadTiposDocumento, uploadModalEtapaContext]);
+
+  // Requisitos documentales de la etapa (modal contextual PDF desde timeline)
   useEffect(() => {
-    if (!uploadDocTipoId) return;
-    setUploadDocPlantillaId("");
-    setUploadDocLoadingCatalogos(true);
-    const categoriaId = uploadDocCategoriaId || undefined;
+    if (!showUploadDocModal || !uploadModalEtapaContext) {
+      setUploadEtapaRequisitos([]);
+      setUploadEtapaLoadingReqs(false);
+      return;
+    }
+    // Usar flujo de la etapa (siempre correcto). Antes solo se leía activeFlujoTab y podía
+    // quedar vacío o desincronizado → 0 requisitos aunque la tabla del flujo muestre N.
+    const flujoIdRaw =
+      uploadModalEtapaContext.flujo_trabajo_id ||
+      (activeFlujoTab?.startsWith("general-")
+        ? activeFlujoTab.replace("general-", "")
+        : activeFlujoTab?.startsWith("area-")
+          ? activeFlujoTab.replace("area-", "")
+          : undefined);
+    const flujoId =
+      flujoIdRaw !== undefined && flujoIdRaw !== null
+        ? String(flujoIdRaw)
+        : undefined;
+    if (!flujoId) {
+      setUploadEtapaRequisitos([]);
+      return;
+    }
+    setUploadEtapaLoadingReqs(true);
     apiService
-      .getPlantillasDocumento(uploadDocTipoId, categoriaId, true)
-      .then((plants: any[]) => {
-        setUploadPlantillas(
-          Array.isArray(plants)
-            ? plants.map((p: any) => ({
-                id: p.id,
-                nombre: p.nombre || p.name || String(p.id),
-              }))
-            : [],
-        );
+      .getRequisitosEtapa(flujoId, uploadModalEtapaContext.id, true)
+      .then((data: RequisitoDocumento[]) => {
+        setUploadEtapaRequisitos(Array.isArray(data) ? data : []);
       })
-      .catch(() => setUploadPlantillas([]))
-      .finally(() => setUploadDocLoadingCatalogos(false));
-  }, [uploadDocTipoId, uploadDocCategoriaId]);
+      .catch(() => setUploadEtapaRequisitos([]))
+      .finally(() => setUploadEtapaLoadingReqs(false));
+  }, [showUploadDocModal, uploadModalEtapaContext, activeFlujoTab]);
+
+  useEffect(() => {
+    if (
+      uploadEtapaRequisitos.length === 1 &&
+      !uploadRequisitoSeleccionadoId
+    ) {
+      setUploadRequisitoSeleccionadoId(uploadEtapaRequisitos[0].id);
+    }
+  }, [uploadEtapaRequisitos, uploadRequisitoSeleccionadoId]);
+
+  const uploadDocEsEditor = useMemo(() => {
+    const sel = uploadTiposDocumento.find((x) => x.id === uploadDocTipoId);
+    return (sel?.tipo ?? "").toLowerCase() === "editor";
+  }, [uploadTiposDocumento, uploadDocTipoId]);
+
+  /** Modal abierto desde una etapa PDF/imagen: tipo bloqueado, lista = requisitos de la etapa */
+  const uploadEsVistaEtapaPdf = !!uploadModalEtapaContext;
 
   // Subir archivo (foto, PDF, etc.) como documento del siniestro
   const handleSubmitUploadDoc = async () => {
     if (!uploadDocFile || !siniestroId) return;
+    if (
+      uploadModalEtapaContext &&
+      uploadEtapaRequisitos.length > 0 &&
+      !uploadRequisitoSeleccionadoId
+    ) {
+      swalError(
+        "Selecciona el documento esperado de la etapa al que corresponde el archivo.",
+      );
+      return;
+    }
     setUploadDocSaving(true);
     try {
       let flujoId: string | undefined;
@@ -2440,8 +2580,10 @@ export default function SiniestroDetailPage() {
         descripcion: uploadDocDescripcion.trim() || undefined,
         area_id: areaIdForContext || undefined,
         flujo_trabajo_id: flujoId,
+        etapa_flujo_id: uploadModalEtapaContext?.id || undefined,
         tipo_documento_id: uploadDocTipoId || undefined,
         plantilla_documento_id: uploadDocPlantillaId || undefined,
+        requisito_documento_id: uploadRequisitoSeleccionadoId || undefined,
         horas_trabajadas:
           horasNum != null && !Number.isNaN(horasNum) ? horasNum : undefined,
         comentarios: uploadDocComentario.trim() || undefined,
@@ -3153,11 +3295,28 @@ export default function SiniestroDetailPage() {
                                               doc.nombre_archivo,
                                             )
                                           }
+                                          onSubirArchivo={handleOpenUploadDocModal}
                                           empresaColors={empresaColors}
                                           flujoTrabajoId={
                                             flujoConEtapas.flujo.id
                                           }
                                           areaId={activeAreaTab}
+                                          siniestroId={siniestroId as string}
+                                          onAbrirGenerarInforme={(plantillaId) =>
+                                            handleOpenDocumentEditor({
+                                              id: "",
+                                              flujo_trabajo_id: flujoConEtapas.flujo.id,
+                                              nombre: "",
+                                              orden: 0,
+                                              es_obligatoria: false,
+                                              permite_omision: false,
+                                              inhabilita_siguiente: false,
+                                              activo: true,
+                                              creado_en: "",
+                                              actualizado_en: "",
+                                              plantilla_documento_id: plantillaId,
+                                            })
+                                          }
                                           canVerPdf={canGenerarPdf}
                                           canEditarDocumento={
                                             canActualizarSiniestro
@@ -3189,6 +3348,7 @@ export default function SiniestroDetailPage() {
                                             }
                                             siniestroId={siniestroId}
                                             empresaColors={empresaColors}
+                                            etapas={flujoConEtapas.etapas}
                                           />
                                         )}
 
@@ -3316,9 +3476,26 @@ export default function SiniestroDetailPage() {
                                             doc.nombre_archivo,
                                           )
                                         }
+                                        onSubirArchivo={handleOpenUploadDocModal}
                                         empresaColors={empresaColors}
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
                                         areaId={activeAreaTab}
+                                        siniestroId={siniestroId as string}
+                                        onAbrirGenerarInforme={(plantillaId) =>
+                                          handleOpenDocumentEditor({
+                                            id: "",
+                                            flujo_trabajo_id: flujoConEtapas.flujo.id,
+                                            nombre: "",
+                                            orden: 0,
+                                            es_obligatoria: false,
+                                            permite_omision: false,
+                                            inhabilita_siguiente: false,
+                                            activo: true,
+                                            creado_en: "",
+                                            actualizado_en: "",
+                                            plantilla_documento_id: plantillaId,
+                                          })
+                                        }
                                         canVerPdf={canGenerarPdf}
                                         canEditarDocumento={
                                           canActualizarSiniestro
@@ -3350,6 +3527,7 @@ export default function SiniestroDetailPage() {
                                           }
                                           siniestroId={siniestroId}
                                           empresaColors={empresaColors}
+                                          etapas={flujoConEtapas.etapas}
                                         />
                                       )}
 
@@ -3844,33 +4022,30 @@ export default function SiniestroDetailPage() {
                   {/* Agregar nueva área (solo con permiso asignar_areas) */}
                   {canAsignarAreas && (
                     <div className="pt-4 border-t border-gray-200">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Agregar Área
-                      </label>
-                      <select
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                        onChange={(e) => {
-                          if (e.target.value) {
-                            handleAddArea(e.target.value);
-                            e.target.value = "";
-                          }
-                        }}
+                      <CustomSelect
+                        key={`add-area-${areasAdicionales.map((a) => a.id).join("-")}`}
+                        label="Agregar Área"
+                        name="agregar_area_siniestro"
                         value=""
-                      >
-                        <option value="">Seleccionar área...</option>
-                        {todasLasAreas
+                        onChange={(val) => {
+                          const id = typeof val === "string" ? val : "";
+                          if (id) handleAddArea(id);
+                        }}
+                        options={todasLasAreas
                           .filter(
                             (area) =>
                               !areasAdicionales.some(
                                 (ar) => ar.area_id === area.id,
                               ),
                           )
-                          .map((area) => (
-                            <option key={area.id} value={area.id}>
-                              {area.nombre}
-                            </option>
-                          ))}
-                      </select>
+                          .map((area) => ({
+                            value: area.id,
+                            label: area.nombre,
+                          }))}
+                        placeholder="Seleccionar área…"
+                        isSearchable
+                        isClearable
+                      />
                     </div>
                   )}
                 </div>
@@ -3962,33 +4137,36 @@ export default function SiniestroDetailPage() {
                     {/* Agregar nuevo involucrado (solo con permiso actualizar) */}
                     {canActualizarSiniestro && (
                       <div className="pt-4 border-t border-gray-200 space-y-3">
-                        <label className="block text-sm font-medium text-gray-700">
-                          Agregar Involucrado
-                        </label>
-                        <div className="flex flex-col md:flex-row gap-2">
-                          <select
-                            className="w-full md:flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                            value={nuevoInvolucradoUsuarioId}
-                            onChange={(e) =>
-                              setNuevoInvolucradoUsuarioId(e.target.value)
-                            }
-                          >
-                            <option value="">Seleccionar usuario...</option>
-                            {todosLosUsuarios
-                              .filter(
-                                (usuario) =>
-                                  !involucrados.some(
-                                    (inv) => inv.usuario_id === usuario.id,
-                                  ),
-                              )
-                              .map((usuario) => (
-                                <option key={usuario.id} value={usuario.id}>
-                                  {usuario.full_name ||
+                        <div className="flex flex-col md:flex-row gap-2 md:items-end">
+                          <div className="w-full md:flex-1">
+                            <CustomSelect
+                              label="Agregar Involucrado"
+                              name="agregar_involucrado_siniestro"
+                              value={nuevoInvolucradoUsuarioId}
+                              onChange={(val) =>
+                                setNuevoInvolucradoUsuarioId(
+                                  typeof val === "string" ? val : "",
+                                )
+                              }
+                              options={todosLosUsuarios
+                                .filter(
+                                  (usuario) =>
+                                    !involucrados.some(
+                                      (inv) => inv.usuario_id === usuario.id,
+                                    ),
+                                )
+                                .map((usuario) => ({
+                                  value: usuario.id,
+                                  label:
+                                    usuario.full_name ||
                                     usuario.email ||
-                                    "Usuario"}
-                                </option>
-                              ))}
-                          </select>
+                                    "Usuario",
+                                }))}
+                              placeholder="Seleccionar usuario…"
+                              isSearchable
+                              isClearable
+                            />
+                          </div>
 
                           <Button
                             type="button"
@@ -4306,78 +4484,170 @@ export default function SiniestroDetailPage() {
       <Modal
         open={showUploadDocModal}
         onClose={handleCloseUploadDocModal}
-        title="Subir archivo"
+        title={
+          uploadModalEtapaContext
+            ? `Subir archivo — ${uploadModalEtapaContext.nombre}`
+            : "Subir archivo"
+        }
         maxWidthClass="max-w-lg"
       >
         <div className="space-y-4">
-          <p className="text-sm text-gray-600">
-            Sube imágenes, PDFs u otros archivos. Se asociarán al siniestro y
-            aparecerán en la lista de documentos. Clasifica el archivo por tipo
-            y, si aplica, por categoría o plantilla.
-          </p>
+          {!uploadEsVistaEtapaPdf && (
+            <p className="text-sm text-gray-600">
+              Sube imágenes, PDFs u otros archivos. Según el tipo elegido: si es{" "}
+              <strong>PDF</strong> o <strong>imagen</strong> podrás clasificar por{" "}
+              <strong>categoría</strong>; si es <strong>editor</strong>, por{" "}
+              <strong>plantilla</strong>.
+            </p>
+          )}
+          {uploadEsVistaEtapaPdf && (
+            <p className="text-sm text-gray-600">
+              El tipo de documento corresponde a esta etapa. Elige uno de los{" "}
+              <strong>documentos esperados</strong> y adjunta el archivo.
+            </p>
+          )}
 
-          {/* Tipo de documento */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tipo de documento
-            </label>
-            <select
+          {/* Tipo de documento (solo si no viene bloqueado desde la etapa PDF) */}
+          {!uploadEsVistaEtapaPdf && (
+            <CustomSelect
+              label="Tipo de documento"
+              name="upload_doc_tipo"
               value={uploadDocTipoId}
-              onChange={(e) => setUploadDocTipoId(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+              onChange={(val) =>
+                setUploadDocTipoId(typeof val === "string" ? val : "")
+              }
+              options={uploadTiposDocumento.map((t) => ({
+                value: t.id,
+                label: `${t.nombre}${
+                  t.tipo === "pdf"
+                    ? " (PDF)"
+                    : t.tipo === "editor"
+                      ? " (Editor)"
+                      : t.tipo === "imagen"
+                        ? " (Imagen)"
+                        : ""
+                }`,
+              }))}
+              placeholder="Seleccionar tipo…"
               disabled={uploadDocLoadingCatalogos}
-            >
-              <option value="">Seleccionar tipo...</option>
-              {uploadTiposDocumento.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.nombre}
-                </option>
-              ))}
-            </select>
-          </div>
+              isSearchable
+              isClearable
+            />
+          )}
 
-          {/* Categoría (se lista al elegir tipo) */}
-          {uploadDocTipoId && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Categoría (opcional)
-              </label>
-              <select
-                value={uploadDocCategoriaId}
-                onChange={(e) => setUploadDocCategoriaId(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                disabled={uploadDocLoadingCatalogos}
-              >
-                <option value="">Sin categoría</option>
-                {uploadCategorias.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre}
-                  </option>
-                ))}
-              </select>
+          {uploadEsVistaEtapaPdf && uploadDocTipoId && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                Tipo de documento (etapa)
+              </p>
+              <p className="text-sm font-semibold text-gray-900">
+                {uploadModalEtapaContext?.tipo_documento_principal?.nombre ??
+                  "—"}
+                <span className="ml-2 text-xs font-normal text-gray-500">
+                  (
+                  {(uploadModalEtapaContext?.tipo_documento_principal?.tipo ??
+                    "pdf"
+                  ).toUpperCase()}
+                  )
+                </span>
+              </p>
             </div>
           )}
 
-          {/* Plantilla (se lista según tipo y categoría) */}
-          {uploadDocTipoId && (
+          {/* Desde etapa PDF: documentos esperados (requisitos) — react-select */}
+          {uploadEsVistaEtapaPdf && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Plantilla (opcional)
-              </label>
-              <select
-                value={uploadDocPlantillaId}
-                onChange={(e) => setUploadDocPlantillaId(e.target.value)}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                disabled={uploadDocLoadingCatalogos}
-              >
-                <option value="">Ninguna</option>
-                {uploadPlantillas.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre}
-                  </option>
-                ))}
-              </select>
+              {uploadEtapaLoadingReqs ? (
+                <p className="text-sm text-gray-500">Cargando lista…</p>
+              ) : uploadEtapaRequisitos.length === 0 ? (
+                <>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Documento esperado en esta etapa
+                  </label>
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                    No hay documentos configurados para esta etapa. Puedes subir el
+                    archivo sin asociar un requisito.
+                  </p>
+                </>
+              ) : (
+                <CustomSelect
+                  label="Documento esperado en esta etapa"
+                  name="upload_requisito_etapa"
+                  required
+                  value={uploadRequisitoSeleccionadoId}
+                  onChange={(val) =>
+                    setUploadRequisitoSeleccionadoId(
+                      typeof val === "string" ? val : "",
+                    )
+                  }
+                  options={uploadEtapaRequisitos.map((req) => {
+                    const nombre = (req.nombre_documento ?? "").trim();
+                    const catNombre = (
+                      req.categoria_documento?.nombre ?? ""
+                    ).trim();
+                    const parts: string[] = [nombre || "—"];
+                    // No repetir: la categoría suele ser el mismo texto (o truncado) que nombre_documento
+                    if (
+                      catNombre &&
+                      catNombre.toLowerCase() !== nombre.toLowerCase()
+                    ) {
+                      parts.push(`(${catNombre})`);
+                    }
+                    // if (req.es_obligatorio) {
+                    //   parts.push("Obligatorio");
+                    // }
+                    return {
+                      value: req.id,
+                      label: parts.join(" · "),
+                    };
+                  })}
+                  placeholder="Buscar o seleccionar documento esperado…"
+                  disabled={uploadEtapaLoadingReqs}
+                  isSearchable
+                  isClearable
+                />
+              )}
             </div>
+          )}
+
+          {/* PDF / imagen (modal genérico) → solo categoría */}
+          {uploadDocTipoId && !uploadDocEsEditor && !uploadEsVistaEtapaPdf && (
+            <CustomSelect
+              label="Categoría (opcional)"
+              name="upload_doc_categoria"
+              value={uploadDocCategoriaId}
+              onChange={(val) =>
+                setUploadDocCategoriaId(typeof val === "string" ? val : "")
+              }
+              options={uploadCategorias.map((c) => ({
+                value: c.id,
+                label: c.nombre,
+              }))}
+              placeholder="Sin categoría"
+              disabled={uploadDocLoadingCatalogos}
+              isSearchable
+              isClearable
+            />
+          )}
+
+          {/* Editor → solo plantilla (modal genérico) */}
+          {uploadDocTipoId && uploadDocEsEditor && !uploadEsVistaEtapaPdf && (
+            <CustomSelect
+              label="Plantilla (opcional)"
+              name="upload_doc_plantilla"
+              value={uploadDocPlantillaId}
+              onChange={(val) =>
+                setUploadDocPlantillaId(typeof val === "string" ? val : "")
+              }
+              options={uploadPlantillas.map((p) => ({
+                value: p.id,
+                label: p.nombre,
+              }))}
+              placeholder="Ninguna"
+              disabled={uploadDocLoadingCatalogos}
+              isSearchable
+              isClearable
+            />
           )}
 
           <div>
@@ -4443,7 +4713,13 @@ export default function SiniestroDetailPage() {
             <Button
               variant="primary"
               onClick={handleSubmitUploadDoc}
-              disabled={!uploadDocFile || uploadDocSaving}
+              disabled={
+                !uploadDocFile ||
+                uploadDocSaving ||
+                (uploadEsVistaEtapaPdf &&
+                  uploadEtapaRequisitos.length > 0 &&
+                  !uploadRequisitoSeleccionadoId)
+              }
             >
               {uploadDocSaving ? "Subiendo…" : "Subir archivo"}
             </Button>
@@ -4648,90 +4924,92 @@ export default function SiniestroDetailPage() {
         maxHeightClass="max-h-[90vh]"
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+          {/* Configuración SMTP */}
+          <CustomSelect
+            label="Configuración SMTP"
+            name="email_configuracion_smtp"
+            value={emailForm.configuracion_smtp_id}
+            onChange={(val) =>
+              setEmailForm((prev) => ({
+                ...prev,
+                configuracion_smtp_id:
+                  typeof val === "string" ? val : "",
+              }))
+            }
+            options={smtpConfigs.map((cfg) => ({
+              value: cfg.id,
+              label: cfg.nombre || cfg.host || String(cfg.id),
+            }))}
+            placeholder="Seleccionar configuración…"
+            isSearchable
+            isClearable
+          />
+
+          {/* Para */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
               <label className="block text-sm font-medium text-gray-700">
-                Configuración SMTP
+                Para <span className="text-red-500">*</span>
               </label>
-              <select
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                value={emailForm.configuracion_smtp_id}
-                onChange={(e) =>
-                  setEmailForm((prev) => ({
-                    ...prev,
-                    configuracion_smtp_id: e.target.value,
-                  }))
-                }
-              >
-                <option value="">Seleccionar configuración...</option>
-                {smtpConfigs.map((cfg) => (
-                  <option key={cfg.id} value={cfg.id}>
-                    {cfg.nombre || cfg.host || cfg.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">
-                Contactos del proveniente
-              </label>
-              <div className="mt-1 rounded-md border border-gray-300 px-3 py-2 min-h-[42px] text-sm">
-                {selectedContactos.length === 0 ? (
-                  <span className="text-gray-400">
-                    No hay contactos seleccionados
-                  </span>
-                ) : (
-                  provenienteContactos
-                    .filter((c) => selectedContactos.includes(c.id))
-                    .map((c) => `${c.nombre} (${c.correo})`)
-                    .join(", ")
-                )}
-              </div>
               <Button
                 type="button"
                 variant="secondary"
-                className="mt-2"
-                onClick={() => setShowContactosModal(true)}
+                onClick={() => {
+                  setNuevoContactoForm({ nombre: "", correo: "" });
+                  setShowNuevoContactoModal(true);
+                }}
               >
-                Gestionar contactos
+                <FiUserPlus className="w-4 h-4 mr-1" />
+                Agregar contacto
               </Button>
             </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Destinatarios internos (usuarios del sistema)
-            </label>
             <CustomSelect
-              name="email_destinatarios_usuarios"
-              value={emailDestinatariosUsuarios}
+              name="email_para"
+              value={emailPara}
               onChange={(value) =>
-                setEmailDestinatariosUsuarios(
-                  Array.isArray(value) ? value : value ? [value] : [],
-                )
+                setEmailPara(Array.isArray(value) ? value : value ? [value] : [])
               }
-              options={todosLosUsuarios
-                .filter((u) => (u.email || u.correo) && u.is_active !== false)
-                .map((u) => ({
-                  value: u.id,
-                  label: `${(
-                    u.full_name ||
-                    u.nombre ||
-                    u.correo ||
-                    u.email ||
-                    ""
-                  )
-                    .toString()
-                    .trim()} <${u.correo || u.email}>` as string,
-                }))}
-              placeholder="Selecciona uno o varios usuarios internos..."
+              options={opcionesDestinatariosUnificadas}
+              placeholder="Selecciona o busca destinatarios principales..."
               isMulti
             />
-            <p className="mt-1 text-xs text-gray-500">
-              Puedes buscar usuarios por nombre o correo y seleccionar varios.
-            </p>
           </div>
 
+          {/* CC */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              CC (Con copia)
+            </label>
+            <CustomSelect
+              name="email_cc"
+              value={emailCc}
+              onChange={(value) =>
+                setEmailCc(Array.isArray(value) ? value : value ? [value] : [])
+              }
+              options={opcionesDestinatariosUnificadas}
+              placeholder="Selecciona destinatarios en copia..."
+              isMulti
+            />
+          </div>
+
+          {/* CCO */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              CCO (Con copia oculta)
+            </label>
+            <CustomSelect
+              name="email_cco"
+              value={emailCco}
+              onChange={(value) =>
+                setEmailCco(Array.isArray(value) ? value : value ? [value] : [])
+              }
+              options={opcionesDestinatariosUnificadas}
+              placeholder="Selecciona destinatarios en copia oculta..."
+              isMulti
+            />
+          </div>
+
+          {/* Asunto */}
           <div>
             <label className="block text-sm font-medium text-gray-700">
               Asunto
@@ -4749,6 +5027,7 @@ export default function SiniestroDetailPage() {
             />
           </div>
 
+          {/* Mensaje */}
           <div>
             <label className="block text-sm font-medium text-gray-700">
               Mensaje
@@ -4766,6 +5045,7 @@ export default function SiniestroDetailPage() {
             />
           </div>
 
+          {/* Adjuntos adicionales */}
           <div>
             <label className="block text-sm font-medium text-gray-700">
               Adjuntar archivos adicionales
@@ -4834,44 +5114,15 @@ export default function SiniestroDetailPage() {
         </div>
       </Modal>
 
+      {/* Modal de Agregar Contacto (desde el modal de envío) */}
       <Modal
-        open={showContactosModal}
-        onClose={() => setShowContactosModal(false)}
-        title="Contactos del proveniente"
-        maxWidthClass="max-w-2xl"
+        open={showNuevoContactoModal}
+        onClose={() => setShowNuevoContactoModal(false)}
+        title="Agregar contacto"
+        maxWidthClass="max-w-md"
       >
         <div className="space-y-4">
-          <div className="max-h-64 overflow-y-auto border border-gray-200 rounded-md">
-            {(provenienteContactos || []).length === 0 ? (
-              <p className="p-3 text-sm text-gray-500">
-                No hay contactos registrados para este proveniente.
-              </p>
-            ) : (
-              provenienteContactos.map((contacto) => (
-                <label
-                  key={contacto.id}
-                  className="flex items-center gap-2 p-3 border-b border-gray-100 last:border-b-0"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedContactos.includes(contacto.id)}
-                    onChange={(e) =>
-                      setSelectedContactos((prev) =>
-                        e.target.checked
-                          ? Array.from(new Set([...prev, contacto.id]))
-                          : prev.filter((id) => id !== contacto.id),
-                      )
-                    }
-                  />
-                  <span className="text-sm">
-                    {contacto.nombre} ({contacto.correo})
-                  </span>
-                </label>
-              ))
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <Input
               label="Nombre"
               name="nuevo_contacto_nombre"
@@ -4896,20 +5147,20 @@ export default function SiniestroDetailPage() {
               }
             />
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex justify-end gap-3 pt-2">
             <Button
               type="button"
               variant="secondary"
-              onClick={handleCrearNuevoContacto}
+              onClick={() => setShowNuevoContactoModal(false)}
             >
-              Agregar nuevo contacto
+              Cancelar
             </Button>
             <Button
               type="button"
               variant="primary"
-              onClick={() => setShowContactosModal(false)}
+              onClick={handleCrearNuevoContacto}
             >
-              Confirmar selección
+              Guardar contacto
             </Button>
           </div>
         </div>
@@ -5073,43 +5324,51 @@ export default function SiniestroDetailPage() {
               Configuración Adicional
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Prioridad
-                </label>
-                <select
-                  name="prioridad"
-                  value={editForm.prioridad}
-                  onChange={handleEditFormChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  style={{
-                    borderColor: empresaColors.primary + "60",
-                  }}
-                >
-                  <option value="baja">Baja</option>
-                  <option value="media">Media</option>
-                  <option value="alta">Alta</option>
-                  <option value="critica">Crítica</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Forma de Contacto
-                </label>
-                <select
-                  name="forma_contacto"
-                  value={editForm.forma_contacto}
-                  onChange={handleEditFormChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  style={{
-                    borderColor: empresaColors.primary + "60",
-                  }}
-                >
-                  <option value="correo">Correo</option>
-                  <option value="telefono">Teléfono</option>
-                  <option value="directa">Directa</option>
-                </select>
-              </div>
+              <CustomSelect
+                label="Prioridad"
+                name="prioridad"
+                value={editForm.prioridad}
+                onChange={(val) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    prioridad:
+                      typeof val === "string"
+                        ? (val as typeof prev.prioridad)
+                        : prev.prioridad,
+                  }))
+                }
+                options={[
+                  { value: "baja", label: "Baja" },
+                  { value: "media", label: "Media" },
+                  { value: "alta", label: "Alta" },
+                  { value: "critica", label: "Crítica" },
+                ]}
+                placeholder="Prioridad"
+                isSearchable={false}
+                isClearable={false}
+              />
+              <CustomSelect
+                label="Forma de Contacto"
+                name="forma_contacto"
+                value={editForm.forma_contacto}
+                onChange={(val) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    forma_contacto:
+                      typeof val === "string"
+                        ? (val as typeof prev.forma_contacto)
+                        : prev.forma_contacto,
+                  }))
+                }
+                options={[
+                  { value: "correo", label: "Correo" },
+                  { value: "telefono", label: "Teléfono" },
+                  { value: "directa", label: "Directa" },
+                ]}
+                placeholder="Forma de contacto"
+                isSearchable={false}
+                isClearable={false}
+              />
             </div>
           </div>
 
@@ -5311,9 +5570,12 @@ function EtapasTimeline({
   onOpenEditor,
   onViewDocument,
   onContinuar,
+  onSubirArchivo,
   empresaColors,
   flujoTrabajoId,
   areaId,
+  siniestroId,
+  onAbrirGenerarInforme,
   canVerPdf = true,
   canEditarDocumento = true,
   canCrearDocumento = true,
@@ -5323,14 +5585,31 @@ function EtapasTimeline({
   onOpenEditor: (etapa: EtapaFlujo) => void;
   onViewDocument: (etapa: EtapaFlujo) => void;
   onContinuar?: (etapa: EtapaFlujo, docExistente: any) => void;
+  /** Abre el modal de carga de archivo (etapa PDF/imagen: tipo fijo y requisitos de la etapa) */
+  onSubirArchivo?: (etapa: EtapaFlujo) => void;
   empresaColors: { primary: string; secondary: string; tertiary: string };
   flujoTrabajoId?: string;
   areaId?: string;
+  siniestroId?: string;
+  onAbrirGenerarInforme?: (plantillaId: string, requisitoId: string) => void;
   canVerPdf?: boolean;
   canEditarDocumento?: boolean;
   canCrearDocumento?: boolean;
 }) {
   console.log("DocumentosExistentes", documentosExistentes);
+
+  /** Tipo de documento principal = editor → abre el editor; pdf/imagen/otro → modal de subida */
+  const esTipoEditor = (e: EtapaFlujo) =>
+    (e.tipo_documento_principal?.tipo ?? "").toLowerCase() === "editor";
+
+  const abrirDocumentoEtapa = (etapa: EtapaFlujo) => {
+    if (!(canCrearDocumento || canEditarDocumento)) return;
+    if (esTipoEditor(etapa)) {
+      onOpenEditor(etapa);
+      return;
+    }
+    onSubirArchivo?.(etapa);
+  };
 
   if (!etapas || etapas.length === 0) {
     return (
@@ -5456,156 +5735,67 @@ function EtapasTimeline({
                     </div>
                   </div>
 
-                  {/* Botones para ver/editar documento */}
-                  <div className="ml-4 flex-shrink-0 flex gap-2">
+                  {/* Abre directo el editor (tipo editor) o el modal de subida (PDF / otros) */}
+                  <div className="ml-4 flex-shrink-0 flex items-center gap-2">
                     {tieneDocumentoDisponible(etapa) ? (
                       (() => {
-                        // Buscar documento para esta etapa
-                        // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
-                        // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
-                        const documentosEtapa = documentosExistentes.filter(
-                          (doc: any) =>
-                            doc.etapa_flujo_id === etapa.id &&
-                            (!!areaId ? doc.area_id === areaId : true),
+                        const docsEtapa = documentosExistentes.filter(
+                          (d: any) =>
+                            d.etapa_flujo_id === etapa.id &&
+                            (!areaId || d.area_id === areaId),
                         );
-
-                        // Buscar documento del flujo actual (debe coincidir exactamente)
-                        // Si no hay flujo específico, usar el más reciente
-                        let docExistente: any = null;
-                        if (flujoTrabajoId) {
-                          // Si hay flujo específico, solo buscar documentos de ese flujo
-                          docExistente =
-                            documentosEtapa.find(
-                              (doc: any) =>
-                                doc.flujo_trabajo_id === flujoTrabajoId &&
-                                (!!areaId ? doc.area_id === areaId : true),
-                            ) ||
-                            documentosEtapa.find(
-                              (doc: any) =>
-                                doc.flujo_trabajo_id === flujoTrabajoId,
-                            );
-                        } else {
-                          // Si no hay flujo específico, usar el más reciente
-                          if (documentosEtapa.length > 0) {
-                            docExistente = documentosEtapa.sort(
-                              (a: any, b: any) =>
-                                new Date(b.creado_en).getTime() -
-                                new Date(a.creado_en).getTime(),
-                            )[0];
-                          }
-                        }
-                        if (docExistente) {
-                          // Si existe documento: Ver, Continuar (solo si la plantilla tiene continuación), Editar (según permisos)
-                          const plantillaId =
-                            docExistente.plantilla_documento_id;
-                          const puedeContinuar =
-                            !!onContinuar &&
-                            !!plantillaId &&
-                            docExistente.plantilla_tiene_continuacion === true;
-                          return (
-                            <>
-                              {canVerPdf && (
-                                <button
-                                  onClick={() => onViewDocument(etapa)}
-                                  className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                                  style={{
-                                    backgroundColor: empresaColors.tertiary,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.opacity = "0.9";
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.opacity = "1";
-                                  }}
-                                  title="Ver documento como PDF"
-                                >
-                                  <FiEye className="w-4 h-4" />
-                                  Ver
-                                </button>
-                              )}
-                              {puedeContinuar && canEditarDocumento && (
-                                <button
-                                  onClick={() =>
-                                    onContinuar(etapa, docExistente)
-                                  }
-                                  className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                                  style={{
-                                    backgroundColor: empresaColors.secondary,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.opacity = "0.9";
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.opacity = "1";
-                                  }}
-                                  title="Llenar formulario de continuación"
-                                >
-                                  <FiCornerDownRight className="w-4 h-4" />
-                                  Continuar
-                                </button>
-                              )}
-                              {canEditarDocumento && (
-                                <button
-                                  onClick={() => onOpenEditor(etapa)}
-                                  className="flex items-center gap-2 px-3 py-2 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                                  style={{
-                                    backgroundColor: empresaColors.primary,
-                                  }}
-                                  onMouseEnter={(e) => {
-                                    e.currentTarget.style.opacity = "0.9";
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.currentTarget.style.opacity = "1";
-                                  }}
-                                  title="Editar documento"
-                                >
-                                  <FiEdit3 className="w-4 h-4" />
-                                  Editar
-                                </button>
-                              )}
-                            </>
-                          );
-                        } else {
-                          // Si no existe, mostrar botón con texto dinámico según la etapa
-                          const getDocumentoButtonText = (
-                            etapaNombre: string,
-                          ) => {
-                            // Convertir el nombre de la etapa a minúsculas para normalizar
-                            const nombreLower = etapaNombre.toLowerCase();
-
-                            // Si el nombre contiene "primera atención" o similar
-                            if (
-                              nombreLower.includes("primera atención") ||
-                              nombreLower.includes("primera atencion")
-                            ) {
-                              return "Cargar informe primera atención";
-                            }
-
-                            // Si contiene "informe"
-                            if (nombreLower.includes("informe")) {
-                              return `Cargar ${etapaNombre.toLowerCase()}`;
-                            }
-
-                            // Si contiene "documento"
-                            if (nombreLower.includes("documento")) {
-                              return `Cargar ${etapaNombre.toLowerCase()}`;
-                            }
-
-                            // Por defecto, usar el nombre de la etapa con "Cargar informe"
-                            return `Cargar informe ${etapaNombre.toLowerCase()}`;
-                          };
-
-                          return canCrearDocumento ? (
-                            <EmpresaButton
-                              variant="primary"
-                              size="sm"
-                              onClick={() => onOpenEditor(etapa)}
+                        const count = docsEtapa.length;
+                        const editor = esTipoEditor(etapa);
+                        const puedeAccion =
+                          canCrearDocumento || canEditarDocumento;
+                        return (
+                          <>
+                            <button
+                              type="button"
+                              disabled={!puedeAccion}
+                              onClick={() => abrirDocumentoEtapa(etapa)}
+                              className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ backgroundColor: empresaColors.primary }}
+                              onMouseEnter={(e) => {
+                                if (!puedeAccion) return;
+                                e.currentTarget.style.opacity = "0.88";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.opacity = puedeAccion
+                                  ? "1"
+                                  : "0.5";
+                              }}
+                              title={
+                                editor
+                                  ? "Abrir editor de documento"
+                                  : "Subir archivo"
+                              }
                             >
-                              <FiEdit3 className="w-4 h-4 mr-2" />
-                              {getDocumentoButtonText(etapa.nombre)}
-                            </EmpresaButton>
-                          ) : null;
-                        }
+                              {editor ? (
+                                <FiEdit3 className="w-4 h-4" />
+                              ) : (
+                                <FiUpload className="w-4 h-4" />
+                              )}
+                              {editor
+                                ? count > 0
+                                  ? `Editor (${count})`
+                                  : "Abrir editor"
+                                : count > 0
+                                  ? `Subir archivo (${count})`
+                                  : "Subir archivo"}
+                            </button>
+                            {count > 0 && canVerPdf && !editor && (
+                              <button
+                                type="button"
+                                onClick={() => onViewDocument(etapa)}
+                                className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                                title="Ver último PDF de la etapa"
+                              >
+                                <FiEye className="w-4 h-4" />
+                              </button>
+                            )}
+                          </>
+                        );
                       })()
                     ) : (
                       <div
@@ -5640,6 +5830,7 @@ function DocumentosList({
   onUploadClick,
   siniestroId,
   empresaColors,
+  etapas,
 }: {
   documentos: any[];
   loading: boolean;
@@ -5651,6 +5842,7 @@ function DocumentosList({
   onUploadClick?: () => void;
   siniestroId: string;
   empresaColors: { primary: string; secondary: string; tertiary: string };
+  etapas?: { id: string; nombre: string }[];
 }) {
   const columns = useMemo<ColumnDef<any>[]>(
     () => [
@@ -5676,17 +5868,32 @@ function DocumentosList({
       {
         accessorKey: "nombre_archivo",
         header: "Nombre del Archivo",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2">
-            <FiFileText
-              className="w-4 h-4"
-              style={{ color: empresaColors.primary }}
-            />
-            <span className="font-medium text-gray-900">
-              {row.original.nombre_archivo}
+        cell: ({ row }) => {
+          return (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-gray-900">
+                {row.original.nombre_archivo}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        id: "etapa",
+        header: "Etapa",
+        cell: ({ row }) => {
+          const catNombre = row.original.categoria_documento_nombre;
+          const etapaNombre = etapas?.find(
+            (e) => e.id === row.original.etapa_flujo_id
+          )?.nombre;
+          return etapaNombre ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 whitespace-nowrap">
+              {etapaNombre} / {catNombre || ""}
             </span>
-          </div>
-        ),
+          ) : (
+            <span className="text-xs text-gray-400">—</span>
+          );
+        },
       },
       {
         accessorKey: "descripcion",
@@ -5759,6 +5966,7 @@ function DocumentosList({
       onDownloadDocument,
       onDownloadInforme,
       empresaColors,
+      etapas,
     ],
   );
 

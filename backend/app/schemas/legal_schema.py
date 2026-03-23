@@ -718,6 +718,7 @@ class DocumentoCreate(DocumentoBase):
     plantilla_documento_id: Optional[UUID] = None
     area_id: Optional[UUID] = None  # Área específica del documento
     flujo_trabajo_id: Optional[UUID] = None  # Flujo de trabajo específico del documento
+    requisito_documento_id: Optional[UUID] = None  # Requisito documental que origina este documento
     usuario_subio: Optional[UUID] = None
     version: int = 1
     # Campos para bitácora al crear documento (carga de informe)
@@ -739,6 +740,7 @@ class DocumentoUpdate(BaseModel):
     plantilla_documento_id: Optional[UUID] = None
     area_id: Optional[UUID] = None
     flujo_trabajo_id: Optional[UUID] = None
+    requisito_documento_id: Optional[UUID] = None  # Requisito documental asociado
     activo: Optional[bool] = None
     # Campos para bitácora al actualizar documento (actualización de informe)
     horas_trabajadas_bitacora: Optional[Decimal] = Field(None, ge=0, le=24)
@@ -754,6 +756,7 @@ class DocumentoResponse(DocumentoBase):
     plantilla_documento_id: Optional[UUID] = None
     area_id: Optional[UUID] = None
     flujo_trabajo_id: Optional[UUID] = None
+    requisito_documento_id: Optional[UUID] = None
     usuario_subio: Optional[UUID] = None
     version: int
     eliminado: bool
@@ -761,6 +764,8 @@ class DocumentoResponse(DocumentoBase):
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
     plantilla_tiene_continuacion: Optional[bool] = None  # True si la plantilla tiene segunda parte con formulario
+    # Nombre de categoría (vía requisito documental o plantilla asociada)
+    categoria_documento_nombre: Optional[str] = None
 
     class Config:
         from_attributes = True

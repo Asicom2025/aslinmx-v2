@@ -361,6 +361,8 @@ class Documento(Base):
     # Campos para organización por área y flujo
     area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="SET NULL"), nullable=True)
     flujo_trabajo_id = Column(UUID(as_uuid=True), ForeignKey("flujos_trabajo.id", ondelete="SET NULL"), nullable=True)
+    # Requisito documental que originó este documento (nullable para documentos anteriores)
+    requisito_documento_id = Column(UUID(as_uuid=True), ForeignKey("etapa_flujo_requisitos_documento.id", ondelete="SET NULL"), nullable=True)
     nombre_archivo = Column(String(255), nullable=False)
     ruta_archivo = Column(String(500), nullable=True)
     contenido = Column(Text, nullable=True)  # Contenido HTML del documento editado

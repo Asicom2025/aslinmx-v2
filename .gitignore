@@ -70,7 +70,7 @@ docker-compose.override.yml
 
 # Logs
 logs/
-reports/
+recursos/
 backend/uploads/*
 *.log
 .env-prod

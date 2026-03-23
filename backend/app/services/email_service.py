@@ -112,17 +112,24 @@ class EmailService:
         list_unsubscribe_url: Optional[str] = None,
         list_unsubscribe_mailto: Optional[str] = None,
         list_unsubscribe_one_click: bool = False,
+        cc: Optional[List[str]] = None,
+        cco: Optional[List[str]] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
         Envía un correo electrónico de forma asíncrona
-        
+
         Returns:
             (success, error_message)
         """
         try:
+            cc = cc or []
+            cco = cco or []
             message = MIMEMultipart("alternative")
             message["From"] = f"{config.remitente_nombre or 'Sistema'} <{config.remitente_email}>"
             message["To"] = ", ".join(destinatarios)
+            if cc:
+                message["Cc"] = ", ".join(cc)
+            # BCC no se expone en headers — llega al envelope pero no al receptor
             message["Subject"] = asunto
             unsubscribe_entries: List[str] = []
             if list_unsubscribe_mailto:
@@ -166,7 +173,10 @@ class EmailService:
             # Enviar correo
             if aiosmtplib is None:
                 raise ImportError("aiosmtplib no está instalado. Instálelo con: pip install aiosmtplib")
-            
+
+            # Envelope = to + cc + cco (deduplicado) — BCC llega solo al envelope SMTP
+            recipients_envelope = list(dict.fromkeys(destinatarios + cc + cco))
+
             if config.usar_ssl:
                 await aiosmtplib.send(
                     message,
@@ -175,7 +185,8 @@ class EmailService:
                     username=config.usuario,
                     password=config.password,
                     use_tls=False,
-                    start_tls=False
+                    start_tls=False,
+                    recipients=recipients_envelope,
                 )
             else:
                 await aiosmtplib.send(
@@ -185,7 +196,8 @@ class EmailService:
                     username=config.usuario,
                     password=config.password,
                     use_tls=config.usar_tls,
-                    start_tls=config.usar_tls
+                    start_tls=config.usar_tls,
+                    recipients=recipients_envelope,
                 )
 
             return True, None
@@ -208,6 +220,8 @@ class EmailService:
         list_unsubscribe_url: Optional[str] = None,
         list_unsubscribe_mailto: Optional[str] = None,
         list_unsubscribe_one_click: bool = False,
+        cc: Optional[List[str]] = None,
+        cco: Optional[List[str]] = None,
         *,
         incluir_file_icon_solo_si_usa_plantilla: bool = True,
     ) -> Tuple[bool, Optional[str]]:
@@ -220,9 +234,14 @@ class EmailService:
             (success, error_message)
         """
         try:
+            cc = cc or []
+            cco = cco or []
             message = MIMEMultipart("alternative")
             message["From"] = f"{config.remitente_nombre or 'Sistema'} <{config.remitente_email}>"
             message["To"] = ", ".join(destinatarios)
+            if cc:
+                message["Cc"] = ", ".join(cc)
+            # BCC no se expone en headers — llega al envelope pero no al receptor
             message["Subject"] = asunto
             unsubscribe_entries: List[str] = []
             if list_unsubscribe_mailto:
@@ -335,8 +354,10 @@ class EmailService:
                 if config.usar_tls:
                     server.starttls()
 
+            # Envelope = to + cc + cco (deduplicado) — BCC llega solo al envelope SMTP
+            recipients_envelope = list(dict.fromkeys(destinatarios + cc + cco))
             server.login(config.usuario, config.password)
-            server.send_message(message)
+            server.send_message(message, to_addrs=recipients_envelope)
             server.quit()
 
             return True, None
