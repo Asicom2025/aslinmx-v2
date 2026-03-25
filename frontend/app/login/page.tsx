@@ -21,6 +21,7 @@ import { useUser } from "@/context/UserContext";
 import Image from "next/image";
 
 import logoDxLegal from "@/assets/logos/logo_dx-legal.png";
+import logoMaslin from "@/assets/logos/logo_login.gif";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -119,9 +120,9 @@ export default function LoginPage() {
               <Image
                 src={logoDxLegal}
                 alt="DX Legal"
-                width={180}
-                height={80}
-                className="h-auto w-auto object-contain"
+                width={240}
+                height={107}
+                className="h-16 sm:h-20 md:h-24 w-auto max-w-[min(100%,280px)] object-contain"
                 priority
               />
             </div>
@@ -134,6 +135,18 @@ export default function LoginPage() {
             className="mt-4 sm:mt-6 space-y-6 bg-white p-6 sm:p-8 rounded-lg shadow-md"
             onSubmit={handleSubmit}
           >
+            <div className="flex justify-center pb-2 sm:pb-4 -mt-1">
+              <Image
+                src={logoMaslin}
+                alt="MASLIN"
+                width={400}
+                height={103}
+                className="w-full max-w-full h-auto max-h-24 sm:max-h-28 object-contain object-center"
+                unoptimized
+                priority
+              />
+            </div>
+
             <div className="space-y-4">
               {!requires2FA && (
                 <>
