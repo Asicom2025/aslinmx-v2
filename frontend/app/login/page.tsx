@@ -20,8 +20,9 @@ import RecaptchaScript from "@/components/RecaptchaScript";
 import { useUser } from "@/context/UserContext";
 import Image from "next/image";
 
-import logoDxLegal from "@/assets/logos/logo_dx-legal.png";
+import logoDxLegal from "@/assets/logos/logo_large_black.svg";
 import logoMaslin from "@/assets/logos/logo_login.gif";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function LoginPage() {
   const [requires2FA, setRequires2FA] = useState(false);
   const [tempToken, setTempToken] = useState<string | null>(null);
   const [code, setCode] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // Diagnóstico de reCAPTCHA en desarrollo
   useEffect(() => {
@@ -114,38 +116,37 @@ export default function LoginPage() {
     <>
       <RecaptchaScript />
       <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-10 px-4 sm:px-6 lg:px-8">
-        <div className="w-full max-w-sm sm:max-w-md space-y-6">
-          <div>
-            <div className="flex justify-center mb-4 sm:mb-6">
-              <Image
-                src={logoDxLegal}
-                alt="DX Legal"
-                width={240}
-                height={107}
-                className="h-16 sm:h-20 md:h-24 w-auto max-w-[min(100%,280px)] object-contain"
-                priority
-              />
-            </div>
-            <p className="mt-2 text-center text-sm text-white/80">
-              Inicia sesión en tu cuenta
-            </p>
-          </div>
-
+        <div className="w-full max-w-sm sm:max-w-md">
           <form
-            className="mt-4 sm:mt-6 space-y-6 bg-white p-6 sm:p-8 rounded-lg shadow-md"
+            className="space-y-6 rounded-lg bg-white p-6 shadow-md sm:p-8"
             onSubmit={handleSubmit}
           >
-            <div className="flex justify-center pb-2 sm:pb-4 -mt-1">
+            {/* ASLIN arriba, DX Legal debajo, dentro del formulario */}
+            <div className="flex flex-col items-center justify-center gap-3 sm:gap-4">
               <Image
                 src={logoMaslin}
-                alt="MASLIN"
+                alt="ASLIN"
                 width={400}
                 height={103}
-                className="w-full max-w-full h-auto max-h-24 sm:max-h-28 object-contain object-center"
+                className="h-16 w-auto max-w-[min(100%,300px)] shrink-0 object-contain sm:h-20"
                 unoptimized
                 priority
               />
+              <div className="flex w-full max-w-[min(100%,300px)] justify-center rounded-xl border border-slate-200/90 bg-slate-50 px-6 py-3 shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
+                <Image
+                  src={logoDxLegal}
+                  alt="DX Legal"
+                  width={200}
+                  height={185}
+                  className="h-[4.25rem] w-auto max-w-full object-contain sm:h-20 md:h-[5.25rem]"
+                  unoptimized
+                  priority
+                />
+              </div>
             </div>
+            <p className="text-center text-sm text-slate-600">
+              Inicia sesión en tu cuenta
+            </p>
 
             <div className="space-y-4">
               {!requires2FA && (
@@ -162,12 +163,27 @@ export default function LoginPage() {
 
                   <Input
                     label="Contraseña"
-                    type="password"
+                    type={showPassword ? "text" : "password"}
                     name="password"
                     value={formData.password}
                     onChange={handleChange}
                     placeholder="••••••••"
                     required
+                    autoComplete="current-password"
+                    endAdornment={
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                        aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                      >
+                        {showPassword ? (
+                          <FiEyeOff className="h-5 w-5" aria-hidden />
+                        ) : (
+                          <FiEye className="h-5 w-5" aria-hidden />
+                        )}
+                      </button>
+                    }
                   />
                 </>
               )}
@@ -189,17 +205,17 @@ export default function LoginPage() {
               {requires2FA ? "Verificar 2FA" : "Iniciar Sesión"}
             </Button>
 
-            <div className="text-center">
+            {/* <div className="text-center">
               <p className="text-sm">
                 ¿No tienes cuenta?{" "}
                 <a
                   href="/register"
-                  className="text-azul hover:opacity-90 font-medium"
+                  className="font-medium text-azul hover:opacity-90"
                 >
                   Regístrate aquí
                 </a>
               </p>
-            </div>
+            </div> */}
           </form>
         </div>
       </div>
