@@ -42,6 +42,8 @@ interface SelectProps {
   isMulti?: boolean;
   isClearable?: boolean;
   isSearchable?: boolean;
+  /** Cuando está dentro de un modal, pasa false para deshabilitar el portal y evitar problemas de posicionamiento. Por defecto true. */
+  usePortal?: boolean;
 }
 
 export default function CustomSelect({
@@ -57,6 +59,7 @@ export default function CustomSelect({
   isMulti = false,
   isClearable = true,
   isSearchable = true,
+  usePortal = true,
 }: SelectProps) {
   const handleChange = (selected: any) => {
     if (isMulti) {
@@ -126,6 +129,11 @@ export default function CustomSelect({
       ...provided,
       borderRadius: "0.5rem",
       boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
+      zIndex: 9999,
+    }),
+    menuPortal: (provided) => ({
+      ...provided,
+      zIndex: 9999,
     }),
     groupHeading: (provided) => ({
       ...provided,
@@ -174,6 +182,8 @@ export default function CustomSelect({
         styles={customStyles}
         classNamePrefix="react-select"
         noOptionsMessage={() => "No hay opciones disponibles"}
+        menuPortalTarget={usePortal && typeof document !== "undefined" ? document.body : undefined}
+        menuPosition={usePortal ? "fixed" : "absolute"}
       />
       {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
     </div>
