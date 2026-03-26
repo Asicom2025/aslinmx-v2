@@ -270,6 +270,8 @@ class EtapaFlujoService:
             es_obligatoria=etapa.es_obligatoria,
             permite_omision=etapa.permite_omision,
             tipo_documento_principal_id=etapa.tipo_documento_principal_id,
+            categoria_documento_id=etapa.categoria_documento_id,
+            plantilla_documento_id=etapa.plantilla_documento_id,
             inhabilita_siguiente=etapa.inhabilita_siguiente,
             activo=etapa.activo
         )

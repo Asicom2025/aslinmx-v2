@@ -241,11 +241,22 @@ export default function FlujoDetallePage() {
   const handleCrearEtapa = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const tipoInfo = tiposDocumento.find((t) => t.id === tipoDocumentoSeleccionado);
+      const esEditor = (tipoInfo?.tipo ?? "").toLowerCase() === "editor";
+
+      // Si el tipo es editor y hay exactamente una plantilla seleccionada, la propagamos
+      // directamente a etapas_flujo.plantilla_documento_id para que el detalle de siniestro
+      // la muestre y la use sin necesidad de hacer un segundo lookup por tipo.
+      const plantillaUnica =
+        esEditor && plantillasSeleccionadas.length === 1
+          ? plantillasSeleccionadas[0]
+          : undefined;
+
       const data = {
         ...formData,
         tipo_documento_principal_id: tipoDocumentoSeleccionado || undefined,
-        categoria_documento_id: undefined,   // ya no se guarda FK única de categoría
-        plantilla_documento_id: undefined,   // ya no se guarda FK única de plantilla
+        categoria_documento_id: undefined,
+        plantilla_documento_id: plantillaUnica,
       };
 
       let etapaId: string;
