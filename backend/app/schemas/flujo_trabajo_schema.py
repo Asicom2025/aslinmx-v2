@@ -45,6 +45,16 @@ class DocumentoRelacionado(BaseModel):
         from_attributes = True
 
 
+class PlantillaDocumentoRelacionado(BaseModel):
+    """Plantilla relacionada con una etapa (incluye si tiene continuación)"""
+    id: UUID
+    nombre: str
+    plantilla_continuacion_id: Optional[UUID] = None
+
+    class Config:
+        from_attributes = True
+
+
 class EtapaFlujoSimple(BaseModel):
     """Etapa simple para respuesta"""
     id: UUID
@@ -60,7 +70,7 @@ class EtapaFlujoSimple(BaseModel):
     plantilla_documento_id: Optional[UUID] = None
     tipo_documento_principal: Optional[DocumentoRelacionado] = None
     categoria_documento: Optional[DocumentoRelacionado] = None
-    plantilla_documento: Optional[DocumentoRelacionado] = None
+    plantilla_documento: Optional[PlantillaDocumentoRelacionado] = None
 
     class Config:
         from_attributes = True
@@ -125,7 +135,7 @@ class EtapaFlujoResponse(EtapaFlujoBase):
     eliminado_en: Optional[datetime] = None
     tipo_documento_principal: Optional[DocumentoRelacionado] = None
     categoria_documento: Optional[DocumentoRelacionado] = None
-    plantilla_documento: Optional[DocumentoRelacionado] = None
+    plantilla_documento: Optional[PlantillaDocumentoRelacionado] = None
 
     class Config:
         from_attributes = True

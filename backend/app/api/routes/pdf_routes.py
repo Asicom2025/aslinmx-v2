@@ -24,7 +24,7 @@ from app.services.legal_service import (
 )
 from app.services.empresa_service import EmpresaService
 from app.models.user import User
-from app.models.legal import Area, Proveniente, SiniestroArea, Institucion, Autoridad
+from app.models.legal import Area, Proveniente, SiniestroArea, Institucion, Autoridad, EstadoSiniestro
 from typing import Optional, Any, Dict, Tuple
 from datetime import datetime as dt
 from uuid import UUID as PyUUID
@@ -118,6 +118,26 @@ def _get_siniestro_asegurado_variables(
                 out["lugar_ocurrido"] = ", ".join(partes) if partes else ""
     # Compatibilidad con plantillas que usan {{radicado_en}}
     out["radicado_en"] = autoridad_nombre
+
+    # Estado del siniestro
+    if getattr(siniestro, "estado_id", None):
+        estado_row = (
+            db.query(EstadoSiniestro)
+            .filter(EstadoSiniestro.id == siniestro.estado_id)
+            .first()
+        )
+        out["estado_siniestro"] = (
+            str(estado_row.nombre).strip()
+            if estado_row and getattr(estado_row, "nombre", None)
+            else ""
+        )
+    else:
+        out["estado_siniestro"] = ""
+
+    # Fecha del siniestro
+    fecha_sin = getattr(siniestro, "fecha_siniestro", None)
+    out["fecha_siniestro"] = _fecha_pdf_corta(fecha_sin)
+
     return out
 
 
@@ -267,6 +287,17 @@ def _variables_plantilla_alineadas_frontend(
         )
         fecha_asig_src = getattr(area_asig, "fecha_asignacion", None)
 
+    # Estado del siniestro (nombre legible)
+    estado_nombre = ""
+    if getattr(siniestro, "estado_id", None):
+        estado_row = (
+            db.query(EstadoSiniestro)
+            .filter(EstadoSiniestro.id == siniestro.estado_id)
+            .first()
+        )
+        if estado_row and getattr(estado_row, "nombre", None):
+            estado_nombre = str(estado_row.nombre).strip()
+
     out.update(
         {
             "creado_en": creado_en,
@@ -283,10 +314,12 @@ def _variables_plantilla_alineadas_frontend(
             # - fecha_asignacion (DD/MM/YYYY)
             # - hora_fecha_asignacion (HH:mm:ss)
             "fecha_asignacion": fecha_asig_src,
+            "fecha_siniestro": getattr(siniestro, "fecha_siniestro", None),
             "fecha": _fecha_pdf_corta(hoy),
             "numero_reporte": (str(nr).strip() if nr is not None else ""),
             "numero_siniestro": (str(ns).strip() if ns is not None else ""),
             "numero_poliza": (str(np).strip() if np is not None else ""),
+            "estado_siniestro": estado_nombre,
         }
     )
     return out

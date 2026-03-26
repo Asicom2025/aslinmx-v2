@@ -3,7 +3,7 @@ Servicio para gestión de flujos de trabajo configurables
 """
 
 from typing import Optional, List
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import and_, or_, func, text
 from fastapi import HTTPException, status
 from uuid import UUID
@@ -24,6 +24,22 @@ from app.schemas.flujo_trabajo_schema import (
 )
 
 
+def _etapas_eager_options():
+    """
+    Devuelve las opciones de carga ansiosa para FlujoTrabajo.etapas y sus
+    relaciones hijas (tipo_documento_principal, categoria_documento, plantilla_documento).
+
+    Usar selectinload en cadena garantiza que las tres relaciones se cargan
+    siempre mediante una consulta separada, independientemente del lazy= definido
+    en el modelo, evitando diferencias de comportamiento entre entornos.
+    """
+    return selectinload(FlujoTrabajo.etapas).options(
+        selectinload(EtapaFlujo.tipo_documento_principal),
+        selectinload(EtapaFlujo.categoria_documento),
+        selectinload(EtapaFlujo.plantilla_documento),
+    )
+
+
 class FlujoTrabajoService:
     """Servicio para operaciones CRUD de flujos de trabajo"""
 
@@ -36,10 +52,8 @@ class FlujoTrabajoService:
         activo: Optional[bool] = True
     ) -> List[FlujoTrabajo]:
         """Obtiene flujos de trabajo por empresa y opcionalmente por área"""
-        from sqlalchemy.orm import joinedload
-        
         query = db.query(FlujoTrabajo).options(
-            joinedload(FlujoTrabajo.etapas)
+            _etapas_eager_options()
         ).filter(
             FlujoTrabajo.empresa_id == empresa_id,
             FlujoTrabajo.eliminado_en.is_(None)
@@ -60,14 +74,14 @@ class FlujoTrabajoService:
 
     @staticmethod
     def get_flujo_by_id(db: Session, flujo_id: UUID, include_etapas: bool = True) -> Optional[FlujoTrabajo]:
-        """Obtiene un flujo por ID con eager loading de etapas"""
+        """Obtiene un flujo por ID con eager loading de etapas y sus relaciones"""
         query = db.query(FlujoTrabajo).filter(
             FlujoTrabajo.id == flujo_id,
             FlujoTrabajo.eliminado_en.is_(None)
         )
-        
+
         if include_etapas:
-            query = query.options(joinedload(FlujoTrabajo.etapas))
+            query = query.options(_etapas_eager_options())
 
         flujo = query.first()
         if not flujo:
@@ -90,7 +104,7 @@ class FlujoTrabajoService:
         # Primero intentar área específica
         if area_id:
             flujo = db.query(FlujoTrabajo).options(
-                joinedload(FlujoTrabajo.etapas)
+                _etapas_eager_options()
             ).filter(
                 FlujoTrabajo.empresa_id == empresa_id,
                 FlujoTrabajo.area_id == area_id,
@@ -104,7 +118,7 @@ class FlujoTrabajoService:
 
         # Fallback a flujo general
         return db.query(FlujoTrabajo).options(
-            joinedload(FlujoTrabajo.etapas)
+            _etapas_eager_options()
         ).filter(
             FlujoTrabajo.empresa_id == empresa_id,
             FlujoTrabajo.area_id.is_(None),
