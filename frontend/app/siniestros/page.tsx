@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
@@ -163,7 +163,27 @@ const mapUserToPersona = (usuario: any): PersonaLigera => {
   };
 };
 
+function SiniestrosPageFallback() {
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          Cargando siniestros...
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SiniestrosPage() {
+  return (
+    <Suspense fallback={<SiniestrosPageFallback />}>
+      <SiniestrosPageContent />
+    </Suspense>
+  );
+}
+
+function SiniestrosPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
