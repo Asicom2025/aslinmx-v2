@@ -6,14 +6,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
 import Button from "@/components/ui/Button";
-import Input from "@/components/ui/Input";
 import DataTable from "@/components/ui/DataTable";
-import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
@@ -38,6 +36,32 @@ import {
 } from "@/lib/siniestrosUtils";
 
 const CALIFICACIONES_DEFAULT = ["Excelente", "Bueno", "Regular", "Malo"];
+
+type ActivoFilterValue = "all" | "true" | "false";
+
+type DashboardAwareFilters = {
+  activo: ActivoFilterValue;
+  estado_id: string;
+  proveniente_id: string;
+  area_id: string;
+  usuario_asignado: string;
+  prioridad: "" | "baja" | "media" | "alta" | "critica";
+  calificacion_id: string;
+  asegurado_estado: string;
+  fecha_registro_mes: string;
+};
+
+const DEFAULT_FILTROS: DashboardAwareFilters = {
+  activo: "true",
+  estado_id: "",
+  proveniente_id: "",
+  area_id: "",
+  usuario_asignado: "",
+  prioridad: "",
+  calificacion_id: "",
+  asegurado_estado: "",
+  fecha_registro_mes: "",
+};
 
 const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
   asegurado: {
@@ -141,6 +165,8 @@ const mapUserToPersona = (usuario: any): PersonaLigera => {
 
 export default function SiniestrosPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, loading } = useUser();
   const { can } = usePermisos();
   const canCrearSiniestro = can("siniestros", "create");
@@ -153,17 +179,12 @@ export default function SiniestrosPage() {
   const [areas, setAreas] = useState<any[]>([]);
   const [estados, setEstados] = useState<any[]>([]);
   const [usuarios, setUsuarios] = useState<any[]>([]);
+  const [filtersReady, setFiltersReady] = useState(false);
 
   // Filtros
-  const [filtros, setFiltros] = useState({
-    activo: true,
-    estado_id: "",
-    proveniente_id: "",
-    area_id: "",
-    usuario_asignado: "",
-    prioridad: "" as "" | "baja" | "media" | "alta" | "critica",
-    calificacion_id: "",
-  });
+  const [filtros, setFiltros] = useState<DashboardAwareFilters>(
+    DEFAULT_FILTROS
+  );
 
   // Límite de registros a cargar del backend
   const [limit, setLimit] = useState<number>(1000);
@@ -236,11 +257,37 @@ export default function SiniestrosPage() {
     }
   }, [router, loading, user]);
 
+  useEffect(() => {
+    const activoParam = searchParams.get("activo");
+    const limitParam = Number(searchParams.get("limit"));
+
+    setFiltros({
+      activo:
+        activoParam === "all"
+          ? "all"
+          : activoParam === "false"
+          ? "false"
+          : "true",
+      estado_id: searchParams.get("estado_id") || "",
+      proveniente_id: searchParams.get("proveniente_id") || "",
+      area_id: searchParams.get("area_id") || "",
+      usuario_asignado: searchParams.get("usuario_asignado") || "",
+      prioridad:
+        (searchParams.get("prioridad") as DashboardAwareFilters["prioridad"]) ||
+        "",
+      calificacion_id: searchParams.get("calificacion_id") || "",
+      asegurado_estado: searchParams.get("asegurado_estado") || "",
+      fecha_registro_mes: searchParams.get("fecha_registro_mes") || "",
+    });
+    setLimit(Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 1000);
+    setFiltersReady(true);
+  }, [searchParams]);
+
   // Cargar siniestros al cambiar filtros o límite
   useEffect(() => {
-    if (!user) return;
+    if (!user || !filtersReady) return;
     loadSiniestros();
-  }, [user, filtros, limit]);
+  }, [user, filtros, limit, filtersReady]);
 
   // Cargar catálogos auxiliares una sola vez
   useEffect(() => {
@@ -269,7 +316,10 @@ export default function SiniestrosPage() {
   const loadSiniestros = async () => {
     try {
       setSiniestrosLoading(true);
-      const params: any = { activo: filtros.activo };
+      const params: any = {};
+      if (filtros.activo !== "all") {
+        params.activo = filtros.activo === "true";
+      }
       if (filtros.estado_id) params.estado_id = filtros.estado_id;
       if (filtros.proveniente_id)
         params.proveniente_id = filtros.proveniente_id;
@@ -278,6 +328,10 @@ export default function SiniestrosPage() {
         params.usuario_asignado = filtros.usuario_asignado;
       if (filtros.prioridad) params.prioridad = filtros.prioridad;
       if (filtros.calificacion_id) params.calificacion_id = filtros.calificacion_id;
+      if (filtros.asegurado_estado)
+        params.asegurado_estado = filtros.asegurado_estado;
+      if (filtros.fecha_registro_mes)
+        params.fecha_registro_mes = filtros.fecha_registro_mes;
       // Incluir el límite de registros
       if (limit) params.limit = limit;
 
@@ -409,6 +463,38 @@ export default function SiniestrosPage() {
       setCalificaciones(CALIFICACIONES_DEFAULT);
       setCalificacionesCatalogo([]);
     }
+  };
+
+  const formatMonthLabel = (mes: string) => {
+    const [year, month] = mes.split("-");
+    const yearNumber = Number(year);
+    const monthNumber = Number(month);
+
+    if (!yearNumber || !monthNumber) return mes;
+
+    return new Intl.DateTimeFormat("es-MX", {
+      month: "long",
+      year: "numeric",
+    }).format(new Date(yearNumber, monthNumber - 1, 1));
+  };
+
+  const dashboardFilterLabels = useMemo(() => {
+    const labels: string[] = [];
+
+    if (filtros.asegurado_estado) {
+      labels.push(`Estado geográfico: ${filtros.asegurado_estado}`);
+    }
+    if (filtros.fecha_registro_mes) {
+      labels.push(`Mes de registro: ${formatMonthLabel(filtros.fecha_registro_mes)}`);
+    }
+
+    return labels;
+  }, [filtros.asegurado_estado, filtros.fecha_registro_mes]);
+
+  const clearFilters = () => {
+    setFiltros(DEFAULT_FILTROS);
+    setLimit(1000);
+    router.replace(pathname);
   };
 
 
@@ -1337,7 +1423,52 @@ export default function SiniestrosPage() {
           <h2 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">
             Filtros
           </h2>
+          {dashboardFilterLabels.length > 0 && (
+            <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 p-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-sm font-medium text-sky-900">
+                    Filtros aplicados desde el dashboard
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {dashboardFilterLabels.map((label) => (
+                      <span
+                        key={label}
+                        className="rounded-full bg-white px-3 py-1 text-xs font-medium text-sky-700 shadow-sm"
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="inline-flex items-center justify-center rounded-md border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100"
+                >
+                  Limpiar filtros
+                </button>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-3 sm:gap-4">
+            <CustomSelect
+              label="Actividad"
+              name="activo"
+              value={filtros.activo}
+              onChange={(value) =>
+                setFiltros({
+                  ...filtros,
+                  activo: value as ActivoFilterValue,
+                })
+              }
+              options={[
+                { value: "all", label: "Todos" },
+                { value: "true", label: "Solo activos" },
+                { value: "false", label: "Solo inactivos" },
+              ]}
+              placeholder="Solo activos"
+            />
             <CustomSelect
               label="Status"
               name="estado_id"
@@ -1434,15 +1565,6 @@ export default function SiniestrosPage() {
               ]}
               placeholder="Todos"
             />
-            <div className="flex items-end">
-              <Switch
-                label="Solo activos"
-                checked={filtros.activo}
-                onChange={(checked) =>
-                  setFiltros({ ...filtros, activo: checked })
-                }
-              />
-            </div>
           </div>
           {/* Selector de límite de registros */}
           <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
@@ -1466,6 +1588,13 @@ export default function SiniestrosPage() {
             <span className="text-sm text-gray-500">
               (Total cargados: {siniestros.length})
             </span>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Restablecer filtros
+            </button>
           </div>
         </div>
 
