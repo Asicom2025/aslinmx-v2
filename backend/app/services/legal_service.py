@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 
 from app.services.auditoria_service import AuditoriaService
 from app.services.email_service import EmailService
+from app.utils.estado_normalization import normalizar_nombre_estado
 from app.models.legal import (
     Area,
     EstadoSiniestro,
@@ -789,6 +790,8 @@ class SiniestroService:
         area_id: Optional[UUID] = None,
         usuario_asignado: Optional[UUID] = None,
         prioridad: Optional[str] = None,
+        asegurado_estado: Optional[str] = None,
+        fecha_registro_mes: Optional[str] = None,
         busqueda_id: Optional[str] = None,
         numero_siniestro_q: Optional[str] = None,
         asegurado_nombre: Optional[str] = None,
@@ -824,6 +827,25 @@ class SiniestroService:
             ).distinct()
         if prioridad is not None:
             q = q.filter(Siniestro.prioridad == prioridad)
+        if fecha_registro_mes and fecha_registro_mes.strip():
+            try:
+                fecha_inicio = datetime.strptime(fecha_registro_mes.strip(), "%Y-%m")
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="El filtro fecha_registro_mes debe usar el formato YYYY-MM",
+                ) from exc
+
+            if fecha_inicio.month == 12:
+                fecha_fin = fecha_inicio.replace(year=fecha_inicio.year + 1, month=1)
+            else:
+                fecha_fin = fecha_inicio.replace(month=fecha_inicio.month + 1)
+
+            q = q.filter(
+                Siniestro.fecha_registro.isnot(None),
+                Siniestro.fecha_registro >= fecha_inicio,
+                Siniestro.fecha_registro < fecha_fin,
+            )
         if busqueda_id and busqueda_id.strip():
             # ID = clave_proveniente + consecutivo + anualidad (ej. 102-001-25)
             raw = busqueda_id.strip().replace(" ", "")
@@ -879,6 +901,33 @@ class SiniestroService:
                     func.coalesce(Asegurado.apellido_materno, ""),
                 ).ilike(f"%{asegurado_nombre.strip()}%")
             ).distinct()
+        if asegurado_estado and asegurado_estado.strip():
+            estado_objetivo = normalizar_nombre_estado(asegurado_estado.strip())
+            candidate_ids = [
+                siniestro_id for (siniestro_id,) in q.with_entities(Siniestro.id).distinct().all()
+            ]
+            if not candidate_ids:
+                return []
+
+            estados_por_siniestro = db.query(
+                Siniestro.id,
+                Asegurado.estado,
+            ).outerjoin(
+                Asegurado,
+                Siniestro.asegurado_id == Asegurado.id,
+            ).filter(
+                Siniestro.id.in_(candidate_ids)
+            ).all()
+
+            siniestro_ids_filtrados = [
+                siniestro_id
+                for siniestro_id, estado_raw in estados_por_siniestro
+                if normalizar_nombre_estado(estado_raw) == estado_objetivo
+            ]
+            if not siniestro_ids_filtrados:
+                return []
+
+            q = q.filter(Siniestro.id.in_(siniestro_ids_filtrados))
         
         siniestros = q.order_by(nullslast(Siniestro.fecha_registro.desc())).offset(skip).limit(limit).all()
         

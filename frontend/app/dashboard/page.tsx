@@ -18,11 +18,36 @@ import { FaFileContract } from "react-icons/fa";
 import Highcharts from "highcharts";
 import HighchartsReact from "highcharts-react-official";
 
+let highchartsModulesLoaded = false;
+
 // Variable para rastrear si el módulo de mapas está cargado (persiste entre montajes)
 let mapModuleLoaded = false;
 
 // Caché del mapa de México para evitar recargas (es estático)
 let mexicoMapCache: any = null;
+
+const HIGHCHARTS_MENU_ITEMS = [
+  "viewFullscreen",
+  "separator",
+  "printChart",
+  "separator",
+  "downloadPNG",
+  "downloadJPEG",
+  "downloadPDF",
+  "downloadSVG",
+  "separator",
+  "downloadCSV",
+  "downloadXLS",
+  "viewData",
+] as const;
+
+type DashboardSiniestrosFilters = {
+  estado_id?: string;
+  area_id?: string;
+  prioridad?: string;
+  asegurado_estado?: string;
+  fecha_registro_mes?: string;
+};
 
 interface DashboardStats {
   total_siniestros: number;
@@ -57,6 +82,7 @@ export default function DashboardPage() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [areas, setAreas] = useState<any[]>([]);
   const [estados, setEstados] = useState<any[]>([]);
+  const [highchartsModulesReady, setHighchartsModulesReady] = useState(highchartsModulesLoaded);
   const [mexicoMapData, setMexicoMapData] = useState<any>(() => mexicoMapCache);
   const [mapModuleReady, setMapModuleReady] = useState(mapModuleLoaded);
   const [mapLoadError, setMapLoadError] = useState(false);
@@ -66,6 +92,31 @@ export default function DashboardPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     isMountedRef.current = true;
+
+    if (highchartsModulesLoaded) {
+      setHighchartsModulesReady(true);
+    } else {
+      Promise.all([
+        import("highcharts/modules/exporting"),
+        import("highcharts/modules/export-data"),
+        import("highcharts/modules/accessibility"),
+      ])
+        .then((modules) => {
+          modules.forEach((loadedModule) => {
+            const moduleFn = loadedModule.default || loadedModule;
+            if (typeof moduleFn === "function") {
+              (moduleFn as (h: typeof Highcharts) => void)(Highcharts);
+            }
+          });
+          highchartsModulesLoaded = true;
+          if (isMountedRef.current) setHighchartsModulesReady(true);
+        })
+        .catch((error) => {
+          console.error("Error al cargar módulos base de Highcharts:", error);
+          highchartsModulesLoaded = true;
+          if (isMountedRef.current) setHighchartsModulesReady(true);
+        });
+    }
 
     // Si el módulo ya fue cargado (remount por Strict Mode), marcar como listo
     if (mapModuleLoaded) {
@@ -215,13 +266,41 @@ export default function DashboardPage() {
     return estado?.nombre || "N/A";
   };
 
-  // Función para normalizar nombres de estados (quitar acentos, convertir a minúsculas)
-  const normalizeEstado = (nombre: string): string => {
-    return nombre
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]/g, "-");
+  const highchartsExportingOptions: Highcharts.Options["exporting"] = {
+    enabled: true,
+    buttons: {
+      contextButton: {
+        menuItems: [...HIGHCHARTS_MENU_ITEMS],
+      },
+    },
+  };
+
+  const getCommonAccessibility = (
+    chartDescription: string
+  ): Highcharts.Options["accessibility"] => ({
+    enabled: true,
+    description: `${chartDescription}. Haz clic en un elemento para abrir la lista de siniestros filtrada.`,
+    keyboardNavigation: {
+      enabled: true,
+    },
+  });
+
+  const openDashboardSiniestros = (filters: DashboardSiniestrosFilters) => {
+    const params = new URLSearchParams();
+    params.set("activo", "all");
+
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) {
+        params.set(key, value);
+      }
+    });
+
+    router.push(`/siniestros?${params.toString()}`);
+  };
+
+  const getAreaIdByName = (areaNombre: string) => {
+    const area = areas.find((item) => item.nombre === areaNombre);
+    return area?.id;
   };
 
   // Configuración del gráfico de barras para Estados
@@ -231,11 +310,12 @@ export default function DashboardPage() {
       height: 300,
     },
     accessibility: {
-      enabled: false,
+      ...getCommonAccessibility("Distribución de siniestros por estado geográfico"),
     },
     title: {
       text: undefined,
     },
+    exporting: highchartsExportingOptions,
     xAxis: {
       categories: stats?.siniestros_por_estado.map((item) => item.nombre) || [],
       title: {
@@ -251,7 +331,17 @@ export default function DashboardPage() {
       {
         name: "Siniestros",
         type: "column",
-        data: stats?.siniestros_por_estado.map((item) => item.cantidad) || [],
+        data:
+          stats?.siniestros_por_estado.map((item) => ({
+            name: item.nombre,
+            y: item.cantidad,
+            events: {
+              click: () =>
+                openDashboardSiniestros({
+                  asegurado_estado: item.nombre,
+                }),
+            },
+          })) || [],
         color: "#0A2E5C",
       },
     ],
@@ -263,6 +353,7 @@ export default function DashboardPage() {
     },
     plotOptions: {
       column: {
+        cursor: "pointer",
         borderRadius: 4,
         dataLabels: {
           enabled: true,
@@ -278,11 +369,12 @@ export default function DashboardPage() {
       height: 300,
     },
     accessibility: {
-      enabled: false,
+      ...getCommonAccessibility("Distribución de siniestros por prioridad"),
     },
     title: {
       text: undefined,
     },
+    exporting: highchartsExportingOptions,
     xAxis: {
       categories: stats?.siniestros_por_prioridad.map((item) => item.prioridad.toUpperCase()) || [],
       title: {
@@ -300,6 +392,7 @@ export default function DashboardPage() {
         type: "bar",
         data:
           stats?.siniestros_por_prioridad.map((item) => ({
+            name: item.prioridad.toUpperCase(),
             y: item.cantidad,
             color:
               item.prioridad === "critica"
@@ -309,6 +402,12 @@ export default function DashboardPage() {
                 : item.prioridad === "media"
                 ? "#EAB308"
                 : "#22C55E",
+            events: {
+              click: () =>
+                openDashboardSiniestros({
+                  prioridad: item.prioridad,
+                }),
+            },
           })) || [],
       },
     ],
@@ -320,6 +419,7 @@ export default function DashboardPage() {
     },
     plotOptions: {
       bar: {
+        cursor: "pointer",
         borderRadius: 4,
         dataLabels: {
           enabled: true,
@@ -335,11 +435,12 @@ export default function DashboardPage() {
       height: 300,
     },
     accessibility: {
-      enabled: false,
+      ...getCommonAccessibility("Distribución de siniestros por área"),
     },
     title: {
       text: undefined,
     },
+    exporting: highchartsExportingOptions,
     tooltip: {
       pointFormat: "{series.name}: <b>{point.y}</b> ({point.percentage:.1f}%)",
     },
@@ -362,6 +463,15 @@ export default function DashboardPage() {
           stats?.siniestros_por_area.map((item) => ({
             name: item.nombre,
             y: item.cantidad,
+            events: {
+              click: () => {
+                const areaId = getAreaIdByName(item.nombre);
+                if (!areaId) return;
+                openDashboardSiniestros({
+                  area_id: areaId,
+                });
+              },
+            },
           })) || [],
       },
     ],
@@ -377,11 +487,12 @@ export default function DashboardPage() {
       height: 300,
     },
     accessibility: {
-      enabled: false,
+      ...getCommonAccessibility("Evolución mensual de siniestros"),
     },
     title: {
       text: undefined,
     },
+    exporting: highchartsExportingOptions,
     xAxis: {
       categories: siniestrosByMonth.map((item) => item.mes) || [],
       title: {
@@ -397,7 +508,17 @@ export default function DashboardPage() {
       {
         name: "Siniestros",
         type: "line",
-        data: siniestrosByMonth.map((item) => item.cantidad) || [],
+        data:
+          siniestrosByMonth.map((item) => ({
+            name: item.mes,
+            y: item.cantidad,
+            events: {
+              click: () =>
+                openDashboardSiniestros({
+                  fecha_registro_mes: item.mes,
+                }),
+            },
+          })) || [],
         color: "#0A2E5C",
         marker: {
           radius: 6,
@@ -412,6 +533,7 @@ export default function DashboardPage() {
     },
     plotOptions: {
       line: {
+        cursor: "pointer",
         dataLabels: {
           enabled: true,
         },
@@ -471,6 +593,14 @@ export default function DashboardPage() {
           "hc-key": codigoMapa,
           name: nombreEstado,
           value: cantidad,
+          events: {
+            click: () => {
+              if (!cantidad) return;
+              openDashboardSiniestros({
+                asegurado_estado: nombreEstado,
+              });
+            },
+          },
         };
       });
       
@@ -489,11 +619,12 @@ export default function DashboardPage() {
           height: 500,
         },
         accessibility: {
-          enabled: false,
+          ...getCommonAccessibility("Mapa de siniestros por estado geográfico en México"),
         },
         title: {
           text: undefined,
         },
+        exporting: highchartsExportingOptions,
         mapNavigation: {
           enabled: true,
           buttonOptions: {
@@ -532,6 +663,7 @@ export default function DashboardPage() {
           {
             name: "Siniestros",
             type: "map",
+            cursor: "pointer",
             states: {
               hover: {
                 brightness: 0.2,
@@ -561,7 +693,15 @@ export default function DashboardPage() {
       const properties = feature.properties || {};
       // El TopoJSON de Highcharts usa "hc-key" como identificador principal
       const codigoMapa = properties["hc-key"] || properties.HASC_1 || properties.ISO || "";
-      const nombreEstado = properties.name || properties.NAME || properties.NAME_1 || properties.admin || codigoMapa;
+      const nombreCanonico =
+        Object.entries(estadoMap).find(([, codigo]) => codigo === codigoMapa)?.[0] || "";
+      const nombreEstado =
+        nombreCanonico ||
+        properties.name ||
+        properties.NAME ||
+        properties.NAME_1 ||
+        properties.admin ||
+        codigoMapa;
       
       // Buscar la cantidad de siniestros usando el código del mapa
       const cantidad = codigoMapaToCantidad.get(codigoMapa) || 0;
@@ -570,6 +710,14 @@ export default function DashboardPage() {
         "hc-key": codigoMapa,
         name: nombreEstado,
         value: cantidad,
+        events: {
+          click: () => {
+            if (!cantidad) return;
+            openDashboardSiniestros({
+              asegurado_estado: nombreEstado,
+            });
+          },
+        },
       };
     });
 
@@ -592,11 +740,12 @@ export default function DashboardPage() {
         height: 500,
       },
       accessibility: {
-        enabled: false,
+        ...getCommonAccessibility("Mapa de siniestros por estado geográfico en México"),
       },
       title: {
         text: undefined,
       },
+      exporting: highchartsExportingOptions,
       mapNavigation: {
         enabled: true,
         buttonOptions: {
@@ -635,6 +784,7 @@ export default function DashboardPage() {
         {
           name: "Siniestros",
           type: "map",
+          cursor: "pointer",
           states: {
             hover: {
               brightness: 0.2,
@@ -659,7 +809,7 @@ export default function DashboardPage() {
     };
   }, [mexicoMapData, stats?.siniestros_por_estado, estadoMap]);
 
-  if (loading || loadingStats || !user) {
+  if (loading || loadingStats || !user || !highchartsModulesReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">

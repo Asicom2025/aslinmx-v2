@@ -881,6 +881,8 @@ const siniestroService = {
     area_id?: string;
     usuario_asignado?: string;
     prioridad?: "baja" | "media" | "alta" | "critica";
+    asegurado_estado?: string;
+    fecha_registro_mes?: string;
     busqueda_id?: string;
     numero_siniestro?: string;
     asegurado_nombre?: string;
@@ -894,6 +896,8 @@ const siniestroService = {
     if (filters?.area_id) params.append("area_id", filters.area_id);
     if (filters?.usuario_asignado) params.append("usuario_asignado", filters.usuario_asignado);
     if (filters?.prioridad) params.append("prioridad", filters.prioridad);
+    if (filters?.asegurado_estado?.trim()) params.append("asegurado_estado", filters.asegurado_estado.trim());
+    if (filters?.fecha_registro_mes?.trim()) params.append("fecha_registro_mes", filters.fecha_registro_mes.trim());
     if (filters?.busqueda_id?.trim()) params.append("busqueda_id", filters.busqueda_id.trim());
     if (filters?.numero_siniestro?.trim()) params.append("numero_siniestro", filters.numero_siniestro.trim());
     if (filters?.asegurado_nombre?.trim()) params.append("asegurado_nombre", filters.asegurado_nombre.trim());
@@ -1723,4 +1727,3 @@ const apiService = {
 };
 
 export default apiService;
-
