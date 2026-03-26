@@ -6,7 +6,7 @@
 
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
@@ -61,6 +61,7 @@ import {
   FiAlertTriangle,
   FiUserPlus,
   FiUpload,
+  FiChevronRight,
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
@@ -493,21 +494,39 @@ export default function SiniestroDetailPage() {
       : areasAdicionales[0];
     const fechaAsignacionSrc = relacionPrincipal?.fecha_asignacion;
 
+    // Estado del siniestro: buscar nombre en el array ya cargado
+    const estadoNombre =
+      estadosSiniestro.find(
+        (e) => String(e.id) === String((siniestroData as any)?.estado_id ?? ""),
+      )?.nombre ?? "";
+
+    const creadoEn = formatoFecha(
+      (siniestroData as any)?.fecha_registro || siniestroData?.creado_en,
+    );
+
     const replacements: Record<string, string> = {
-      fecha_asignacion: formatoFecha(fechaAsignacionSrc),
+      // ── Fechas ──────────────────────────────────────────────────────────────
       fecha: formatoFecha(hoy),
-      numero_reporte: siniestroData?.numero_reporte || "",
-      fecha_registro: formatoFecha(
-        (siniestroData as any)?.fecha_registro || siniestroData?.creado_en,
+      fecha_asignacion: formatoFecha(fechaAsignacionSrc),
+      fecha_registro: creadoEn,
+      creado_en: creadoEn,
+      fecha_siniestro: formatoFecha(
+        (siniestroData as any)?.fecha_siniestro,
       ),
+      // ── ID / Códigos ─────────────────────────────────────────────────────────
       id: idFormato,
-      // Nombre del asegurado
+      numero_reporte: siniestroData?.numero_reporte || "",
+      numero_siniestro: siniestroData?.numero_siniestro ?? "",
+      numero_poliza: siniestroData?.numero_poliza ?? "",
+      // ── Estado y calificación ────────────────────────────────────────────────
+      estado_siniestro: estadoNombre,
+      // ── Asegurado ────────────────────────────────────────────────────────────
       nombre_asegurado: nombreAsegurado,
       asegurado: nombreAsegurado,
-      // Nombre del autor (usuario actual)
+      // ── Autor ────────────────────────────────────────────────────────────────
       autor: autorNombre,
       creado_por: autorNombre,
-      // Firma física del autor como imagen HTML (si no hay, se coloca '---')
+      // ── Firma física como imagen HTML (si no hay, se coloca '---') ───────────
       firmado_por: firmaHtml,
     };
 
@@ -577,6 +596,12 @@ export default function SiniestroDetailPage() {
       : areasAdicionales[0];
     const fechaAsignacionSrc = relacionParaFechaAsignacion?.fecha_asignacion;
 
+    const estadoNombrePdf =
+      estadosSiniestro.find(
+        (e) =>
+          String(e.id) === String((siniestroData as any)?.estado_id ?? ""),
+      )?.nombre ?? "";
+
     return {
       creado_en: creadoEn,
       creado_por: autorNombre,
@@ -588,9 +613,11 @@ export default function SiniestroDetailPage() {
       autor: autorNombre,
       fecha_asignacion: formatoFecha(fechaAsignacionSrc),
       fecha: formatoFecha(hoy),
+      fecha_siniestro: formatoFecha((siniestroData as any)?.fecha_siniestro),
       numero_reporte: siniestroData?.numero_reporte || "",
       numero_siniestro: siniestroData?.numero_siniestro ?? "",
       numero_poliza: siniestroData?.numero_poliza ?? "",
+      estado_siniestro: estadoNombrePdf,
     };
   };
 
@@ -1262,7 +1289,11 @@ export default function SiniestroDetailPage() {
               etapas: flujoCompleto.etapas || [],
             });
           } catch (error: any) {
-            console.error(`Error al cargar flujo general ${flujo.id}:`, error);
+            console.warn(
+              `[loadFlujosPorAreas] No se pudieron cargar las etapas del flujo general "${flujo.nombre}" (${flujo.id}). ` +
+              `Esto puede explicar que el tipo de documento no aparezca en producción. ` +
+              `Error: ${error?.response?.data?.detail ?? error?.message ?? error}`,
+            );
             flujosGeneralesConEtapas.push({
               flujo,
               etapas: [],
@@ -1340,8 +1371,12 @@ export default function SiniestroDetailPage() {
                 etapas: flujoCompleto.etapas || [],
               });
             } catch (error: any) {
-              console.error(`Error al cargar flujo ${flujo.id}:`, error);
-              // Agregar flujo sin etapas si falla
+              console.warn(
+                `[loadFlujosPorAreas] No se pudieron cargar las etapas del flujo "${flujo.nombre}" (${flujo.id}) ` +
+                `para el área ${areaId}. ` +
+                `Esto puede explicar que el tipo de documento no aparezca en producción. ` +
+                `Error: ${error?.response?.data?.detail ?? error?.message ?? error}`,
+              );
               flujosConEtapas.push({
                 flujo,
                 etapas: [],
@@ -2379,7 +2414,7 @@ export default function SiniestroDetailPage() {
   };
 
   // Abrir/cerrar modal de subir archivo (opcional: etapa → PDF/imagen bloquea tipo y muestra requisitos)
-  const handleOpenUploadDocModal = (etapa?: EtapaFlujo) => {
+  const handleOpenUploadDocModal = useCallback((etapa?: EtapaFlujo) => {
     setUploadDocFile(null);
     setUploadDocDescripcion("");
     setUploadRequisitoSeleccionadoId("");
@@ -2401,7 +2436,8 @@ export default function SiniestroDetailPage() {
       setUploadDocTipoId("");
     }
     setShowUploadDocModal(true);
-  };
+  // Solo usa state setters (estables) + el argumento etapa → deps vacíos
+  }, []);
   const handleCloseUploadDocModal = () => {
     setShowUploadDocModal(false);
     setUploadDocFile(null);
@@ -2602,7 +2638,7 @@ export default function SiniestroDetailPage() {
   };
 
   // Abrir modal de formulario de continuación (para llenar datos del documento de continuación)
-  const handleOpenFormularioContinuacion = async (
+  const handleOpenFormularioContinuacion = useCallback(async (
     plantillaId: string,
     plantillaNombre?: string,
   ) => {
@@ -2629,7 +2665,18 @@ export default function SiniestroDetailPage() {
     } catch (e: any) {
       swalError(e.response?.data?.detail || "Error al cargar el formulario.");
     }
-  };
+  // Solo usa siniestroId (estable de params) + state setters → deps estables
+  }, [siniestroId]);
+
+  // Callback estable para EtapasTimeline — evita re-renders al cambiar otros estados
+  const handleContinuarEtapa = useCallback((_: EtapaFlujo, doc: any) => {
+    if (doc?.plantilla_documento_id) {
+      handleOpenFormularioContinuacion(
+        doc.plantilla_documento_id,
+        doc.nombre_archivo,
+      );
+    }
+  }, [handleOpenFormularioContinuacion]);
 
   // Función para abrir el editor de documentos
   const handleOpenDocumentEditor = async (etapa: EtapaFlujo) => {
@@ -3288,13 +3335,7 @@ export default function SiniestroDetailPage() {
                                             handleOpenDocumentEditor
                                           }
                                           onViewDocument={handleViewDocument}
-                                          onContinuar={(_, doc) =>
-                                            doc?.plantilla_documento_id &&
-                                            handleOpenFormularioContinuacion(
-                                              doc.plantilla_documento_id,
-                                              doc.nombre_archivo,
-                                            )
-                                          }
+                                          onContinuar={handleContinuarEtapa}
                                           onSubirArchivo={handleOpenUploadDocModal}
                                           empresaColors={empresaColors}
                                           flujoTrabajoId={
@@ -3302,21 +3343,6 @@ export default function SiniestroDetailPage() {
                                           }
                                           areaId={activeAreaTab}
                                           siniestroId={siniestroId as string}
-                                          onAbrirGenerarInforme={(plantillaId) =>
-                                            handleOpenDocumentEditor({
-                                              id: "",
-                                              flujo_trabajo_id: flujoConEtapas.flujo.id,
-                                              nombre: "",
-                                              orden: 0,
-                                              es_obligatoria: false,
-                                              permite_omision: false,
-                                              inhabilita_siguiente: false,
-                                              activo: true,
-                                              creado_en: "",
-                                              actualizado_en: "",
-                                              plantilla_documento_id: plantillaId,
-                                            })
-                                          }
                                           canVerPdf={canGenerarPdf}
                                           canEditarDocumento={
                                             canActualizarSiniestro
@@ -3469,33 +3495,12 @@ export default function SiniestroDetailPage() {
                                         }
                                         onOpenEditor={handleOpenDocumentEditor}
                                         onViewDocument={handleViewDocument}
-                                        onContinuar={(_, doc) =>
-                                          doc?.plantilla_documento_id &&
-                                          handleOpenFormularioContinuacion(
-                                            doc.plantilla_documento_id,
-                                            doc.nombre_archivo,
-                                          )
-                                        }
+                                        onContinuar={handleContinuarEtapa}
                                         onSubirArchivo={handleOpenUploadDocModal}
                                         empresaColors={empresaColors}
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
                                         areaId={activeAreaTab}
                                         siniestroId={siniestroId as string}
-                                        onAbrirGenerarInforme={(plantillaId) =>
-                                          handleOpenDocumentEditor({
-                                            id: "",
-                                            flujo_trabajo_id: flujoConEtapas.flujo.id,
-                                            nombre: "",
-                                            orden: 0,
-                                            es_obligatoria: false,
-                                            permite_omision: false,
-                                            inhabilita_siguiente: false,
-                                            activo: true,
-                                            creado_en: "",
-                                            actualizado_en: "",
-                                            plantilla_documento_id: plantillaId,
-                                          })
-                                        }
                                         canVerPdf={canGenerarPdf}
                                         canEditarDocumento={
                                           canActualizarSiniestro
@@ -5564,7 +5569,7 @@ export default function SiniestroDetailPage() {
 /**
  * Componente para mostrar las etapas de un flujo en formato timeline/stepper
  */
-function EtapasTimeline({
+const EtapasTimeline = React.memo(function EtapasTimeline({
   etapas,
   documentosExistentes,
   onOpenEditor,
@@ -5575,7 +5580,6 @@ function EtapasTimeline({
   flujoTrabajoId,
   areaId,
   siniestroId,
-  onAbrirGenerarInforme,
   canVerPdf = true,
   canEditarDocumento = true,
   canCrearDocumento = true,
@@ -5591,13 +5595,10 @@ function EtapasTimeline({
   flujoTrabajoId?: string;
   areaId?: string;
   siniestroId?: string;
-  onAbrirGenerarInforme?: (plantillaId: string, requisitoId: string) => void;
   canVerPdf?: boolean;
   canEditarDocumento?: boolean;
   canCrearDocumento?: boolean;
 }) {
-  console.log("DocumentosExistentes", documentosExistentes);
-
   /** Tipo de documento principal = editor → abre el editor; pdf/imagen/otro → modal de subida */
   const esTipoEditor = (e: EtapaFlujo) =>
     (e.tipo_documento_principal?.tipo ?? "").toLowerCase() === "editor";
@@ -5635,186 +5636,239 @@ function EtapasTimeline({
   return (
     <div className="space-y-1">
       <div className="relative">
-        {etapasOrdenadas.map((etapa, index) => (
-          <div key={etapa.id} className="relative flex items-start group">
-            {/* Línea conectora vertical */}
-            {index < etapasOrdenadas.length - 1 && (
+        {etapasOrdenadas.map((etapa, index) => {
+          // Cómputos compartidos entre botones y contador de archivos
+          const docsEtapa = documentosExistentes.filter(
+            (d: any) =>
+              d.etapa_flujo_id === etapa.id &&
+              (!areaId || d.area_id === areaId),
+          );
+          const countEtapa = docsEtapa.length;
+          const esEditor = esTipoEditor(etapa);
+          const puedeAccion = canCrearDocumento || canEditarDocumento;
+          const hayDoc = tieneDocumentoDisponible(etapa);
+
+          return (
+            <div key={etapa.id} className="relative flex items-start group">
+              {/* Línea conectora vertical */}
+              {index < etapasOrdenadas.length - 1 && (
+                <div
+                  className="absolute left-5 top-10 w-0.5 h-full transition-colors"
+                  style={{
+                    height: "calc(100% - 8px)",
+                    backgroundColor: empresaColors.secondary + "40",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor =
+                      empresaColors.secondary + "80";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor =
+                      empresaColors.secondary + "40";
+                  }}
+                />
+              )}
+
+              {/* Número de etapa */}
               <div
-                className="absolute left-5 top-10 w-0.5 h-full transition-colors"
+                className="relative z-10 flex-shrink-0 w-10 h-10 rounded-full text-white flex items-center justify-center font-bold text-sm shadow-md transition-all"
                 style={{
-                  height: "calc(100% - 8px)",
-                  backgroundColor: empresaColors.secondary + "40",
+                  background: `linear-gradient(135deg, ${empresaColors.primary} 0%, ${empresaColors.secondary} 100%)`,
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor =
-                    empresaColors.secondary + "80";
+                  e.currentTarget.style.transform = "scale(1.1)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor =
-                    empresaColors.secondary + "40";
-                }}
-              />
-            )}
-
-            {/* Número de etapa */}
-            <div
-              className="relative z-10 flex-shrink-0 w-10 h-10 rounded-full text-white flex items-center justify-center font-bold text-sm shadow-md transition-all"
-              style={{
-                background: `linear-gradient(135deg, ${empresaColors.primary} 0%, ${empresaColors.secondary} 100%)`,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "scale(1.1)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "scale(1)";
-              }}
-            >
-              {etapa.orden}
-            </div>
-
-            {/* Contenido de la etapa */}
-            <div className="ml-4 flex-1 pb-8">
-              <div
-                className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-all"
-                style={{
-                  borderColor: "rgba(0, 0, 0, 0.1)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor =
-                    empresaColors.primary + "60";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "rgba(0, 0, 0, 0.1)";
+                  e.currentTarget.style.transform = "scale(1)";
                 }}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <h4 className="text-base font-semibold text-gray-900 mb-1">
-                      {etapa.nombre}
-                    </h4>
-                    {etapa.descripcion && (
-                      <p className="text-sm text-gray-600 mb-2">
-                        {etapa.descripcion}
-                      </p>
-                    )}
+                {etapa.orden}
+              </div>
 
-                    {/* Badges de configuración */}
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {etapa.es_obligatoria && (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700 rounded-full border border-red-200">
-                          <FiAlertCircle className="w-3 h-3 mr-1" />
-                          Obligatoria
-                        </span>
+              {/* Contenido de la etapa */}
+              <div className="ml-4 flex-1 pb-8">
+                <div
+                  className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-all"
+                  style={{
+                    borderColor: "rgba(0, 0, 0, 0.1)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor =
+                      empresaColors.primary + "60";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "rgba(0, 0, 0, 0.1)";
+                  }}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="text-base font-semibold text-gray-900 mb-1">
+                        {etapa.nombre}
+                      </h4>
+                      {etapa.descripcion && (
+                        <p className="text-sm text-gray-600 mb-2">
+                          {etapa.descripcion}
+                        </p>
                       )}
-                      {etapa.inhabilita_siguiente && (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-yellow-50 text-yellow-700 rounded-full border border-yellow-200">
-                          <FiClock className="w-3 h-3 mr-1" />
-                          Bloquea siguiente
-                        </span>
-                      )}
-                      {etapa.permite_omision && (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-gray-50 text-gray-600 rounded-full border border-gray-200">
-                          Permite omisión
-                        </span>
-                      )}
-                      {etapa.tipo_documento_principal && (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-purple-50 text-purple-700 rounded-full border border-purple-200">
-                          📁 {etapa.tipo_documento_principal.nombre}
-                        </span>
-                      )}
-                      {etapa.categoria_documento && (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-full border border-blue-200">
-                          📂 {etapa.categoria_documento.nombre}
-                        </span>
-                      )}
-                      {etapa.plantilla_documento && (
-                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-green-50 text-green-700 rounded-full border border-green-200">
-                          📄 {etapa.plantilla_documento.nombre}
-                        </span>
-                      )}
+
+                      {/* Badges de configuración */}
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {etapa.es_obligatoria && (
+                          <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-red-50 text-red-700 rounded-full border border-red-200">
+                            <FiAlertCircle className="w-3 h-3 mr-1" />
+                            Obligatoria
+                          </span>
+                        )}
+                        {etapa.inhabilita_siguiente && (
+                          <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-yellow-50 text-yellow-700 rounded-full border border-yellow-200">
+                            <FiClock className="w-3 h-3 mr-1" />
+                            Bloquea siguiente
+                          </span>
+                        )}
+                        {etapa.permite_omision && (
+                          <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-gray-50 text-gray-600 rounded-full border border-gray-200">
+                            Permite omisión
+                          </span>
+                        )}
+                        {etapa.tipo_documento_principal && (
+                          <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-purple-50 text-purple-700 rounded-full border border-purple-200">
+                            📁 {etapa.tipo_documento_principal.nombre}
+                            {etapa.tipo_documento_principal.tipo === "pdf" && (
+                              <span className="ml-1 font-normal opacity-70">(PDF)</span>
+                            )}
+                            {etapa.tipo_documento_principal.tipo === "editor" && (
+                              <span className="ml-1 font-normal opacity-70">(Editor)</span>
+                            )}
+                            {etapa.tipo_documento_principal.tipo === "imagen" && (
+                              <span className="ml-1 font-normal opacity-70">(Imagen)</span>
+                            )}
+                          </span>
+                        )}
+                        {etapa.categoria_documento && (
+                          <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-full border border-blue-200">
+                            📂 {etapa.categoria_documento.nombre}
+                          </span>
+                        )}
+                        {etapa.plantilla_documento && (
+                          <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-green-50 text-green-700 rounded-full border border-green-200">
+                            📄 {etapa.plantilla_documento.nombre}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Abre directo el editor (tipo editor) o el modal de subida (PDF / otros) */}
-                  <div className="ml-4 flex-shrink-0 flex items-center gap-2">
-                    {tieneDocumentoDisponible(etapa) ? (
-                      (() => {
-                        const docsEtapa = documentosExistentes.filter(
-                          (d: any) =>
-                            d.etapa_flujo_id === etapa.id &&
-                            (!areaId || d.area_id === areaId),
-                        );
-                        const count = docsEtapa.length;
-                        const editor = esTipoEditor(etapa);
-                        const puedeAccion =
-                          canCrearDocumento || canEditarDocumento;
-                        return (
+                    {/* Botones de acción según tipo de documento */}
+                    <div className="ml-4 flex-shrink-0 flex items-center gap-2">
+                      {hayDoc ? (
+                        esEditor ? (
+                          // ── Tipo EDITOR: Editar + Ver + Continuar ──────────────
                           <>
                             <button
                               type="button"
                               disabled={!puedeAccion}
-                              onClick={() => abrirDocumentoEtapa(etapa)}
-                              className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                              onClick={() => onOpenEditor(etapa)}
+                              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
                               style={{ backgroundColor: empresaColors.primary }}
                               onMouseEnter={(e) => {
                                 if (!puedeAccion) return;
                                 e.currentTarget.style.opacity = "0.88";
                               }}
                               onMouseLeave={(e) => {
-                                e.currentTarget.style.opacity = puedeAccion
-                                  ? "1"
-                                  : "0.5";
+                                e.currentTarget.style.opacity = puedeAccion ? "1" : "0.5";
                               }}
-                              title={
-                                editor
-                                  ? "Abrir editor de documento"
-                                  : "Subir archivo"
-                              }
+                              title={countEtapa > 0 ? "Editar documento existente" : "Crear documento"}
                             >
-                              {editor ? (
-                                <FiEdit3 className="w-4 h-4" />
-                              ) : (
-                                <FiUpload className="w-4 h-4" />
-                              )}
-                              {editor
-                                ? count > 0
-                                  ? `Editor (${count})`
-                                  : "Abrir editor"
-                                : count > 0
-                                  ? `Subir archivo (${count})`
-                                  : "Subir archivo"}
+                              <FiEdit3 className="w-4 h-4" />
+                              Editar
                             </button>
-                            {count > 0 && canVerPdf && !editor && (
+
+                            {countEtapa > 0 && canVerPdf && (
                               <button
                                 type="button"
                                 onClick={() => onViewDocument(etapa)}
-                                className="p-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
-                                title="Ver último PDF de la etapa"
+                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                                title="Ver documento como PDF"
                               >
                                 <FiEye className="w-4 h-4" />
+                                Ver
+                              </button>
+                            )}
+
+                            {Boolean(etapa.plantilla_documento?.plantilla_continuacion_id) && onContinuar && (
+                              <button
+                                type="button"
+                                disabled={!puedeAccion}
+                                onClick={() => {
+                                  const docMasReciente =
+                                    countEtapa > 0
+                                      ? [...docsEtapa].sort(
+                                          (a: any, b: any) =>
+                                            new Date(b.creado_en).getTime() -
+                                            new Date(a.creado_en).getTime(),
+                                        )[0]
+                                      : null;
+                                  onContinuar(etapa, docMasReciente);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Continuar con la segunda sección de la plantilla"
+                              >
+                                <FiChevronRight className="w-4 h-4" />
+                                Continuar
                               </button>
                             )}
                           </>
-                        );
-                      })()
-                    ) : (
-                      <div
-                        className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center"
-                        title="Sin documento configurado"
-                      >
-                        <FiClock className="w-4 h-4 text-gray-400" />
-                      </div>
-                    )}
+                        ) : (
+                          // ── Tipo PDF / Imagen: Subir + Ver ─────────────────────
+                          <>
+                            <button
+                              type="button"
+                              disabled={!puedeAccion}
+                              onClick={() => abrirDocumentoEtapa(etapa)}
+                              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                              style={{ backgroundColor: empresaColors.primary }}
+                              onMouseEnter={(e) => {
+                                if (!puedeAccion) return;
+                                e.currentTarget.style.opacity = "0.88";
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.opacity = puedeAccion ? "1" : "0.5";
+                              }}
+                              title="Subir archivo"
+                            >
+                              <FiUpload className="w-4 h-4" />
+                              Subir archivo
+                            </button>
+                          </>
+                        )
+                      ) : (
+                        <div
+                          className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center"
+                          title="Sin documento configurado"
+                        >
+                          <FiClock className="w-4 h-4 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
+
+                {/* Contador de archivos cargados — solo para tipo PDF/Imagen */}
+                {!esEditor && hayDoc && countEtapa > 0 && (
+                  <p className="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
+                    <FiFile className="w-3 h-3 shrink-0" />
+                    {countEtapa === 1
+                      ? "1 archivo cargado"
+                      : `${countEtapa} archivos cargados`}
+                  </p>
+                )}
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
-}
+});
 
 /**
  * Componente para mostrar la lista de documentos generados en formato tabla

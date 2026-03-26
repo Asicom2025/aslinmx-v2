@@ -44,6 +44,8 @@ export interface EtapaFlujo {
   plantilla_documento?: {
     id: string;
     nombre: string;
+    /** ID de la plantilla de continuación (si la plantilla tiene segunda sección) */
+    plantilla_continuacion_id?: string | null;
   } | null;
 }
 
