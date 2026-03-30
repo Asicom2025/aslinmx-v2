@@ -132,7 +132,7 @@ export default function LoginPage() {
                 unoptimized
                 priority
               />
-              <div className="flex w-full max-w-[min(100%,300px)] justify-center rounded-xl border border-slate-200/90 bg-slate-50 px-6 py-3 shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
+              {/* <div className="flex w-full max-w-[min(100%,300px)] justify-center rounded-xl border border-slate-200/90 bg-slate-50 px-6 py-3 shadow-[inset_0_1px_2px_rgba(15,23,42,0.06)]">
                 <Image
                   src={logoDxLegal}
                   alt="DX Legal"
@@ -142,7 +142,7 @@ export default function LoginPage() {
                   unoptimized
                   priority
                 />
-              </div>
+              </div> */}
             </div>
             <p className="text-center text-sm text-slate-600">
               Inicia sesión en tu cuenta

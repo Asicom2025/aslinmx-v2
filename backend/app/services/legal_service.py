@@ -1,9 +1,10 @@
 """
 Servicios CRUD para catálogos legales
 """
-from typing import List, Optional
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 from uuid import UUID
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import func, extract, nullslast, cast, or_
 from sqlalchemy.types import Integer
 from datetime import datetime
@@ -33,6 +34,7 @@ from app.models.legal import (
     EvidenciaFotografica,
     SiniestroUsuario,
     SiniestroArea,
+    SiniestroPoliza,
     VersionesDescripcionHechos,
 )
 from app.schemas.legal_schema import (
@@ -779,6 +781,225 @@ class RespuestaFormularioService:
 
 class SiniestroService:
     """Servicio para gestión de siniestros"""
+
+    POLIZA_DECIMAL_FIELDS = ("deducible", "reserva", "coaseguro", "suma_asegurada")
+    POLIZA_COMPAT_FIELDS = ("numero_poliza",) + POLIZA_DECIMAL_FIELDS
+
+    @staticmethod
+    def _decimal_or_zero(value: Any) -> Decimal:
+        if value is None or value == "":
+            return Decimal("0.00")
+        if isinstance(value, Decimal):
+            return value
+        return Decimal(str(value))
+
+    @staticmethod
+    def _poliza_snapshot_from_values(values: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": str(values["id"]) if values.get("id") else None,
+            "numero_poliza": values.get("numero_poliza"),
+            "deducible": str(SiniestroService._decimal_or_zero(values.get("deducible"))),
+            "reserva": str(SiniestroService._decimal_or_zero(values.get("reserva"))),
+            "coaseguro": str(SiniestroService._decimal_or_zero(values.get("coaseguro"))),
+            "suma_asegurada": str(SiniestroService._decimal_or_zero(values.get("suma_asegurada"))),
+            "es_principal": bool(values.get("es_principal", False)),
+            "orden": int(values.get("orden", 0) or 0),
+        }
+
+    @staticmethod
+    def _poliza_snapshot(poliza: SiniestroPoliza) -> Dict[str, Any]:
+        return SiniestroService._poliza_snapshot_from_values(
+            {
+                "id": poliza.id,
+                "numero_poliza": poliza.numero_poliza,
+                "deducible": poliza.deducible,
+                "reserva": poliza.reserva,
+                "coaseguro": poliza.coaseguro,
+                "suma_asegurada": poliza.suma_asegurada,
+                "es_principal": poliza.es_principal,
+                "orden": poliza.orden,
+            }
+        )
+
+    @staticmethod
+    def _poliza_is_empty(values: Dict[str, Any]) -> bool:
+        numero = (values.get("numero_poliza") or "").strip()
+        if numero:
+            return False
+        return all(
+            SiniestroService._decimal_or_zero(values.get(field)) == Decimal("0.00")
+            for field in SiniestroService.POLIZA_DECIMAL_FIELDS
+        )
+
+    @staticmethod
+    def _normalize_polizas_payload(
+        polizas: Optional[List[Any]],
+        legacy_source: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        raw_items: List[Any] = list(polizas or [])
+        if not raw_items and legacy_source is not None:
+            raw_items = [
+                {
+                    "numero_poliza": (
+                        legacy_source.get("numero_poliza")
+                        if isinstance(legacy_source, dict)
+                        else getattr(legacy_source, "numero_poliza", None)
+                    ),
+                    "deducible": (
+                        legacy_source.get("deducible")
+                        if isinstance(legacy_source, dict)
+                        else getattr(legacy_source, "deducible", None)
+                    ),
+                    "reserva": (
+                        legacy_source.get("reserva")
+                        if isinstance(legacy_source, dict)
+                        else getattr(legacy_source, "reserva", None)
+                    ),
+                    "coaseguro": (
+                        legacy_source.get("coaseguro")
+                        if isinstance(legacy_source, dict)
+                        else getattr(legacy_source, "coaseguro", None)
+                    ),
+                    "suma_asegurada": (
+                        legacy_source.get("suma_asegurada")
+                        if isinstance(legacy_source, dict)
+                        else getattr(legacy_source, "suma_asegurada", None)
+                    ),
+                }
+            ]
+
+        normalized: List[Dict[str, Any]] = []
+        for idx, item in enumerate(raw_items):
+            if hasattr(item, "model_dump"):
+                data = item.model_dump(exclude_none=False)
+            elif isinstance(item, dict):
+                data = dict(item)
+            else:
+                data = {}
+
+            numero_poliza = (data.get("numero_poliza") or "").strip() or None
+            values = {
+                "id": data.get("id"),
+                "numero_poliza": numero_poliza,
+                "deducible": SiniestroService._decimal_or_zero(data.get("deducible")),
+                "reserva": SiniestroService._decimal_or_zero(data.get("reserva")),
+                "coaseguro": SiniestroService._decimal_or_zero(data.get("coaseguro")),
+                "suma_asegurada": SiniestroService._decimal_or_zero(data.get("suma_asegurada")),
+                "es_principal": idx == 0,
+                "orden": idx,
+            }
+            if SiniestroService._poliza_is_empty(values):
+                continue
+            normalized.append(values)
+
+        if normalized:
+            normalized[0]["es_principal"] = True
+            for idx in range(1, len(normalized)):
+                normalized[idx]["es_principal"] = False
+                normalized[idx]["orden"] = idx
+        return normalized
+
+    @staticmethod
+    def _ordered_polizas(polizas: Optional[List[SiniestroPoliza]]) -> List[SiniestroPoliza]:
+        return sorted(
+            list(polizas or []),
+            key=lambda poliza: (
+                0 if getattr(poliza, "es_principal", False) else 1,
+                getattr(poliza, "orden", 0) or 0,
+                getattr(poliza, "creado_en", None) or datetime.min,
+            ),
+        )
+
+    @staticmethod
+    def _apply_poliza_compat_fields(siniestro: Siniestro) -> Siniestro:
+        ordered_polizas = SiniestroService._ordered_polizas(getattr(siniestro, "polizas", []))
+        setattr(siniestro, "polizas", ordered_polizas)
+        primaria = ordered_polizas[0] if ordered_polizas else None
+        setattr(siniestro, "numero_poliza", getattr(primaria, "numero_poliza", None))
+        setattr(
+            siniestro,
+            "deducible",
+            getattr(primaria, "deducible", Decimal("0.00")) if primaria else Decimal("0.00"),
+        )
+        setattr(
+            siniestro,
+            "reserva",
+            getattr(primaria, "reserva", Decimal("0.00")) if primaria else Decimal("0.00"),
+        )
+        setattr(
+            siniestro,
+            "coaseguro",
+            getattr(primaria, "coaseguro", Decimal("0.00")) if primaria else Decimal("0.00"),
+        )
+        setattr(
+            siniestro,
+            "suma_asegurada",
+            getattr(primaria, "suma_asegurada", Decimal("0.00")) if primaria else Decimal("0.00"),
+        )
+        return siniestro
+
+    @staticmethod
+    def _sync_polizas(
+        db: Session,
+        siniestro: Siniestro,
+        polizas_payload: List[Dict[str, Any]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        existing_polizas = SiniestroService._ordered_polizas(getattr(siniestro, "polizas", []))
+        existing_by_id = {str(poliza.id): poliza for poliza in existing_polizas if poliza.id}
+        seen_ids = set()
+        created_logs: List[Dict[str, Any]] = []
+        created_refs: List[SiniestroPoliza] = []
+        updated_logs: List[Dict[str, Any]] = []
+        deleted_logs: List[Dict[str, Any]] = []
+
+        for payload in polizas_payload:
+            poliza_id = str(payload["id"]) if payload.get("id") else None
+            if poliza_id and poliza_id in existing_by_id:
+                poliza = existing_by_id[poliza_id]
+                before = SiniestroService._poliza_snapshot(poliza)
+                poliza.numero_poliza = payload.get("numero_poliza")
+                poliza.deducible = payload["deducible"]
+                poliza.reserva = payload["reserva"]
+                poliza.coaseguro = payload["coaseguro"]
+                poliza.suma_asegurada = payload["suma_asegurada"]
+                poliza.es_principal = payload["es_principal"]
+                poliza.orden = payload["orden"]
+                seen_ids.add(poliza_id)
+                after = SiniestroService._poliza_snapshot_from_values(payload)
+                after["id"] = before["id"]
+                if before != after:
+                    updated_logs.append({"before": before, "after": after})
+            else:
+                poliza = SiniestroPoliza(
+                    siniestro_id=siniestro.id,
+                    numero_poliza=payload.get("numero_poliza"),
+                    deducible=payload["deducible"],
+                    reserva=payload["reserva"],
+                    coaseguro=payload["coaseguro"],
+                    suma_asegurada=payload["suma_asegurada"],
+                    es_principal=payload["es_principal"],
+                    orden=payload["orden"],
+                )
+                db.add(poliza)
+                created_refs.append(poliza)
+                created_logs.append({"after": SiniestroService._poliza_snapshot_from_values(payload)})
+
+        for poliza in existing_polizas:
+            poliza_id = str(poliza.id) if poliza.id else None
+            if poliza_id and poliza_id not in seen_ids:
+                deleted_logs.append({"before": SiniestroService._poliza_snapshot(poliza)})
+                db.delete(poliza)
+
+        db.flush()
+
+        for created, poliza in zip(created_logs, created_refs):
+            created["after"] = SiniestroService._poliza_snapshot(poliza)
+
+        return {
+            "created": created_logs,
+            "updated": updated_logs,
+            "deleted": deleted_logs,
+        }
     
     @staticmethod
     def list(
@@ -804,7 +1025,7 @@ class SiniestroService:
         numero_siniestro_q: búsqueda por texto en numero_siniestro (ilike).
         asegurado_nombre: búsqueda por nombre del asegurado (ilike en nombre + apellidos).
         """
-        q = db.query(Siniestro).filter(
+        q = db.query(Siniestro).options(selectinload(Siniestro.polizas)).filter(
             Siniestro.empresa_id == empresa_id,
             Siniestro.eliminado == False
         )
@@ -943,6 +1164,7 @@ class SiniestroService:
                 setattr(siniestro, "descripcion_hechos", version_actual.descripcion_html)
             else:
                 setattr(siniestro, "descripcion_hechos", None)
+            SiniestroService._apply_poliza_compat_fields(siniestro)
             # ID formateado: clave proveniente - consecutivo - anualidad (ej. 102-001-26)
             codigo_prov = ""
             if siniestro.proveniente_id and siniestro.proveniente_id in provenientes_map:
@@ -967,7 +1189,7 @@ class SiniestroService:
     @staticmethod
     def get_by_id(db: Session, siniestro_id: UUID, empresa_id: UUID) -> Optional[Siniestro]:
         """Obtiene un siniestro por ID validando empresa"""
-        siniestro = db.query(Siniestro).filter(
+        siniestro = db.query(Siniestro).options(selectinload(Siniestro.polizas)).filter(
             Siniestro.id == siniestro_id,
             Siniestro.empresa_id == empresa_id,
             Siniestro.eliminado == False
@@ -982,7 +1204,8 @@ class SiniestroService:
                 setattr(siniestro, 'descripcion_hechos', version_actual.descripcion_html)
             else:
                 setattr(siniestro, 'descripcion_hechos', None)
-        
+            SiniestroService._apply_poliza_compat_fields(siniestro)
+
         return siniestro
     
     @staticmethod
@@ -1074,6 +1297,10 @@ class SiniestroService:
         
         # Extraer descripcion_hechos del payload para crear versión
         descripcion_hechos = payload.descripcion_hechos
+        polizas_payload = SiniestroService._normalize_polizas_payload(
+            getattr(payload, "polizas", None),
+            payload,
+        )
         payload_dict = payload.model_dump()
         # Remover descripcion_hechos del payload del siniestro (se manejará en versiones)
         # La columna descripcion_hechos ya no existe en la tabla siniestros
@@ -1081,6 +1308,9 @@ class SiniestroService:
 
         # Fecha de reporte: solo `fecha_registro`. No persistir `fecha_siniestro` desde el alta (campo legado).
         payload_dict.pop("fecha_siniestro", None)
+        payload_dict.pop("polizas", None)
+        for campo in SiniestroService.POLIZA_COMPAT_FIELDS:
+            payload_dict.pop(campo, None)
         
         # Generar código automáticamente si hay proveniente_id
         if payload.proveniente_id:
@@ -1100,8 +1330,17 @@ class SiniestroService:
         
         siniestro = Siniestro(empresa_id=empresa_id, creado_por=creado_por, **payload_dict)
         db.add(siniestro)
+        db.flush()
+        if polizas_payload:
+            SiniestroService._sync_polizas(db, siniestro, polizas_payload)
         db.commit()
-        db.refresh(siniestro)
+        siniestro = (
+            db.query(Siniestro)
+            .options(selectinload(Siniestro.polizas))
+            .filter(Siniestro.id == siniestro.id)
+            .first()
+        )
+        SiniestroService._apply_poliza_compat_fields(siniestro)
         
         # Crear primera versión de la descripción de hechos si se proporcionó
         if descripcion_hechos:
@@ -1114,6 +1353,7 @@ class SiniestroService:
                 ),
                 creado_por
             )
+        setattr(siniestro, "descripcion_hechos", descripcion_hechos if descripcion_hechos else None)
 
         # Log de auditoría
         AuditoriaService.registrar_accion(
@@ -1137,7 +1377,7 @@ class SiniestroService:
         Valida empresa y unicidad del número si se cambia.
         Genera código automáticamente si falta y hay proveniente_id.
         """
-        siniestro = db.query(Siniestro).filter(
+        siniestro = db.query(Siniestro).options(selectinload(Siniestro.polizas)).filter(
             Siniestro.id == siniestro_id,
             Siniestro.empresa_id == empresa_id,
             Siniestro.eliminado == False
@@ -1148,13 +1388,6 @@ class SiniestroService:
 
         estado_id_antes = siniestro.estado_id
         calificacion_id_antes = siniestro.calificacion_id
-        poliza_antes = {
-            "numero_poliza": siniestro.numero_poliza,
-            "deducible": str(siniestro.deducible) if siniestro.deducible is not None else None,
-            "reserva": str(siniestro.reserva) if siniestro.reserva is not None else None,
-            "coaseguro": str(siniestro.coaseguro) if siniestro.coaseguro is not None else None,
-            "suma_asegurada": str(siniestro.suma_asegurada) if siniestro.suma_asegurada is not None else None,
-        }
 
         # Validar unicidad del número si se cambia y se proporciona un valor
         if payload.numero_siniestro is not None:
@@ -1176,9 +1409,23 @@ class SiniestroService:
         # Extraer descripcion_hechos del payload si viene
         payload_dict = payload.model_dump(exclude_unset=True)
         descripcion_hechos = payload_dict.pop('descripcion_hechos', None)
+        poliza_sync_requested = "polizas" in payload_dict or any(
+            campo in payload_dict for campo in SiniestroService.POLIZA_COMPAT_FIELDS
+        )
+        polizas_payload = (
+            SiniestroService._normalize_polizas_payload(
+                payload_dict.get("polizas"),
+                payload_dict,
+            )
+            if poliza_sync_requested
+            else None
+        )
 
         # Fecha de reporte: solo `fecha_registro`. Ignorar `fecha_siniestro` en actualizaciones.
         payload_dict.pop("fecha_siniestro", None)
+        payload_dict.pop("polizas", None)
+        for campo in SiniestroService.POLIZA_COMPAT_FIELDS:
+            payload_dict.pop(campo, None)
         
         # Generar código automáticamente si falta y hay proveniente_id
         proveniente_id_actualizado = payload_dict.get('proveniente_id', siniestro.proveniente_id)
@@ -1197,9 +1444,19 @@ class SiniestroService:
         # Actualizar campos (sin descripcion_hechos)
         for k, v in payload_dict.items():
             setattr(siniestro, k, v)
+
+        poliza_logs = {"created": [], "updated": [], "deleted": []}
+        if polizas_payload is not None:
+            poliza_logs = SiniestroService._sync_polizas(db, siniestro, polizas_payload)
         
         db.commit()
-        db.refresh(siniestro)
+        siniestro = (
+            db.query(Siniestro)
+            .options(selectinload(Siniestro.polizas))
+            .filter(Siniestro.id == siniestro_id)
+            .first()
+        )
+        SiniestroService._apply_poliza_compat_fields(siniestro)
         
         # Si se actualizó la descripción, crear nueva versión
         if descripcion_hechos:
@@ -1216,6 +1473,14 @@ class SiniestroService:
                     ),
                     actualizado_por or siniestro.creado_por
                 )
+            setattr(siniestro, "descripcion_hechos", descripcion_hechos)
+        else:
+            version_actual = VersionesDescripcionHechosService.get_actual(db, siniestro_id)
+            setattr(
+                siniestro,
+                "descripcion_hechos",
+                version_actual.descripcion_html if version_actual else None,
+            )
 
         # Log de auditoría: cambios específicos
         usuario_audit = actualizado_por or siniestro.creado_por
@@ -1261,35 +1526,55 @@ class SiniestroService:
                 descripcion="Calificación del siniestro cambiada",
             )
 
-        # Log de póliza si cambian campos relacionados
-        poliza_campos = ("numero_poliza", "deducible", "reserva", "coaseguro", "suma_asegurada")
-        poliza_cambios = {k: v for k, v in payload_dict.items() if k in poliza_campos}
-        if poliza_cambios:
-            poliza_nuevos = {
-                "numero_poliza": siniestro.numero_poliza,
-                "deducible": str(siniestro.deducible) if siniestro.deducible is not None else None,
-                "reserva": str(siniestro.reserva) if siniestro.reserva is not None else None,
-                "coaseguro": str(siniestro.coaseguro) if siniestro.coaseguro is not None else None,
-                "suma_asegurada": str(siniestro.suma_asegurada) if siniestro.suma_asegurada is not None else None,
-            }
-            tiene_antes = any(poliza_antes.get(k) for k in poliza_campos)
-            tiene_nuevos = any(poliza_nuevos.get(k) for k in poliza_campos)
-            accion_poliza = "poliza_creada" if not tiene_antes and tiene_nuevos else "poliza_actualizada"
+        for created in poliza_logs["created"]:
+            after = created["after"]
+            descripcion_numero = after.get("numero_poliza") or f"Póliza {int(after.get('orden', 0)) + 1}"
             AuditoriaService.registrar_accion(
                 db=db,
                 usuario_id=usuario_audit,
                 empresa_id=empresa_id,
-                accion=accion_poliza,
+                accion="poliza_creada",
                 modulo="siniestros",
                 tabla="siniestros",
                 registro_id=siniestro_id,
-                datos_anteriores=poliza_antes,
-                datos_nuevos=poliza_nuevos,
-                descripcion="Póliza agregada" if accion_poliza == "poliza_creada" else "Póliza actualizada",
+                datos_nuevos=after,
+                descripcion=f"Póliza agregada: {descripcion_numero}",
+            )
+
+        for updated in poliza_logs["updated"]:
+            before = updated["before"]
+            after = updated["after"]
+            descripcion_numero = after.get("numero_poliza") or before.get("numero_poliza") or f"Póliza {int(after.get('orden', 0)) + 1}"
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_audit,
+                empresa_id=empresa_id,
+                accion="poliza_actualizada",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                datos_anteriores=before,
+                datos_nuevos=after,
+                descripcion=f"Póliza actualizada: {descripcion_numero}",
+            )
+
+        for deleted in poliza_logs["deleted"]:
+            before = deleted["before"]
+            descripcion_numero = before.get("numero_poliza") or f"Póliza {int(before.get('orden', 0)) + 1}"
+            AuditoriaService.registrar_accion(
+                db=db,
+                usuario_id=usuario_audit,
+                empresa_id=empresa_id,
+                accion="poliza_eliminada",
+                modulo="siniestros",
+                tabla="siniestros",
+                registro_id=siniestro_id,
+                datos_anteriores=before,
+                descripcion=f"Póliza eliminada: {descripcion_numero}",
             )
 
         # Log genérico de actualización si hubo otros cambios (excluyendo estado, calificación y póliza ya logueados)
-        exclude_log = ("estado_id", "calificacion_id") + poliza_campos
+        exclude_log = ("estado_id", "calificacion_id", "polizas") + SiniestroService.POLIZA_COMPAT_FIELDS
         otros_cambios = {k: v for k, v in payload_dict.items() if k not in exclude_log}
         # Serializar UUIDs y otros tipos para JSON
         otros_cambios_ser = {}
@@ -1790,7 +2075,7 @@ class SiniestroUsuarioService:
             tabla="siniestros",
             registro_id=payload.siniestro_id,
             datos_nuevos={"usuario_id": str(payload.usuario_id), "tipo_relacion": payload.tipo_relacion},
-            descripcion=f"Involucrado asignado ({payload.tipo_relacion}): {usu_nombre}",
+            descripcion=f"Involucrado asignado: {usu_nombre}",
         )
 
         return relacion

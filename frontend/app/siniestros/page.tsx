@@ -20,6 +20,7 @@ import { FiEdit2, FiTrash2, FiEye } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 import {
+  buildPolizasPayload,
   PersonaLigera,
   CatalogOption,
   ExtendedSiniestroFormState,
@@ -560,14 +561,28 @@ function SiniestrosPageContent() {
       polizas: [
         {
           tempId: initialExtended.generales.polizas[0].tempId,
-          numero_poliza: siniestro.numero_poliza || "",
-          deducible: siniestro.deducible ?? "",
-          reserva: siniestro.reserva ?? "",
-          coaseguro: siniestro.coaseguro ?? "",
-          suma_asegurada: siniestro.suma_asegurada ?? "",
+          id: siniestro.polizas?.[0]?.id,
+          numero_poliza:
+            siniestro.polizas?.[0]?.numero_poliza || siniestro.numero_poliza || "",
+          deducible: siniestro.polizas?.[0]?.deducible ?? siniestro.deducible ?? "",
+          reserva: siniestro.polizas?.[0]?.reserva ?? siniestro.reserva ?? "",
+          coaseguro: siniestro.polizas?.[0]?.coaseguro ?? siniestro.coaseguro ?? "",
+          suma_asegurada:
+            siniestro.polizas?.[0]?.suma_asegurada ?? siniestro.suma_asegurada ?? "",
         },
       ],
     };
+    if ((siniestro.polizas || []).length > 1) {
+      initialExtended.generales.polizas = siniestro.polizas.map((poliza, index) => ({
+        tempId: `${initialExtended.generales.polizas[0].tempId}-${index}`,
+        id: poliza.id,
+        numero_poliza: poliza.numero_poliza || "",
+        deducible: poliza.deducible ?? "",
+        reserva: poliza.reserva ?? "",
+        coaseguro: poliza.coaseguro ?? "",
+        suma_asegurada: poliza.suma_asegurada ?? "",
+      }));
+    }
     // Cargar asegurado seleccionado si existe
     initialExtended.asegurado.seleccionadoId = siniestro.asegurado_id || null;
     initialExtended.asegurado.formaContacto =
@@ -616,18 +631,6 @@ function SiniestrosPageContent() {
   const submitForm = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
-      const primaryPoliza = extendedForm.generales.polizas[0];
-      const deducibleBase = primaryPoliza
-        ? primaryPoliza.deducible
-        : form.deducible;
-      const reservaBase = primaryPoliza ? primaryPoliza.reserva : form.reserva;
-      const coaseguroBase = primaryPoliza
-        ? primaryPoliza.coaseguro
-        : form.coaseguro;
-      const sumaAseguradaBase = primaryPoliza
-        ? primaryPoliza.suma_asegurada
-        : form.suma_asegurada;
-
       const fechaRegistroDateTime = form.fecha_registro
         ? new Date(form.fecha_registro + "T00:00:00").toISOString()
         : new Date().toISOString();
@@ -638,20 +641,23 @@ function SiniestrosPageContent() {
       const areasIds = extendedForm.generales.areas_ids || [];
       const usuariosIds = extendedForm.generales.usuarios_ids || [];
       const aseguradoId = extendedForm.asegurado.seleccionadoId || null;
+      const polizasPayload = buildPolizasPayload(extendedForm.generales.polizas);
 
-      const { fecha_registro: _fr, fecha_asignacion: _fa, ...formRest } = form;
+      const {
+        fecha_registro: _fr,
+        fecha_asignacion: _fa,
+        numero_poliza: _np,
+        deducible: _de,
+        reserva: _re,
+        coaseguro: _co,
+        suma_asegurada: _sa,
+        ...formRest
+      } = form;
       const payload = {
         ...formRest,
         numero_siniestro: form.numero_siniestro && form.numero_siniestro.trim() ? form.numero_siniestro : null,
         fecha_registro: fechaRegistroDateTime,
-        numero_poliza: primaryPoliza
-          ? primaryPoliza.numero_poliza
-          : form.numero_poliza,
-        deducible: deducibleBase === "" ? 0 : Number(deducibleBase),
-        reserva: reservaBase === "" ? 0 : Number(reservaBase),
-        coaseguro: coaseguroBase === "" ? 0 : Number(coaseguroBase),
-        suma_asegurada:
-          sumaAseguradaBase === "" ? 0 : Number(sumaAseguradaBase),
+        polizas: polizasPayload,
         descripcion_hechos:
           extendedForm.especificos.descripcion_html || form.descripcion_hechos,
         asegurado_id: aseguradoId,

@@ -42,6 +42,18 @@ router = APIRouter()
 PDF_HEADER_MARGIN_TOP = "6cm"
 
 
+def _get_poliza_principal(siniestro: Any) -> Optional[Any]:
+    polizas = sorted(
+        list(getattr(siniestro, "polizas", []) or []),
+        key=lambda poliza: (
+            0 if getattr(poliza, "es_principal", False) else 1,
+            getattr(poliza, "orden", 0) or 0,
+            getattr(poliza, "creado_en", None),
+        ),
+    )
+    return polizas[0] if polizas else None
+
+
 def _get_siniestro_asegurado_variables(
     db: Session, siniestro_id: PyUUID, empresa_id: Optional[PyUUID]
 ) -> Dict[str, Any]:
@@ -58,7 +70,12 @@ def _get_siniestro_asegurado_variables(
     siniestro = SiniestroService.get_by_id(db, siniestro_id, empresa_id)
     if not siniestro:
         return out
-    out["numero_poliza"] = (siniestro.numero_poliza or "").strip()
+    poliza_principal = _get_poliza_principal(siniestro)
+    out["numero_poliza"] = (
+        (getattr(poliza_principal, "numero_poliza", None) or "").strip()
+        if poliza_principal
+        else ""
+    )
     out["numero_siniestro"] = (siniestro.numero_siniestro or "").strip()
 
     # Unificación de fechas:
@@ -259,7 +276,8 @@ def _variables_plantilla_alineadas_frontend(
 
     nr = getattr(siniestro, "numero_reporte", None)
     ns = getattr(siniestro, "numero_siniestro", None)
-    np = getattr(siniestro, "numero_poliza", None)
+    poliza_principal = _get_poliza_principal(siniestro)
+    np = getattr(poliza_principal, "numero_poliza", None) if poliza_principal else None
 
     # Fecha asignación: preferimos la relación exacta por área del documento.
     fecha_asig_src = None

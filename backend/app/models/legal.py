@@ -294,13 +294,6 @@ class Siniestro(Base):
     ubicacion = Column(Text)
     # descripcion_hechos removida - se maneja en versiones_descripcion_hechos
     
-    # Información de póliza
-    numero_poliza = Column(String(100))
-    deducible = Column(Numeric(15, 2), default=0.00)
-    reserva = Column(Numeric(15, 2), default=0.00)
-    coaseguro = Column(Numeric(15, 2), default=0.00)
-    suma_asegurada = Column(Numeric(15, 2), default=0.00)
-    
     # Usuario que creó el siniestro
     creado_por = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
     
@@ -323,7 +316,7 @@ class Siniestro(Base):
     calificacion_id = Column(UUID(as_uuid=True), ForeignKey("calificaciones_siniestro.id", ondelete="SET NULL"), nullable=True)
     
     # Forma de contacto del asegurado
-    forma_contacto = Column(String(50), nullable=True)  # "correo", "telefono", "directa"
+    forma_contacto = Column(String(50), nullable=True)  # "correo", "telefono", "directa" o "N/A" -> si no se ha proporcionado
     
     # Campos adicionales
     prioridad = Column(String(20), default="media")
@@ -341,6 +334,12 @@ class Siniestro(Base):
         backref="siniestro",
         lazy="selectin",
         cascade="all, delete-orphan"
+    )
+    polizas = relationship(
+        "SiniestroPoliza",
+        back_populates="siniestro",
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
 
     # Agregar constraint para prioridad
@@ -412,6 +411,25 @@ class BitacoraActividad(Base):
     # Relaciones
     area = relationship("Area", foreign_keys=[area_id], lazy="select")
     flujo_trabajo = relationship("FlujoTrabajo", foreign_keys=[flujo_trabajo_id], lazy="select")
+
+
+class SiniestroPoliza(Base):
+    """Pólizas relacionadas a un siniestro"""
+    __tablename__ = "siniestro_polizas"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)
+    numero_poliza = Column(String(100), nullable=True)
+    deducible = Column(Numeric(15, 2), default=0.00, nullable=False)
+    reserva = Column(Numeric(15, 2), default=0.00, nullable=False)
+    coaseguro = Column(Numeric(15, 2), default=0.00, nullable=False)
+    suma_asegurada = Column(Numeric(15, 2), default=0.00, nullable=False)
+    es_principal = Column(Boolean, nullable=False, default=False)
+    orden = Column(Integer, nullable=False, default=0)
+    creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    siniestro = relationship("Siniestro", back_populates="polizas")
 
 
 class Notificacion(Base):
@@ -500,4 +518,3 @@ class VersionesDescripcionHechos(Base):
     observaciones = Column(Text, nullable=True)  # Notas sobre los cambios en esta versión
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-

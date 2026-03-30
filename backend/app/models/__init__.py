@@ -38,6 +38,7 @@ from app.models.legal import (
     EvidenciaFotografica,
     SiniestroUsuario,
     SiniestroArea,
+    SiniestroPoliza,
 )
 from app.models.config import (
     ConfiguracionSMTP,
@@ -86,6 +87,7 @@ __all__ = [
     "EvidenciaFotografica",
     "SiniestroUsuario",
     "SiniestroArea",
+    "SiniestroPoliza",
     "ConfiguracionSMTP",
     "PlantillaCorreo",
     "Auditoria",
@@ -94,4 +96,3 @@ __all__ = [
     "Backup",
     "ConfiguracionBackup",
 ]
-

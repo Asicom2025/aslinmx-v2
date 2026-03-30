@@ -918,6 +918,16 @@ const siniestroService = {
     fecha_registro: string;
     ubicacion?: string;
     descripcion_hechos: string;
+    polizas?: Array<{
+      id?: string;
+      numero_poliza?: string | null;
+      deducible?: number;
+      reserva?: number;
+      coaseguro?: number;
+      suma_asegurada?: number;
+      es_principal?: boolean;
+      orden?: number;
+    }>;
     numero_poliza?: string;
     deducible?: number;
     reserva?: number;
@@ -940,6 +950,16 @@ const siniestroService = {
     fecha_registro?: string;
     ubicacion?: string;
     descripcion_hechos?: string;
+    polizas?: Array<{
+      id?: string;
+      numero_poliza?: string | null;
+      deducible?: number;
+      reserva?: number;
+      coaseguro?: number;
+      suma_asegurada?: number;
+      es_principal?: boolean;
+      orden?: number;
+    }>;
     numero_poliza?: string;
     deducible?: number;
     reserva?: number;

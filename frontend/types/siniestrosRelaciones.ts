@@ -1,5 +1,5 @@
 /**
- * Tipos TypeScript para relaciones de siniestros (involucrados y áreas)
+ * Tipos TypeScript para relaciones de siniestros (involucrados, áreas y pólizas)
  */
 
 export type TipoRelacion = "asegurado" | "proveniente" | "testigo" | "tercero";
@@ -57,5 +57,30 @@ export interface SiniestroAreaUpdate {
   usuario_responsable?: string;
   observaciones?: string;
   activo?: boolean;
+}
+
+export interface SiniestroPoliza {
+  id: string;
+  siniestro_id: string;
+  numero_poliza?: string | null;
+  deducible: number;
+  reserva: number;
+  coaseguro: number;
+  suma_asegurada: number;
+  es_principal: boolean;
+  orden: number;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+export interface SiniestroPolizaPayload {
+  id?: string;
+  numero_poliza?: string | null;
+  deducible?: number;
+  reserva?: number;
+  coaseguro?: number;
+  suma_asegurada?: number;
+  es_principal?: boolean;
+  orden?: number;
 }
 
