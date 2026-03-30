@@ -65,6 +65,10 @@ import {
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
+import {
+  buildPolizasPayload,
+  PolizaDraft,
+} from "@/components/siniestros/SiniestroWizard";
 import { DocumentoAcciones } from "@/components/siniestros/DocumentoAcciones";
 import type { Siniestro, ProvenienteContacto } from "@/types/siniestros";
 import type {
@@ -128,6 +132,70 @@ interface DocumentoEtapa {
   categoria_documento_nombre?: string | null;
   version: number;
   creado_en: string;
+}
+
+function buildPolizaTempId(prefix = "poliza") {
+  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function buildEmptyPolizaDraft(): PolizaDraft {
+  return {
+    tempId: buildPolizaTempId(),
+    numero_poliza: "",
+    deducible: 0,
+    reserva: 0,
+    coaseguro: 0,
+    suma_asegurada: 0,
+  };
+}
+
+function getPolizaDraftsFromSiniestro(siniestro: Siniestro | null): PolizaDraft[] {
+  if (siniestro?.polizas?.length) {
+    return siniestro.polizas.map((poliza, index) => ({
+      id: poliza.id,
+      tempId: buildPolizaTempId(`poliza-${index}`),
+      numero_poliza: poliza.numero_poliza || "",
+      deducible: poliza.deducible ?? 0,
+      reserva: poliza.reserva ?? 0,
+      coaseguro: poliza.coaseguro ?? 0,
+      suma_asegurada: poliza.suma_asegurada ?? 0,
+    }));
+  }
+  const legacySiniestro = siniestro;
+
+  if (
+    legacySiniestro &&
+    (
+      legacySiniestro.numero_poliza ||
+      (legacySiniestro.deducible || 0) > 0 ||
+      (legacySiniestro.reserva || 0) > 0 ||
+      (legacySiniestro.coaseguro || 0) > 0 ||
+      (legacySiniestro.suma_asegurada || 0) > 0
+    )
+  ) {
+    return [
+      {
+        tempId: buildPolizaTempId(),
+        numero_poliza: legacySiniestro.numero_poliza || "",
+        deducible: legacySiniestro.deducible ?? 0,
+        reserva: legacySiniestro.reserva ?? 0,
+        coaseguro: legacySiniestro.coaseguro ?? 0,
+        suma_asegurada: legacySiniestro.suma_asegurada ?? 0,
+      },
+    ];
+  }
+  return [buildEmptyPolizaDraft()];
+}
+
+function getDisplayPolizasFromSiniestro(siniestro: Siniestro | null): PolizaDraft[] {
+  return getPolizaDraftsFromSiniestro(siniestro).filter(
+    (poliza) =>
+      !!poliza.numero_poliza ||
+      Number(poliza.deducible || 0) > 0 ||
+      Number(poliza.reserva || 0) > 0 ||
+      Number(poliza.coaseguro || 0) > 0 ||
+      Number(poliza.suma_asegurada || 0) > 0,
+  );
 }
 
 export default function SiniestroDetailPage() {
@@ -342,13 +410,9 @@ export default function SiniestroDetailPage() {
   // Estados para modal de edición de póliza
   const [showPolizaModal, setShowPolizaModal] = useState(false);
   const [savingPoliza, setSavingPoliza] = useState(false);
-  const [polizaForm, setPolizaForm] = useState({
-    numero_poliza: "",
-    suma_asegurada: 0,
-    deducible: 0,
-    reserva: 0,
-    coaseguro: 0,
-  });
+  const [polizaForm, setPolizaForm] = useState<PolizaDraft[]>([
+    buildEmptyPolizaDraft(),
+  ]);
 
   // Estados para log de auditoría
   const [logsAuditoria, setLogsAuditoria] = useState<any[]>([]);
@@ -361,6 +425,12 @@ export default function SiniestroDetailPage() {
     useState<string>("");
   const [showCrearAseguradoModal, setShowCrearAseguradoModal] = useState(false);
   const [asignandoAsegurado, setAsignandoAsegurado] = useState(false);
+
+  const polizasDisplay = useMemo(
+    () => getDisplayPolizasFromSiniestro(siniestro),
+    [siniestro],
+  );
+  const polizaPrincipal = polizasDisplay[0] || null;
 
   // Autenticación
   useEffect(() => {
@@ -503,6 +573,7 @@ export default function SiniestroDetailPage() {
     const creadoEn = formatoFecha(
       (siniestroData as any)?.fecha_registro || siniestroData?.creado_en,
     );
+    const polizaPrincipalData = getDisplayPolizasFromSiniestro(siniestroData)[0];
 
     const replacements: Record<string, string> = {
       // ── Fechas ──────────────────────────────────────────────────────────────
@@ -517,7 +588,7 @@ export default function SiniestroDetailPage() {
       id: idFormato,
       numero_reporte: siniestroData?.numero_reporte || "",
       numero_siniestro: siniestroData?.numero_siniestro ?? "",
-      numero_poliza: siniestroData?.numero_poliza ?? "",
+      numero_poliza: polizaPrincipalData?.numero_poliza ?? "",
       // ── Estado y calificación ────────────────────────────────────────────────
       estado_siniestro: estadoNombre,
       // ── Asegurado ────────────────────────────────────────────────────────────
@@ -601,6 +672,7 @@ export default function SiniestroDetailPage() {
         (e) =>
           String(e.id) === String((siniestroData as any)?.estado_id ?? ""),
       )?.nombre ?? "";
+    const polizaPrincipalData = getDisplayPolizasFromSiniestro(siniestroData)[0];
 
     return {
       creado_en: creadoEn,
@@ -616,7 +688,7 @@ export default function SiniestroDetailPage() {
       fecha_siniestro: formatoFecha((siniestroData as any)?.fecha_siniestro),
       numero_reporte: siniestroData?.numero_reporte || "",
       numero_siniestro: siniestroData?.numero_siniestro ?? "",
-      numero_poliza: siniestroData?.numero_poliza ?? "",
+      numero_poliza: polizaPrincipalData?.numero_poliza ?? "",
       estado_siniestro: estadoNombrePdf,
     };
   };
@@ -1125,6 +1197,7 @@ export default function SiniestroDetailPage() {
   // Abrir modal de edición
   const handleOpenEditModal = async () => {
     if (!siniestro) return;
+    const primaryPoliza = getDisplayPolizasFromSiniestro(siniestro)[0];
 
     const fechaReporte = siniestro.fecha_registro
       ? new Date(siniestro.fecha_registro).toISOString().split("T")[0]
@@ -1150,11 +1223,11 @@ export default function SiniestroDetailPage() {
       fecha_registro: fechaReporte,
       fecha_asignacion: fechaAsignacion,
       ubicacion: siniestro.ubicacion || "",
-      numero_poliza: siniestro.numero_poliza || "",
-      deducible: siniestro.deducible || 0,
-      reserva: siniestro.reserva || 0,
-      coaseguro: siniestro.coaseguro || 0,
-      suma_asegurada: siniestro.suma_asegurada || 0,
+      numero_poliza: primaryPoliza?.numero_poliza || "",
+      deducible: Number(primaryPoliza?.deducible || 0),
+      reserva: Number(primaryPoliza?.reserva || 0),
+      coaseguro: Number(primaryPoliza?.coaseguro || 0),
+      suma_asegurada: Number(primaryPoliza?.suma_asegurada || 0),
       prioridad: siniestro.prioridad || "baja",
       forma_contacto: siniestro.forma_contacto || "correo",
       numero_reporte: siniestro.numero_reporte || "",
@@ -1197,6 +1270,17 @@ export default function SiniestroDetailPage() {
             )
           : areasAdicionales[0];
       const relacionPrincipalId = relacionPrincipal?.id;
+      const polizasDraft = getPolizaDraftsFromSiniestro(siniestro);
+      if (polizasDraft.length > 0) {
+        polizasDraft[0] = {
+          ...polizasDraft[0],
+          numero_poliza: editForm.numero_poliza || "",
+          deducible: editForm.deducible || 0,
+          reserva: editForm.reserva || 0,
+          coaseguro: editForm.coaseguro || 0,
+          suma_asegurada: editForm.suma_asegurada || 0,
+        };
+      }
       const updateData: any = {
         numero_siniestro:
           editForm.numero_siniestro && editForm.numero_siniestro.trim()
@@ -1204,11 +1288,7 @@ export default function SiniestroDetailPage() {
             : null,
         fecha_registro: fechaRegistroIso,
         ubicacion: editForm.ubicacion || undefined,
-        numero_poliza: editForm.numero_poliza || undefined,
-        deducible: editForm.deducible || undefined,
-        reserva: editForm.reserva || undefined,
-        coaseguro: editForm.coaseguro || undefined,
-        suma_asegurada: editForm.suma_asegurada || undefined,
+        polizas: buildPolizasPayload(polizasDraft),
         prioridad: editForm.prioridad || undefined,
         forma_contacto: editForm.forma_contacto || undefined,
         numero_reporte:
@@ -1529,14 +1609,7 @@ export default function SiniestroDetailPage() {
 
   // Funciones para gestionar póliza
   const handleOpenPolizaModal = () => {
-    if (!siniestro) return;
-    setPolizaForm({
-      numero_poliza: siniestro.numero_poliza || "",
-      suma_asegurada: siniestro.suma_asegurada || 0,
-      deducible: siniestro.deducible || 0,
-      reserva: siniestro.reserva || 0,
-      coaseguro: siniestro.coaseguro || 0,
-    });
+    setPolizaForm(getPolizaDraftsFromSiniestro(siniestro));
     setShowPolizaModal(true);
   };
 
@@ -1547,11 +1620,7 @@ export default function SiniestroDetailPage() {
       setSavingPoliza(true);
 
       const updateData: any = {
-        numero_poliza: polizaForm.numero_poliza || undefined,
-        suma_asegurada: polizaForm.suma_asegurada || undefined,
-        deducible: polizaForm.deducible || undefined,
-        reserva: polizaForm.reserva || undefined,
-        coaseguro: polizaForm.coaseguro || undefined,
+        polizas: buildPolizasPayload(polizaForm),
       };
 
       await apiService.updateSiniestro(siniestroId, updateData);
@@ -1573,18 +1642,40 @@ export default function SiniestroDetailPage() {
     }
   };
 
-  const handlePolizaFormChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setPolizaForm((prev) => ({
-      ...prev,
-      [name]:
-        name === "deducible" ||
-        name === "reserva" ||
-        name === "coaseguro" ||
-        name === "suma_asegurada"
-          ? parseFloat(value) || 0
-          : value,
-    }));
+  const handlePolizaFormChange = (
+    index: number,
+    field: keyof PolizaDraft,
+    value: string,
+  ) => {
+    setPolizaForm((prev) =>
+      prev.map((poliza, polizaIndex) =>
+        polizaIndex === index
+          ? {
+              ...poliza,
+              [field]:
+                field === "deducible" ||
+                field === "reserva" ||
+                field === "coaseguro" ||
+                field === "suma_asegurada"
+                  ? value === "" || Number.isNaN(Number(value))
+                    ? 0
+                    : Number(value)
+                  : value,
+            }
+          : poliza,
+      ),
+    );
+  };
+
+  const handleAddPoliza = () => {
+    setPolizaForm((prev) => [...prev, buildEmptyPolizaDraft()]);
+  };
+
+  const handleRemovePoliza = (index: number) => {
+    setPolizaForm((prev) => {
+      const updated = prev.filter((_, polizaIndex) => polizaIndex !== index);
+      return updated.length > 0 ? updated : [buildEmptyPolizaDraft()];
+    });
   };
 
   // Función para cargar logs de auditoría
@@ -1647,6 +1738,7 @@ export default function SiniestroDetailPage() {
               abogado_eliminado: "Abogado eliminado",
               poliza_creada: "Póliza creada",
               poliza_actualizada: "Póliza actualizada",
+              poliza_eliminada: "Póliza eliminada",
               etapa_completada: "Etapa completada",
               etapa_reabierta: "Etapa reabierta",
               documento_creado: "Documento creado",
@@ -1692,6 +1784,7 @@ export default function SiniestroDetailPage() {
                 return <FiUserPlus className="w-4 h-4" />;
               case "POLIZA_CREADA":
               case "POLIZA_ACTUALIZADA":
+              case "POLIZA_ELIMINADA":
                 return <FiFileText className="w-4 h-4" />;
               case "ETAPA_COMPLETADA":
               case "ETAPA_REABIERTA":
@@ -1743,6 +1836,7 @@ export default function SiniestroDetailPage() {
                 return "bg-orange-100 text-orange-700 border-orange-200";
               case "POLIZA_CREADA":
               case "POLIZA_ACTUALIZADA":
+              case "POLIZA_ELIMINADA":
               case "DOCUMENTO_ACTUALIZADO":
                 return "bg-indigo-100 text-indigo-700 border-indigo-200";
               case "ETAPA_COMPLETADA":
@@ -3665,45 +3759,74 @@ export default function SiniestroDetailPage() {
                   </div>
 
                   {/* Información de Póliza */}
-                  {(siniestro.numero_poliza || siniestro.suma_asegurada) && (
+                  {polizasDisplay.length > 0 && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 mb-2">
                         <FiShield
                           className="w-5 h-5"
                           style={{ color: empresaColors.secondary }}
                         />
-                        <h3 className="font-semibold text-gray-700">Póliza</h3>
+                        <h3 className="font-semibold text-gray-700">
+                          Pólizas
+                        </h3>
                       </div>
-                      {siniestro.numero_poliza && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Número:</span>{" "}
-                          {siniestro.numero_poliza}
-                        </p>
-                      )}
-                      {siniestro.suma_asegurada > 0 && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Suma Asegurada:</span> $
-                          {siniestro.suma_asegurada.toLocaleString("es-MX")}
-                        </p>
-                      )}
-                      {siniestro.deducible > 0 && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Deducible:</span> $
-                          {siniestro.deducible.toLocaleString("es-MX")}
-                        </p>
-                      )}
-                      {siniestro.reserva > 0 && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Reserva:</span> $
-                          {siniestro.reserva.toLocaleString("es-MX")}
-                        </p>
-                      )}
-                      {siniestro.coaseguro > 0 && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Coaseguro:</span> $
-                          {siniestro.coaseguro.toLocaleString("es-MX")}
-                        </p>
-                      )}
+                      <div className="space-y-3">
+                        {polizasDisplay.map((poliza, index) => (
+                          <div
+                            key={poliza.id || poliza.tempId}
+                            className="rounded-lg border border-gray-200 p-3"
+                          >
+                            <p className="text-sm font-medium text-gray-700">
+                              {index === 0
+                                ? "Póliza principal"
+                                : `Póliza adicional ${index}`}
+                            </p>
+                            {poliza.numero_poliza && (
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Número:</span>{" "}
+                                {poliza.numero_poliza}
+                              </p>
+                            )}
+                            {Number(poliza.suma_asegurada || 0) > 0 && (
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">
+                                  Suma Asegurada:
+                                </span>{" "}
+                                $
+                                {Number(
+                                  poliza.suma_asegurada || 0,
+                                ).toLocaleString("es-MX")}
+                              </p>
+                            )}
+                            {Number(poliza.deducible || 0) > 0 && (
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Deducible:</span>{" "}
+                                $
+                                {Number(poliza.deducible || 0).toLocaleString(
+                                  "es-MX",
+                                )}
+                              </p>
+                            )}
+                            {Number(poliza.reserva || 0) > 0 && (
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Reserva:</span> $
+                                {Number(poliza.reserva || 0).toLocaleString(
+                                  "es-MX",
+                                )}
+                              </p>
+                            )}
+                            {Number(poliza.coaseguro || 0) > 0 && (
+                              <p className="text-sm text-gray-600">
+                                <span className="font-medium">Coaseguro:</span>{" "}
+                                $
+                                {Number(poliza.coaseguro || 0).toLocaleString(
+                                  "es-MX",
+                                )}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -4215,7 +4338,7 @@ export default function SiniestroDetailPage() {
                     <button
                       onClick={handleOpenPolizaModal}
                       className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
-                      title="Editar póliza"
+                      title="Administrar pólizas"
                     >
                       <FiEdit3 className="w-4 h-4" />
                     </button>
@@ -4224,79 +4347,123 @@ export default function SiniestroDetailPage() {
               </div>
 
               <div className="space-y-3">
-                {/* Número de Póliza */}
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">
-                    Número de Póliza:
+                    Pólizas registradas:
                   </span>
                   <span className="text-sm font-medium text-gray-900">
-                    {siniestro.numero_poliza || (
-                      <span className="text-gray-400 italic">
-                        No registrado
+                    {polizasDisplay.length}
+                  </span>
+                </div>
+
+                {polizaPrincipal ? (
+                  <>
+                    <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                      <span className="text-sm text-gray-600">
+                        Póliza principal:
                       </span>
-                    )}
-                  </span>
-                </div>
+                      <span className="text-sm font-medium text-gray-900">
+                        {polizaPrincipal.numero_poliza || (
+                          <span className="text-gray-400 italic">
+                            Sin número
+                          </span>
+                        )}
+                      </span>
+                    </div>
 
-                {/* Suma Asegurada */}
-                <div className="flex justify-between items-center pt-2 border-t border-gray-200">
-                  <span className="text-sm text-gray-600">Suma Asegurada:</span>
-                  <span className="text-sm font-medium text-gray-900">
-                    {siniestro.suma_asegurada > 0 ? (
-                      `$${siniestro.suma_asegurada.toLocaleString("es-MX", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`
-                    ) : (
-                      <span className="text-gray-400 italic">$0.00</span>
-                    )}
-                  </span>
-                </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">
+                        Suma Asegurada:
+                      </span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {Number(polizaPrincipal.suma_asegurada || 0) > 0 ? (
+                          `$${Number(
+                            polizaPrincipal.suma_asegurada || 0,
+                          ).toLocaleString("es-MX", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}`
+                        ) : (
+                          <span className="text-gray-400 italic">$0.00</span>
+                        )}
+                      </span>
+                    </div>
 
-                {/* Deducible */}
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Deducible:</span>
-                  <span className="text-sm font-medium text-gray-900">
-                    {siniestro.deducible > 0 ? (
-                      `$${siniestro.deducible.toLocaleString("es-MX", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`
-                    ) : (
-                      <span className="text-gray-400 italic">$0.00</span>
-                    )}
-                  </span>
-                </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Deducible:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {Number(polizaPrincipal.deducible || 0) > 0 ? (
+                          `$${Number(polizaPrincipal.deducible || 0).toLocaleString(
+                            "es-MX",
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}`
+                        ) : (
+                          <span className="text-gray-400 italic">$0.00</span>
+                        )}
+                      </span>
+                    </div>
 
-                {/* Reserva */}
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Reserva:</span>
-                  <span className="text-sm font-medium text-gray-900">
-                    {siniestro.reserva > 0 ? (
-                      `$${siniestro.reserva.toLocaleString("es-MX", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`
-                    ) : (
-                      <span className="text-gray-400 italic">$0.00</span>
-                    )}
-                  </span>
-                </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Reserva:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {Number(polizaPrincipal.reserva || 0) > 0 ? (
+                          `$${Number(polizaPrincipal.reserva || 0).toLocaleString(
+                            "es-MX",
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}`
+                        ) : (
+                          <span className="text-gray-400 italic">$0.00</span>
+                        )}
+                      </span>
+                    </div>
 
-                {/* Coaseguro */}
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Coaseguro:</span>
-                  <span className="text-sm font-medium text-gray-900">
-                    {siniestro.coaseguro > 0 ? (
-                      `$${siniestro.coaseguro.toLocaleString("es-MX", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`
-                    ) : (
-                      <span className="text-gray-400 italic">$0.00</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Coaseguro:</span>
+                      <span className="text-sm font-medium text-gray-900">
+                        {Number(polizaPrincipal.coaseguro || 0) > 0 ? (
+                          `$${Number(
+                            polizaPrincipal.coaseguro || 0,
+                          ).toLocaleString("es-MX", {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}`
+                        ) : (
+                          <span className="text-gray-400 italic">$0.00</span>
+                        )}
+                      </span>
+                    </div>
+
+                    {polizasDisplay.length > 1 && (
+                      <div className="pt-2 border-t border-gray-200 space-y-2">
+                        {polizasDisplay.slice(1).map((poliza, index) => (
+                          <div
+                            key={poliza.id || poliza.tempId}
+                            className="rounded-lg bg-gray-50 px-3 py-2"
+                          >
+                            <p className="text-sm font-medium text-gray-700">
+                              Póliza adicional {index + 1}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              {poliza.numero_poliza || "Sin número"}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                  </span>
-                </div>
+                  </>
+                ) : (
+                  <div className="pt-2 border-t border-gray-200">
+                    <span className="text-gray-400 italic">
+                      No hay pólizas registradas
+                    </span>
+                  </div>
+                )}
               </div>
             </EmpresaCard>
           </div>
@@ -5276,11 +5443,11 @@ export default function SiniestroDetailPage() {
               className="text-lg font-semibold mb-4"
               style={{ color: empresaColors.secondary }}
             >
-              Información de Póliza
+              Información de Póliza Principal
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input
-                label="Número de Póliza"
+                label="Número de Póliza Principal"
                 name="numero_poliza"
                 value={editForm.numero_poliza}
                 onChange={handleEditFormChange}
@@ -5421,54 +5588,120 @@ export default function SiniestroDetailPage() {
       <Modal
         open={showPolizaModal}
         onClose={() => !savingPoliza && setShowPolizaModal(false)}
-        title="Editar Información de Póliza"
+        title="Administrar Pólizas"
         maxWidthClass="max-w-2xl"
       >
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Input
-              label="Número de Póliza"
-              name="numero_poliza"
-              value={polizaForm.numero_poliza}
-              onChange={handlePolizaFormChange}
-              placeholder="Ej: POL-2024-001"
-            />
-            <Input
-              label="Suma Asegurada"
-              name="suma_asegurada"
-              type="number"
-              value={polizaForm.suma_asegurada}
-              onChange={handlePolizaFormChange}
-              step="0.01"
-              placeholder="0.00"
-            />
-            <Input
-              label="Deducible"
-              name="deducible"
-              type="number"
-              value={polizaForm.deducible}
-              onChange={handlePolizaFormChange}
-              step="0.01"
-              placeholder="0.00"
-            />
-            <Input
-              label="Reserva"
-              name="reserva"
-              type="number"
-              value={polizaForm.reserva}
-              onChange={handlePolizaFormChange}
-              step="0.01"
-              placeholder="0.00"
-            />
-            <Input
-              label="Coaseguro"
-              name="coaseguro"
-              type="number"
-              value={polizaForm.coaseguro}
-              onChange={handlePolizaFormChange}
-              step="0.01"
-              placeholder="0.00"
-            />
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-gray-600">
+              La primera póliza de la lista se tomará como principal.
+            </p>
+            <Button variant="secondary" onClick={handleAddPoliza}>
+              <FiPlus className="w-4 h-4 mr-2" />
+              Agregar póliza
+            </Button>
+          </div>
+
+          <div className="space-y-4">
+            {polizaForm.map((poliza, index) => (
+              <div
+                key={poliza.id || poliza.tempId}
+                className="rounded-lg border border-gray-200 p-4"
+              >
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-700">
+                    {index === 0
+                      ? "Póliza principal"
+                      : `Póliza adicional ${index}`}
+                  </span>
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePoliza(index)}
+                      className="flex items-center gap-1 text-sm text-red-600 hover:text-red-700"
+                    >
+                      <FiTrash2 className="w-4 h-4" />
+                      Quitar
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Input
+                    label="Número de Póliza"
+                    name={`numero_poliza_${index}`}
+                    value={poliza.numero_poliza}
+                    onChange={(event) =>
+                      handlePolizaFormChange(
+                        index,
+                        "numero_poliza",
+                        event.target.value,
+                      )
+                    }
+                    placeholder="Ej: POL-2024-001"
+                  />
+                  <Input
+                    label="Suma Asegurada"
+                    name={`suma_asegurada_${index}`}
+                    type="number"
+                    value={poliza.suma_asegurada}
+                    onChange={(event) =>
+                      handlePolizaFormChange(
+                        index,
+                        "suma_asegurada",
+                        event.target.value,
+                      )
+                    }
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <Input
+                    label="Deducible"
+                    name={`deducible_${index}`}
+                    type="number"
+                    value={poliza.deducible}
+                    onChange={(event) =>
+                      handlePolizaFormChange(
+                        index,
+                        "deducible",
+                        event.target.value,
+                      )
+                    }
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <Input
+                    label="Reserva"
+                    name={`reserva_${index}`}
+                    type="number"
+                    value={poliza.reserva}
+                    onChange={(event) =>
+                      handlePolizaFormChange(
+                        index,
+                        "reserva",
+                        event.target.value,
+                      )
+                    }
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                  <Input
+                    label="Coaseguro"
+                    name={`coaseguro_${index}`}
+                    type="number"
+                    value={poliza.coaseguro}
+                    onChange={(event) =>
+                      handlePolizaFormChange(
+                        index,
+                        "coaseguro",
+                        event.target.value,
+                      )
+                    }
+                    step="0.01"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">

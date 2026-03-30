@@ -72,6 +72,7 @@ export interface SiniestroFormState {
 }
 
 export interface PolizaDraft {
+  id?: string;
   tempId: string;
   numero_poliza: string;
   deducible: number | "";
@@ -172,6 +173,31 @@ const contactoPreferencia = [
 
 function buildTempId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+export function buildPolizasPayload(polizas: PolizaDraft[]) {
+  return polizas
+    .map((poliza, index) => ({
+      id: poliza.id,
+      numero_poliza: poliza.numero_poliza?.trim() || null,
+      deducible: poliza.deducible === "" ? 0 : Number(poliza.deducible || 0),
+      reserva: poliza.reserva === "" ? 0 : Number(poliza.reserva || 0),
+      coaseguro: poliza.coaseguro === "" ? 0 : Number(poliza.coaseguro || 0),
+      suma_asegurada:
+        poliza.suma_asegurada === ""
+          ? 0
+          : Number(poliza.suma_asegurada || 0),
+      es_principal: index === 0,
+      orden: index,
+    }))
+    .filter(
+      (poliza) =>
+        !!poliza.numero_poliza ||
+        poliza.deducible > 0 ||
+        poliza.reserva > 0 ||
+        poliza.coaseguro > 0 ||
+        poliza.suma_asegurada > 0,
+    );
 }
 
 export default function SiniestroWizard({

@@ -17,6 +17,7 @@ import JoditEditor from "@/components/ui/JoditEditor";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
 import {
+  buildPolizasPayload,
   SiniestroFormState,
   ExtendedSiniestroFormState,
   PersonaLigera,
@@ -679,12 +680,6 @@ export default function NuevoSiniestroPage() {
 
     setSaving(true);
     try {
-      const primaryPoliza = extendedForm.generales.polizas[0];
-      const deducibleBase = primaryPoliza ? primaryPoliza.deducible : form.deducible;
-      const reservaBase = primaryPoliza ? primaryPoliza.reserva : form.reserva;
-      const coaseguroBase = primaryPoliza ? primaryPoliza.coaseguro : form.coaseguro;
-      const sumaAseguradaBase = primaryPoliza ? primaryPoliza.suma_asegurada : form.suma_asegurada;
-
       const fechaRegistroDateTime = form.fecha_registro
         ? new Date(form.fecha_registro + "T00:00:00").toISOString()
         : new Date().toISOString();
@@ -695,16 +690,22 @@ export default function NuevoSiniestroPage() {
       const areasIds = extendedForm.generales.areas_ids || [];
       const usuariosIds = extendedForm.generales.usuarios_ids || [];
       const aseguradoId = extendedForm.asegurado.seleccionadoId || null;
+      const polizasPayload = buildPolizasPayload(extendedForm.generales.polizas);
 
-      const { fecha_registro: _fr, fecha_asignacion: _fa, ...formRest } = form;
+      const {
+        fecha_registro: _fr,
+        fecha_asignacion: _fa,
+        numero_poliza: _np,
+        deducible: _de,
+        reserva: _re,
+        coaseguro: _co,
+        suma_asegurada: _sa,
+        ...formRest
+      } = form;
       const payload = {
         ...formRest,
         fecha_registro: fechaRegistroDateTime,
-        numero_poliza: primaryPoliza ? primaryPoliza.numero_poliza : form.numero_poliza,
-        deducible: deducibleBase === "" ? 0 : Number(deducibleBase),
-        reserva: reservaBase === "" ? 0 : Number(reservaBase),
-        coaseguro: coaseguroBase === "" ? 0 : Number(coaseguroBase),
-        suma_asegurada: sumaAseguradaBase === "" ? 0 : Number(sumaAseguradaBase),
+        polizas: polizasPayload,
         descripcion_hechos: extendedForm.especificos.descripcion_html || form.descripcion_hechos,
         asegurado_id: aseguradoId,
         institucion_id: form.institucion_id && form.institucion_id.trim() !== "" ? form.institucion_id : null,

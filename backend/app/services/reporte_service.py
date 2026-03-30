@@ -2,8 +2,9 @@
 Servicio para generación de reportes
 """
 
+from decimal import Decimal
 from typing import List, Dict, Any, Optional
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, and_, or_
 from datetime import datetime
 from uuid import UUID
@@ -64,10 +65,7 @@ class ReporteService:
         
         # Para siniestros, hacer joins con tablas relacionadas
         if modulo == "siniestros":
-            query = db.query(Siniestro).options(
-                # Usar joinedload para cargar relaciones de forma eficiente
-                # Estas relaciones se cargarán automáticamente cuando se acceda
-            )
+            query = db.query(Siniestro).options(selectinload(Siniestro.polizas))
         else:
             query = db.query(Modelo)
 
@@ -204,6 +202,37 @@ class ReporteService:
 
         # Agregar datos relacionados según el módulo
         if modulo == "siniestros" and isinstance(registro, Siniestro):
+            polizas = sorted(
+                list(getattr(registro, "polizas", []) or []),
+                key=lambda poliza: (
+                    0 if getattr(poliza, "es_principal", False) else 1,
+                    getattr(poliza, "orden", 0) or 0,
+                    getattr(poliza, "creado_en", None),
+                ),
+            )
+            poliza_principal = polizas[0] if polizas else None
+            if columnas is None or any(
+                col in (columnas or [])
+                for col in (
+                    "numero_poliza",
+                    "deducible",
+                    "reserva",
+                    "coaseguro",
+                    "suma_asegurada",
+                    "polizas_numeros",
+                    "polizas_cantidad",
+                )
+            ):
+                resultado["numero_poliza"] = getattr(poliza_principal, "numero_poliza", None)
+                resultado["deducible"] = getattr(poliza_principal, "deducible", Decimal("0.00")) if poliza_principal else Decimal("0.00")
+                resultado["reserva"] = getattr(poliza_principal, "reserva", Decimal("0.00")) if poliza_principal else Decimal("0.00")
+                resultado["coaseguro"] = getattr(poliza_principal, "coaseguro", Decimal("0.00")) if poliza_principal else Decimal("0.00")
+                resultado["suma_asegurada"] = getattr(poliza_principal, "suma_asegurada", Decimal("0.00")) if poliza_principal else Decimal("0.00")
+                resultado["polizas_numeros"] = ", ".join(
+                    [poliza.numero_poliza for poliza in polizas if getattr(poliza, "numero_poliza", None)]
+                )
+                resultado["polizas_cantidad"] = len(polizas)
+
             # Asegurado
             if registro.asegurado_id:
                 asegurado = db.query(Asegurado).filter(Asegurado.id == registro.asegurado_id).first()

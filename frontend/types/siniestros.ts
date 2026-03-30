@@ -3,6 +3,8 @@
  * Define interfaces para los datos de siniestros y sus operaciones
  */
 
+import type { SiniestroPoliza, SiniestroPolizaPayload } from "./siniestrosRelaciones";
+
 export interface Siniestro {
   id: string;
   empresa_id: string;
@@ -13,12 +15,13 @@ export interface Siniestro {
   ubicacion?: string;
   descripcion_hechos: string;
   
-  // Información de póliza
+  // Compatibilidad: póliza principal
   numero_poliza?: string;
   deducible: number;
   reserva: number;
   coaseguro: number;
   suma_asegurada: number;
+  polizas: SiniestroPoliza[];
   
   // Usuario que creó el siniestro
   creado_por?: string;
@@ -64,12 +67,13 @@ export interface SiniestroCreate {
   ubicacion?: string;
   descripcion_hechos: string;
   
-  // Información de póliza
+  // Compatibilidad: póliza principal
   numero_poliza?: string;
   deducible?: number;
   reserva?: number;
   coaseguro?: number;
   suma_asegurada?: number;
+  polizas?: SiniestroPolizaPayload[];
   
   // Usuario asegurado (rol asegurado)
   asegurado_id?: string;
@@ -93,12 +97,13 @@ export interface SiniestroUpdate {
   ubicacion?: string;
   descripcion_hechos?: string;
   
-  // Información de póliza
+  // Compatibilidad: póliza principal
   numero_poliza?: string;
   deducible?: number;
   reserva?: number;
   coaseguro?: number;
   suma_asegurada?: number;
+  polizas?: SiniestroPolizaPayload[];
   
   // Usuario asegurado (rol asegurado)
   asegurado_id?: string;

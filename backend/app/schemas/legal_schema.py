@@ -520,6 +520,56 @@ class RespuestaFormularioResponse(BaseModel):
 
 
 # ===== SINIESTROS =====
+class SiniestroPolizaBase(BaseModel):
+    """Schema base de póliza relacionada a un siniestro"""
+    numero_poliza: Optional[str] = Field(None, max_length=100)
+    deducible: Decimal = Field(Decimal("0.00"), ge=0)
+    reserva: Decimal = Field(Decimal("0.00"), ge=0)
+    coaseguro: Decimal = Field(Decimal("0.00"), ge=0)
+    suma_asegurada: Decimal = Field(Decimal("0.00"), ge=0)
+    es_principal: bool = False
+    orden: int = Field(0, ge=0)
+
+
+class SiniestroPolizaPayload(BaseModel):
+    """Schema de entrada para sincronizar pólizas dentro de un siniestro"""
+    id: Optional[UUID] = None
+    numero_poliza: Optional[str] = Field(None, max_length=100)
+    deducible: Decimal = Field(Decimal("0.00"), ge=0)
+    reserva: Decimal = Field(Decimal("0.00"), ge=0)
+    coaseguro: Decimal = Field(Decimal("0.00"), ge=0)
+    suma_asegurada: Decimal = Field(Decimal("0.00"), ge=0)
+    es_principal: bool = False
+    orden: Optional[int] = Field(None, ge=0)
+
+
+class SiniestroPolizaCreate(SiniestroPolizaBase):
+    """Schema para crear póliza relacionada"""
+    siniestro_id: UUID
+
+
+class SiniestroPolizaUpdate(BaseModel):
+    """Schema para actualizar póliza relacionada"""
+    numero_poliza: Optional[str] = Field(None, max_length=100)
+    deducible: Optional[Decimal] = Field(None, ge=0)
+    reserva: Optional[Decimal] = Field(None, ge=0)
+    coaseguro: Optional[Decimal] = Field(None, ge=0)
+    suma_asegurada: Optional[Decimal] = Field(None, ge=0)
+    es_principal: Optional[bool] = None
+    orden: Optional[int] = Field(None, ge=0)
+
+
+class SiniestroPolizaResponse(SiniestroPolizaBase):
+    """Schema de respuesta de póliza relacionada"""
+    id: UUID
+    siniestro_id: UUID
+    creado_en: datetime
+    actualizado_en: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class SiniestroBase(BaseModel):
     """Schema base de siniestro"""
     numero_siniestro: Optional[str] = Field(None, min_length=1, max_length=50)
@@ -527,12 +577,13 @@ class SiniestroBase(BaseModel):
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)  # Opcional, se maneja en versiones
     
-    # Información de póliza
+    # Compatibilidad: póliza principal (usar `polizas` como fuente de verdad)
     numero_poliza: Optional[str] = Field(None, max_length=100)
     deducible: Decimal = Field(Decimal("0.00"), ge=0)
     reserva: Decimal = Field(Decimal("0.00"), ge=0)
     coaseguro: Decimal = Field(Decimal("0.00"), ge=0)
     suma_asegurada: Decimal = Field(Decimal("0.00"), ge=0)
+    polizas: List[SiniestroPolizaPayload] = Field(default_factory=list)
     
     # Usuario asegurado (rol asegurado)
     asegurado_id: Optional[UUID] = None
@@ -590,12 +641,13 @@ class SiniestroUpdate(BaseModel):
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)
     
-    # Información de póliza
+    # Compatibilidad: póliza principal (usar `polizas` como fuente de verdad)
     numero_poliza: Optional[str] = Field(None, max_length=100)
     deducible: Optional[Decimal] = Field(None, ge=0)
     reserva: Optional[Decimal] = Field(None, ge=0)
     coaseguro: Optional[Decimal] = Field(None, ge=0)
     suma_asegurada: Optional[Decimal] = Field(None, ge=0)
+    polizas: Optional[List[SiniestroPolizaPayload]] = None
     
     # Usuario asegurado (rol asegurado)
     asegurado_id: Optional[UUID] = None
@@ -639,6 +691,7 @@ class SiniestroResponse(SiniestroBase):
     asegurado_id: Optional[UUID] = None
     codigo: Optional[str] = None  # Código generado automáticamente
     fecha_registro: Optional[datetime] = None
+    polizas: List[SiniestroPolizaResponse] = Field(default_factory=list)
     eliminado: bool
     creado_en: datetime
     actualizado_en: datetime
@@ -953,4 +1006,3 @@ class VersionesDescripcionHechosResponse(VersionesDescripcionHechosBase):
 
     class Config:
         from_attributes = True
-

@@ -50,6 +50,7 @@ async def listar_reportes_disponibles(
                 # Columnas básicas
                 "id", "numero_siniestro", "fecha_siniestro", "fecha_registro", "ubicacion",
                 "numero_poliza", "deducible", "reserva", "coaseguro", "suma_asegurada",
+                "polizas_numeros", "polizas_cantidad",
                 "prioridad", "forma_contacto", "observaciones", "codigo", "numero_reporte",
                 "activo", "eliminado", "creado_en", "actualizado_en",
                 # Asegurado
