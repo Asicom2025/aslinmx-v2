@@ -603,7 +603,7 @@ class SiniestroBase(BaseModel):
     calificacion_id: Optional[UUID] = None
     
     # Forma de contacto
-    forma_contacto: Optional[Literal["correo", "telefono", "directa"]] = None
+    forma_contacto: Optional[Literal["correo", "telefono", "directa", "N/A"]] = None
     
     # Campos adicionales
     prioridad: Literal["baja", "media", "alta", "critica"] = "media"
@@ -667,7 +667,7 @@ class SiniestroUpdate(BaseModel):
     calificacion_id: Optional[UUID] = None
     
     # Forma de contacto
-    forma_contacto: Optional[Literal["correo", "telefono", "directa"]] = None
+    forma_contacto: Optional[Literal["correo", "telefono", "directa", "N/A"]] = None
     
     # Campos adicionales
     prioridad: Optional[Literal["baja", "media", "alta", "critica"]] = None
