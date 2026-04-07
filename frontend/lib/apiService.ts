@@ -1426,9 +1426,9 @@ const legacyDocumentMigrationService = {
     data: {
       items: Array<{
         legacy_file_id: string;
-        flujo_trabajo_id: string;
+        flujo_trabajo_id?: string | null;
         categoria_documento_id?: string | null;
-        etapa_flujo_id: string;
+        etapa_flujo_id?: string | null;
         tipo_documento_id: string;
         requisito_documento_id?: string | null;
       }>;

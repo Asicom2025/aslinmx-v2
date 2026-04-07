@@ -248,8 +248,9 @@ class R2StorageBackend(StorageBackend):
     def build_from_settings(cls) -> "R2StorageBackend":
         if not cls.is_configured():
             raise StorageConfigurationError("Faltan credenciales o endpoint de R2 en la configuración.")
+        # Endpoint S3-compatible de R2: raíz del account, sin nombre de bucket en la ruta.
         endpoint_url = settings.R2_ENDPOINT_URL or (
-            f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/aslin"
+            f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
         )
         return cls(
             bucket_name=str(settings.R2_BUCKET_NAME),

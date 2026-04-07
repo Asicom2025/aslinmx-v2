@@ -218,7 +218,15 @@ class LegacyDocumentMigrationService:
                     area_id,
                 )
 
-                destination_meta = LegacyDocumentMigrationService._validate_destination(flow_index, item)
+                if item.flujo_trabajo_id is None and item.etapa_flujo_id is None:
+                    if not area_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            detail="Para clasificación solo por tipo/categoría (sin flujo ni etapa) se requiere area_id en la solicitud.",
+                        )
+                    destination_meta = {"area_id": area_id}
+                else:
+                    destination_meta = LegacyDocumentMigrationService._validate_destination(flow_index, item)
                 downloaded_file = LegacyDocumentMigrationService._download_remote_legacy_file(source_file)
                 mime_type = downloaded_file["mime_type"]
                 stored_file = storage_service.put_document_bytes(
@@ -251,6 +259,10 @@ class LegacyDocumentMigrationService:
                     LegacyDocumentMigrationService._build_legacy_record_source_ref(source_file.id),
                 )
 
+                doc_creado_en, doc_actualizado_en = (
+                    LegacyDocumentMigrationService._document_timestamps_from_legacy(source_file)
+                )
+
                 document = Documento(
                     siniestro_id=siniestro_id,
                     tipo_documento_id=item.tipo_documento_id,
@@ -272,6 +284,8 @@ class LegacyDocumentMigrationService:
                     es_adicional=True,
                     activo=True,
                     eliminado=False,
+                    creado_en=doc_creado_en,
+                    actualizado_en=doc_actualizado_en,
                 )
                 db.add(document)
                 created_documents.append(document)
@@ -281,12 +295,13 @@ class LegacyDocumentMigrationService:
                         siniestro_id=siniestro_id,
                         usuario_id=current_user.id,
                         tipo_actividad="documento",
-                        descripcion=downloaded_file["filename"],
+                        descripcion=f"Se cargó un archivo {downloaded_file['filename']} al siniestro.",
                         horas_trabajadas=0,
-                        fecha_actividad=datetime.now(timezone.utc),
+                        fecha_actividad=doc_creado_en,
                         comentarios=None,
                         area_id=destination_meta["area_id"],
                         flujo_trabajo_id=item.flujo_trabajo_id,
+                        creado_en=doc_creado_en,
                     )
                 )
                 db.add(
@@ -294,8 +309,8 @@ class LegacyDocumentMigrationService:
                         usuario_id=current_user.id,
                         siniestro_id=siniestro_id,
                         tipo="general",
-                        titulo="Archivo legacy importado",
-                        mensaje=f"Se importó el archivo legacy «{downloaded_file['filename']}» al siniestro.",
+                        titulo="Archivo importado",
+                        mensaje=f"Se importó el archivo «{downloaded_file['filename']}» al siniestro.",
                     )
                 )
 
@@ -358,6 +373,19 @@ class LegacyDocumentMigrationService:
     @staticmethod
     def _build_legacy_record_source_ref(record_id: int | str) -> str:
         return f"{LEGACY_TMP_SOURCE_PREFIX}{record_id}"
+
+    @staticmethod
+    def _document_timestamps_from_legacy(record: TmpSiniestroFile) -> tuple[datetime, datetime]:
+        """Replica tmp_siniestros_files.fecha en documentos.creado_en / actualizado_en (UTC)."""
+        now = datetime.now(timezone.utc)
+        fe = record.fecha
+        if fe is None:
+            return now, now
+        if getattr(fe, "tzinfo", None) is None:
+            creado = fe.replace(tzinfo=timezone.utc)
+        else:
+            creado = fe.astimezone(timezone.utc)
+        return creado, creado
 
     @staticmethod
     def _normalize_file_id(file_id: str) -> str:
