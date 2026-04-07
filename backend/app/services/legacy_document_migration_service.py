@@ -490,19 +490,26 @@ class LegacyDocumentMigrationService:
         allowed_roots.append(upload_root)
 
         candidate_paths: list[Path] = []
+        attempted_paths: list[str] = []
+
+        def append_candidate(path: Path) -> None:
+            resolved_candidate = path.resolve()
+            candidate_paths.append(resolved_candidate)
+            attempted_paths.append(str(resolved_candidate))
+
         raw_path = Path(decoded_path)
-        if raw_path.is_absolute() and raw_path.exists():
-            candidate_paths.append(raw_path.resolve())
+        if raw_path.is_absolute():
+            append_candidate(raw_path)
 
         if legacy_root and decoded_path.startswith(LEGACY_FILES_URL_PREFIX):
             relative_path = decoded_path[len(LEGACY_FILES_URL_PREFIX) :].lstrip("/")
-            candidate_paths.append((legacy_root / relative_path).resolve())
+            append_candidate(legacy_root / relative_path)
 
         if decoded_path.startswith(LEGACY_FILES_URL_PREFIX):
             relative_path = decoded_path[len(LEGACY_FILES_URL_PREFIX) :].lstrip("/")
-            candidate_paths.append((upload_root / "files" / relative_path).resolve())
+            append_candidate(upload_root / "files" / relative_path)
 
-        candidate_paths.append((PROJECT_ROOT / decoded_path.lstrip("/")).resolve())
+        append_candidate(PROJECT_ROOT / decoded_path.lstrip("/"))
 
         for candidate in candidate_paths:
             if not candidate.exists() or not candidate.is_file():
@@ -513,6 +520,9 @@ class LegacyDocumentMigrationService:
         detail = f"No se encontró el archivo legacy {record.id} en la ruta configurada."
         if legacy_root:
             detail = f"{detail} URL={raw_url} raíz={legacy_root}"
+        if attempted_paths:
+            attempted_unique = ", ".join(dict.fromkeys(attempted_paths))
+            detail = f"{detail} rutas_intentadas=[{attempted_unique}]"
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
     @staticmethod

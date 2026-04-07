@@ -138,6 +138,8 @@ Para más información detallada, consulta la carpeta `docs/`:
 
 El workflow `.github/workflows/deploy.yml` construye y publica imágenes en GHCR; el servidor ejecuta `docker-compose.prod.yml`.
 
+Si el backend necesita leer archivos legacy desde disco del servidor, asegúrate de montar esa carpeta dentro del contenedor. El compose productivo ya contempla `/opt/app/backend/uploads -> /app/uploads`; en el `.env` del servidor puedes fijar `LEGACY_DOCUMENTS_ROOT=/app/uploads/files` para que las vistas previas e importaciones legacy resuelvan la misma raíz dentro del contenedor.
+
 ### Secretos del repositorio (Actions)
 
 Configura en **Settings → Secrets and variables → Actions** (además de los secretos de SSH/servidor que ya usa el workflow) al menos:
