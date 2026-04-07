@@ -50,7 +50,9 @@ def test_register_user():
         json={
             "email": "test@example.com",
             "username": "testuser",
-            "full_name": "Test User",
+            "nombre": "Test",
+            "apellido_paterno": "User",
+            "apellido_materno": "Example",
             "password": "testpass123"
         }
     )
@@ -59,6 +61,11 @@ def test_register_user():
     data = response.json()
     assert data["email"] == "test@example.com"
     assert data["username"] == "testuser"
+    assert data["nombre"] == "Test"
+    assert data["apellido_paterno"] == "User"
+    assert data["apellido_materno"] == "Example"
+    assert data["full_name"] == "Test User Example"
+    assert data["perfil"]["nombre"] == "Test"
     assert "id" in data
 
 
@@ -70,7 +77,9 @@ def test_login_user():
         json={
             "email": "test@example.com",
             "username": "testuser",
-            "full_name": "Test User",
+            "nombre": "Test",
+            "apellido_paterno": "User",
+            "apellido_materno": "Example",
             "password": "testpass123"
         }
     )
@@ -87,7 +96,7 @@ def test_login_user():
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
-    assert data["token_type"] == "bearer"
+    assert data["requires_2fa"] is False
 
 
 def test_health_check():
@@ -96,4 +105,6 @@ def test_health_check():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
+    assert "storage" in data
+    assert "ready" in data["storage"]
 

@@ -763,6 +763,23 @@ class DocumentoBase(BaseModel):
     activo: bool = True
 
 
+class DocumentoStorageMetadataResponse(BaseModel):
+    id: UUID
+    provider: str
+    storage_path: str
+    bucket_name: Optional[str] = None
+    object_key: Optional[str] = None
+    original_filename: str
+    mime_type: Optional[str] = None
+    size_bytes: Optional[int] = None
+    etag: Optional[str] = None
+    sha256: Optional[str] = None
+    creado_en: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class DocumentoCreate(DocumentoBase):
     """Schema para crear documento"""
     siniestro_id: UUID
@@ -772,6 +789,7 @@ class DocumentoCreate(DocumentoBase):
     area_id: Optional[UUID] = None  # Área específica del documento
     flujo_trabajo_id: Optional[UUID] = None  # Flujo de trabajo específico del documento
     requisito_documento_id: Optional[UUID] = None  # Requisito documental que origina este documento
+    storage_object_id: Optional[UUID] = None
     usuario_subio: Optional[UUID] = None
     version: int = 1
     # Campos para bitácora al crear documento (carga de informe)
@@ -794,6 +812,7 @@ class DocumentoUpdate(BaseModel):
     area_id: Optional[UUID] = None
     flujo_trabajo_id: Optional[UUID] = None
     requisito_documento_id: Optional[UUID] = None  # Requisito documental asociado
+    storage_object_id: Optional[UUID] = None
     activo: Optional[bool] = None
     # Campos para bitácora al actualizar documento (actualización de informe)
     horas_trabajadas_bitacora: Optional[Decimal] = Field(None, ge=0, le=24)
@@ -810,6 +829,7 @@ class DocumentoResponse(DocumentoBase):
     area_id: Optional[UUID] = None
     flujo_trabajo_id: Optional[UUID] = None
     requisito_documento_id: Optional[UUID] = None
+    storage_object_id: Optional[UUID] = None
     usuario_subio: Optional[UUID] = None
     version: int
     eliminado: bool
@@ -819,6 +839,9 @@ class DocumentoResponse(DocumentoBase):
     plantilla_tiene_continuacion: Optional[bool] = None  # True si la plantilla tiene segunda parte con formulario
     # Nombre de categoría (vía requisito documental o plantilla asociada)
     categoria_documento_nombre: Optional[str] = None
+    storage_object: Optional[DocumentoStorageMetadataResponse] = None
+    archivo_url: Optional[str] = None
+    archivo_url_expira_en: Optional[int] = None
 
     class Config:
         from_attributes = True

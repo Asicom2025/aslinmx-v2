@@ -11,6 +11,7 @@ import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
 import { getRecentVisitedSiniestros } from "@/lib/recentSiniestrosStorage";
+import { getUserDisplayName } from "@/lib/userName";
 import { FiAlertTriangle, FiCheckCircle, FiClock, FiBarChart2, FiTrendingUp, FiUsers, FiFileText, FiBell, FiMap } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
@@ -836,7 +837,7 @@ export default function DashboardPage() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-600">Bienvenido, {user?.full_name || user?.email}</p>
+          <p className="mt-1 text-sm text-gray-600">Bienvenido, {getUserDisplayName(user, user?.email || "")}</p>
         </div>
         <div className="flex items-center gap-3">
           <TourButton tour="tour-dashboard" label="Ver guía" />

@@ -10,6 +10,8 @@ import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError } from "@/lib/swal";
+import { buildPersonFullName } from "@/lib/userName";
+import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
@@ -148,6 +150,12 @@ const mapUserToPersona = (usuario: any): PersonaLigera => {
     telefono: extractValue(contactos, ["celular", "telefono", "telefono_casa", "telefono_oficina"]),
     estado: extractValue(direccion, ["estado"]),
     ciudad: extractValue(direccion, ["ciudad"]),
+    areas: Array.isArray(usuario?.areas)
+      ? usuario.areas.map((area: any) => ({
+          id: String(area?.id || ""),
+          nombre: area?.nombre || "",
+        }))
+      : [],
   };
 };
 
@@ -168,7 +176,6 @@ export default function NuevoSiniestroPage() {
   const [areas, setAreas] = useState<any[]>([]);
   const [estados, setEstados] = useState<any[]>([]);
   const [usuarios, setUsuarios] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
   const [institucionesCatalogo, setInstitucionesCatalogo] = useState<CatalogOption[]>([]);
   const [autoridadesCatalogo, setAutoridadesCatalogo] = useState<CatalogOption[]>([]);
   const [aseguradosCatalogo, setAseguradosCatalogo] = useState<any[]>([]);
@@ -197,7 +204,6 @@ export default function NuevoSiniestroPage() {
           loadAreas(),
           loadEstados(),
           loadUsuarios(),
-          loadRoles(),
           loadInstituciones(),
           loadAutoridades(),
           loadAsegurados(),
@@ -316,15 +322,6 @@ export default function NuevoSiniestroPage() {
     }
   };
 
-  const loadRoles = async () => {
-    try {
-      const data = await apiService.getRoles();
-      setRoles(data);
-    } catch (e: any) {
-      console.error("Error al cargar roles:", e);
-    }
-  };
-
   const loadInstituciones = async () => {
     try {
       const data = await apiService.getInstituciones(true);
@@ -380,23 +377,6 @@ export default function NuevoSiniestroPage() {
     }
   };
 
-  // Helpers
-  const rolesMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    (roles || []).forEach((rol: any) => {
-      if (rol?.id) {
-        map[rol.id] = rol.nombre;
-      }
-    });
-    return map;
-  }, [roles]);
-
-  const getRoleName = (usuario: any) => {
-    if (usuario?.rol?.nombre) return usuario.rol.nombre;
-    if (usuario?.rol_id && rolesMap[usuario.rol_id]) return rolesMap[usuario.rol_id];
-    return "";
-  };
-
   const aseguradosCatalog = useMemo<PersonaLigera[]>(() => {
     return (aseguradosCatalogo || []).map((asegurado: any) => ({
       id: asegurado.id,
@@ -428,13 +408,30 @@ export default function NuevoSiniestroPage() {
   }, [provenientesCatalogo]);
 
   const abogadosCatalog = useMemo<PersonaLigera[]>(() => {
-    return (usuarios || [])
-      .filter((usuario: any) => {
-        const rolNombre = getRoleName(usuario);
-        return rolNombre === "Abogado" || rolNombre === "Abogado JR";
-      })
-      .map(mapUserToPersona);
-  }, [usuarios, rolesMap]);
+    return filtrarAbogadosPorAreas(
+      usuarios || [],
+      extendedForm.generales.areas_ids || [],
+    ).map(mapUserToPersona);
+  }, [usuarios, extendedForm.generales.areas_ids]);
+
+  useEffect(() => {
+    const abogadosDisponiblesIds = new Set(abogadosCatalog.map((abogado) => abogado.id));
+    const usuariosSeleccionados = extendedForm.generales.usuarios_ids || [];
+    const usuariosValidos = usuariosSeleccionados.filter((usuarioId) =>
+      abogadosDisponiblesIds.has(usuarioId),
+    );
+
+    if (usuariosValidos.length === usuariosSeleccionados.length) return;
+
+    setExtendedForm((prev) => ({
+      ...prev,
+      generales: {
+        ...prev.generales,
+        usuarios_ids: usuariosValidos,
+        abogado_id: usuariosValidos[0] || "",
+      },
+    }));
+  }, [abogadosCatalog, extendedForm.generales.usuarios_ids]);
 
   const aseguradoOptions = useMemo(() => {
     return aseguradosCatalog.map((item) => {
@@ -800,10 +797,7 @@ export default function NuevoSiniestroPage() {
 
   const abogadoOptions = abogadosCatalog.map((p) => ({
     id: p.id,
-    nombre:
-      `${p.nombre || ""} ${p.apellido_paterno || ""}`.trim() ||
-      p.email ||
-      p.id,
+    nombre: buildPersonFullName(p) || p.email || p.id,
   }));
 
   return (
@@ -1063,10 +1057,10 @@ export default function NuevoSiniestroPage() {
                   }))}
                   placeholder="Seleccionar áreas..."
                 />
-                <CustomSelect
-                  label="Usuarios asignados"
-                  name="usuarios_ids"
-                  value={extendedForm.generales.usuarios_ids || []}
+                  <CustomSelect
+                    label="Usuarios asignados"
+                    name="usuarios_ids"
+                    value={extendedForm.generales.usuarios_ids || []}
                   onChange={(value) => {
                     const usuariosArray = Array.isArray(value) ? value : [];
                     setGeneralesValue("usuarios_ids", usuariosArray);
@@ -1077,12 +1071,17 @@ export default function NuevoSiniestroPage() {
                     }
                   }}
                   isMulti
-                  options={abogadoOptions.map((option) => ({
-                    value: option.id,
-                    label: option.nombre,
-                  }))}
-                  placeholder="Seleccionar usuarios..."
-                />
+                    options={abogadoOptions.map((option) => ({
+                      value: option.id,
+                      label: option.nombre,
+                    }))}
+                    placeholder={
+                      (extendedForm.generales.areas_ids || []).length > 0
+                        ? "Seleccionar usuarios..."
+                        : "Selecciona primero al menos un área..."
+                    }
+                    disabled={(extendedForm.generales.areas_ids || []).length === 0}
+                  />
                 <CustomSelect
                   label="Prioridad"
                   name="prioridad"

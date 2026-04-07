@@ -9,6 +9,7 @@ import Button from "@/components/ui/Button";
 import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { swalSuccess, swalError } from "@/lib/swal";
+import { getUserDisplayName, getUserInitial } from "@/lib/userName";
 import { FiArrowLeft, FiSave } from "react-icons/fi";
 
 interface User {
@@ -16,6 +17,9 @@ interface User {
   email: string;
   username?: string;
   full_name?: string;
+  nombre?: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
   is_active: boolean;
   created_at: string;
   empresa?: { id: string; nombre: string } | null;
@@ -56,7 +60,6 @@ export default function EditarUsuarioPage() {
   const [form, setForm] = useState({
     email: "",
     username: "",
-    full_name: "",
     empresa_ids: [] as string[],
     area_ids: [] as string[],
     rol_id: "",
@@ -133,16 +136,15 @@ export default function EditarUsuarioPage() {
       setForm({
         email: data.email || "",
         username: data.username || "",
-        full_name: data.full_name || "",
         empresa_ids: data.empresas?.map((empresa: any) => empresa.id) || (data.empresa ? [data.empresa.id] : []),
         area_ids: data.areas?.map((a: { id: string }) => a.id) || [],
         rol_id: data.rol?.id || "",
         is_active: data.is_active ?? true,
         password: "",
         perfil: {
-          nombre: data.perfil?.nombre || "",
-          apellido_paterno: data.perfil?.apellido_paterno || "",
-          apellido_materno: data.perfil?.apellido_materno || "",
+          nombre: data.perfil?.nombre || data.nombre || "",
+          apellido_paterno: data.perfil?.apellido_paterno || data.apellido_paterno || "",
+          apellido_materno: data.perfil?.apellido_materno || data.apellido_materno || "",
           titulo: data.perfil?.titulo || "",
           cedula_profesional: data.perfil?.cedula_profesional || "",
         },
@@ -199,7 +201,6 @@ export default function EditarUsuarioPage() {
       const updateData: any = {
         email: form.email,
         username: form.username,
-        full_name: form.full_name,
         empresa_ids: form.empresa_ids || [],
         area_ids: form.area_ids || [],
         rol_id: form.rol_id || null,
@@ -264,12 +265,12 @@ export default function EditarUsuarioPage() {
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-full bg-white/25 grid place-items-center text-2xl font-semibold">
               <span>
-                {(user.full_name || user.email || "?").charAt(0).toUpperCase()}
+                {getUserInitial(user)}
               </span>
             </div>
             <div>
               <h2 className="text-xl md:text-2xl font-bold leading-tight">
-                {user.full_name || user.email}
+                {getUserDisplayName(user, user.email)}
               </h2>
               <p className="text-white/80 text-sm md:text-base">
                 {user.rol?.nombre || "Sin rol"} ·{" "}
@@ -316,12 +317,6 @@ export default function EditarUsuarioPage() {
               name="username"
               value={form.username}
               onChange={(e) => onChange("main", "username", e.target.value)}
-            />
-            <Input
-              label="Nombre completo"
-              name="full_name"
-              value={form.full_name}
-              onChange={(e) => onChange("main", "full_name", e.target.value)}
             />
             <CustomSelect
               label="Rol"

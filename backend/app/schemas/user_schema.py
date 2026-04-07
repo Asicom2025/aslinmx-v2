@@ -14,6 +14,9 @@ class UserBase(BaseModel):
     email: EmailStr
     username: Optional[str] = Field(None, min_length=3, max_length=100)
     full_name: Optional[str] = None
+    nombre: Optional[str] = None
+    apellido_paterno: Optional[str] = None
+    apellido_materno: Optional[str] = None
     # Campos adicionales de conveniencia
     multiempresa: Optional[bool] = None
     ultimo_acceso: Optional[datetime] = None
@@ -186,6 +189,9 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     username: Optional[str] = Field(None, min_length=3, max_length=100)
     full_name: Optional[str] = None
+    nombre: Optional[str] = None
+    apellido_paterno: Optional[str] = None
+    apellido_materno: Optional[str] = None
     password: Optional[str] = Field(None, min_length=6, max_length=100)
     is_active: Optional[bool] = None
     empresa_id: Optional[UUID] = None
@@ -202,6 +208,9 @@ class UserEmpresaSwitch(BaseModel):
 
 
 class UserMeUpdate(BaseModel):
+    nombre: Optional[str] = None
+    apellido_paterno: Optional[str] = None
+    apellido_materno: Optional[str] = None
     perfil: Optional[UsuarioPerfilUpdate] = None
     contactos: Optional[UsuarioContactosUpdate] = None
     direccion: Optional[UsuarioDireccionUpdate] = None

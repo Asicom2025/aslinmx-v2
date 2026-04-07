@@ -11,6 +11,7 @@ interface ModalProps {
   children: React.ReactNode;
   maxWidthClass?: string; // e.g. max-w-2xl
   maxHeightClass?: string; // e.g. max-h-[90vh]
+  contentClassName?: string;
 }
 
 export default function Modal({ 
@@ -19,7 +20,8 @@ export default function Modal({
   title, 
   children, 
   maxWidthClass = "max-w-2xl",
-  maxHeightClass = "max-h-[90vh]"
+  maxHeightClass = "max-h-[90vh]",
+  contentClassName = "flex-1 overflow-y-auto p-4 sm:p-6",
 }: ModalProps) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -76,7 +78,7 @@ export default function Modal({
           )}
           
           {/* Content - Scrollable */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+          <div className={contentClassName}>
             {children}
           </div>
         </div>

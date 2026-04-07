@@ -118,6 +118,14 @@ const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
   },
 });
 
+function formatSiniestroConsecutivo(value: string | number | null | undefined): string {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/\D/g, "");
+  if (!normalized) return "";
+  return normalized.padStart(3, "0");
+}
+
 const extractValue = (source: any, keys: string[]): string => {
   if (!source) return "";
   if (Array.isArray(source)) {
@@ -161,6 +169,12 @@ const mapUserToPersona = (usuario: any): PersonaLigera => {
     ]),
     estado: extractValue(direccion, ["estado"]),
     ciudad: extractValue(direccion, ["ciudad"]),
+    areas: Array.isArray(usuario?.areas)
+      ? usuario.areas.map((area: any) => ({
+          id: String(area?.id || ""),
+          nombre: area?.nombre || "",
+        }))
+      : [],
   };
 };
 
@@ -231,7 +245,6 @@ function SiniestrosPageContent() {
     activo: true,
   });
   const [extendedForm, setExtendedForm] = useState<ExtendedSiniestroFormState>(() => buildInitialExtendedForm());
-  const [roles, setRoles] = useState<any[]>([]);
   const [institucionesCatalogo, setInstitucionesCatalogo] = useState<
     CatalogOption[]
   >([]);
@@ -316,7 +329,6 @@ function SiniestrosPageContent() {
     loadAreas();
     loadEstados();
     loadUsuarios();
-    loadRoles();
     loadInstituciones();
     loadAutoridades();
     loadAsegurados();
@@ -411,15 +423,6 @@ function SiniestrosPageContent() {
       setUsuarios(data);
     } catch (e: any) {
       console.error("Error al cargar usuarios:", e);
-    }
-  };
-
-  const loadRoles = async () => {
-    try {
-      const data = await apiService.getRoles();
-      setRoles(data);
-    } catch (e: any) {
-      console.error("Error al cargar roles:", e);
     }
   };
 
@@ -1007,23 +1010,6 @@ function SiniestrosPageContent() {
     }
   };
 
-  const rolesMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    (roles || []).forEach((rol: any) => {
-      if (rol?.id) {
-        map[rol.id] = rol.nombre;
-      }
-    });
-    return map;
-  }, [roles]);
-
-  const getRoleName = (usuario: any) => {
-    if (usuario?.rol?.nombre) return usuario.rol.nombre;
-    if (usuario?.rol_id && rolesMap[usuario.rol_id])
-      return rolesMap[usuario.rol_id];
-    return "";
-  };
-
   // Función para mapear asegurados del catálogo a PersonaLigera
   const mapAseguradoToPersona = (asegurado: any): PersonaLigera => {
     return {
@@ -1064,15 +1050,6 @@ function SiniestrosPageContent() {
     // Usar el catálogo de provenientes en lugar de filtrar usuarios
     return (provenientesCatalogo || []).map(mapProvenienteToPersona);
   }, [provenientesCatalogo]);
-
-  const abogadosCatalog = useMemo<PersonaLigera[]>(() => {
-    return (usuarios || [])
-      .filter((usuario: any) => {
-        const rolNombre = getRoleName(usuario);
-        return rolNombre === "Abogado" || rolNombre === "Abogado JR";
-      })
-      .map(mapUserToPersona);
-  }, [usuarios, rolesMap]);
 
   // Funciones helper para obtener datos relacionados
   const getProvenienteNombre = (provenienteId?: string) => {
@@ -1262,7 +1239,7 @@ function SiniestrosPageContent() {
         let codigo =
           getProvenienteCodigo(row.original.proveniente_id) +
           "-" +
-          row.original.codigo +
+          formatSiniestroConsecutivo(row.original.codigo) +
           "-" +
           String(anualidad).padStart(2, '0');
         return (

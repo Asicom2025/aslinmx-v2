@@ -14,6 +14,7 @@ import logging
 from app.core.config import settings
 from app.core.error_responses import ensure_detail_string, validation_errors_to_detail
 from app.api.api_router import api_router
+from app.services.storage_ops_service import StorageOpsService
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -136,6 +137,13 @@ async def startup_event():
         # Si falla (ej. race con workers), las tablas probablemente ya existen
         logger.debug("Startup create_all: %s", e)
 
+    if settings.STORAGE_VALIDATE_ON_STARTUP:
+        try:
+            StorageOpsService.ensure_runtime_ready()
+        except Exception as exc:
+            logger.error("Storage startup validation failed: %s", exc)
+            raise
+
 
 @app.get("/")
 async def root():
@@ -151,10 +159,12 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Endpoint para verificar el estado del servidor"""
+    storage_status = StorageOpsService.get_runtime_status()
     return {
         "status": "healthy",
         "service": "Aslin 2.0 Backend",
-        "version": "2.0.0"
+        "version": "2.0.0",
+        "storage": storage_status,
     }
 
 

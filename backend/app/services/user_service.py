@@ -5,7 +5,7 @@ Lógica de negocio para gestión de usuarios
 
 from typing import Optional, List
 from uuid import UUID
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from fastapi import HTTPException, status
 
 from app.models.user import (
@@ -39,6 +39,69 @@ import pyotp
 
 class UserService:
     """Servicio para operaciones CRUD de usuarios"""
+
+    @staticmethod
+    def _normalize_profile_payload(
+        *,
+        perfil_payload=None,
+        nombre: Optional[str] = None,
+        apellido_paterno: Optional[str] = None,
+        apellido_materno: Optional[str] = None,
+        full_name: Optional[str] = None,
+    ) -> dict:
+        """
+        Combina datos de perfil anidados y top-level para operar el perfil del usuario.
+        """
+        profile_data = {}
+        if perfil_payload is not None:
+            profile_data.update(perfil_payload.model_dump(exclude_unset=True))
+
+        top_level_names = {
+            "nombre": nombre,
+            "apellido_paterno": apellido_paterno,
+            "apellido_materno": apellido_materno,
+        }
+        for field, value in top_level_names.items():
+            if value is not None:
+                profile_data[field] = value
+
+        if full_name and not profile_data.get("nombre"):
+            profile_data["nombre"] = full_name
+
+        normalized = {}
+        for field, value in profile_data.items():
+            if isinstance(value, str):
+                normalized[field] = value.strip()
+            else:
+                normalized[field] = value
+        return normalized
+
+    @staticmethod
+    def _upsert_profile(db: Session, db_user: User, profile_data: dict) -> None:
+        """
+        Crea o actualiza el perfil del usuario usando nombre y apellidos separados.
+        """
+        if not profile_data:
+            return
+
+        perfil = db_user.perfil
+        if perfil is None:
+            perfil = UsuarioPerfil(
+                usuario_id=db_user.id,
+                nombre=profile_data.get("nombre") or "",
+                apellido_paterno=profile_data.get("apellido_paterno") or "",
+                apellido_materno=profile_data.get("apellido_materno") or "",
+                titulo=profile_data.get("titulo"),
+                cedula_profesional=profile_data.get("cedula_profesional"),
+                foto_de_perfil=profile_data.get("foto_de_perfil"),
+                firma=profile_data.get("firma"),
+                firma_digital=profile_data.get("firma_digital"),
+            )
+            db.add(perfil)
+            return
+
+        for field, value in profile_data.items():
+            setattr(perfil, field, value)
     
     @staticmethod
     def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
@@ -62,7 +125,18 @@ class UserService:
         limit: int = 100
     ) -> List[User]:
         """Obtiene lista de usuarios con paginación"""
-        return db.query(User).offset(skip).limit(limit).all()
+        return (
+            db.query(User)
+            .options(
+                selectinload(User.perfil),
+                selectinload(User.contactos),
+                selectinload(User.direccion),
+                selectinload(User.areas),
+            )
+            .offset(skip)
+            .limit(limit)
+            .all()
+        )
     
     @staticmethod
     def create_user(db: Session, user: UserCreate) -> User:
@@ -110,21 +184,16 @@ class UserService:
             db.commit()
             db.refresh(db_user)
 
-        # Crear perfil opcional si viene full_name
-        if getattr(user, "full_name", None):
-            try:
-                nombre = user.full_name
-                if nombre:
-                    perfil = UsuarioPerfil(
-                        usuario_id=db_user.id,
-                        nombre=nombre,
-                        apellido_paterno="",
-                        apellido_materno="",
-                    )
-                    db.add(perfil)
-                    db.commit()
-            except Exception:
-                pass
+        profile_data = UserService._normalize_profile_payload(
+            nombre=getattr(user, "nombre", None),
+            apellido_paterno=getattr(user, "apellido_paterno", None),
+            apellido_materno=getattr(user, "apellido_materno", None),
+            full_name=getattr(user, "full_name", None),
+        )
+        if profile_data:
+            UserService._upsert_profile(db, db_user, profile_data)
+            db.commit()
+            db.refresh(db_user)
         return db_user
 
     @staticmethod
@@ -255,7 +324,20 @@ class UserService:
         # Actualizar campos básicos (full_name es propiedad de solo lectura, se actualiza vía perfil)
         update_data = user_update.model_dump(
             exclude_unset=True,
-            exclude={"password", "empresa_id", "empresa_ids", "rol_id", "area_ids", "perfil", "contactos", "direccion", "full_name"},
+            exclude={
+                "password",
+                "empresa_id",
+                "empresa_ids",
+                "rol_id",
+                "area_ids",
+                "perfil",
+                "contactos",
+                "direccion",
+                "full_name",
+                "nombre",
+                "apellido_paterno",
+                "apellido_materno",
+            },
         )
         
         if user_update.password is not None:
@@ -284,25 +366,14 @@ class UserService:
             if hasattr(db_user, field):
                 setattr(db_user, field, value)
         
-        # Perfil
-        if user_update.perfil is not None:
-            perfil = db_user.perfil
-            if perfil is None:
-                perfil = UsuarioPerfil(
-                    usuario_id=db_user.id,
-                    nombre=user_update.perfil.nombre or "",
-                    apellido_paterno=user_update.perfil.apellido_paterno or "",
-                    apellido_materno=user_update.perfil.apellido_materno or "",
-                    titulo=user_update.perfil.titulo,
-                    cedula_profesional=user_update.perfil.cedula_profesional,
-                    foto_de_perfil=getattr(user_update.perfil, "foto_de_perfil", None),
-                    firma=getattr(user_update.perfil, "firma", None),
-                    firma_digital=getattr(user_update.perfil, "firma_digital", None),
-                )
-                db.add(perfil)
-            else:
-                for k, v in user_update.perfil.model_dump(exclude_unset=True).items():
-                    setattr(perfil, k, v)
+        profile_data = UserService._normalize_profile_payload(
+            perfil_payload=user_update.perfil,
+            nombre=user_update.nombre,
+            apellido_paterno=user_update.apellido_paterno,
+            apellido_materno=user_update.apellido_materno,
+            full_name=user_update.full_name,
+        )
+        UserService._upsert_profile(db, db_user, profile_data)
         
         # Contactos
         if user_update.contactos is not None:
@@ -417,22 +488,13 @@ class UserService:
         """Actualiza perfil, contactos y dirección del usuario actual.
 
         Crea los registros relacionados si no existen."""
-        # Perfil
-        if payload.perfil is not None:
-            perfil = current_user.perfil
-            if perfil is None:
-                perfil = UsuarioPerfil(
-                    usuario_id=current_user.id,
-                    nombre=payload.perfil.nombre or "",
-                    apellido_paterno=payload.perfil.apellido_paterno or "",
-                    apellido_materno=payload.perfil.apellido_materno or "",
-                    titulo=payload.perfil.titulo,
-                    cedula_profesional=payload.perfil.cedula_profesional,
-                )
-                db.add(perfil)
-            else:
-                for k, v in payload.perfil.model_dump(exclude_unset=True).items():
-                    setattr(perfil, k, v)
+        profile_data = UserService._normalize_profile_payload(
+            perfil_payload=payload.perfil,
+            nombre=payload.nombre,
+            apellido_paterno=payload.apellido_paterno,
+            apellido_materno=payload.apellido_materno,
+        )
+        UserService._upsert_profile(db, current_user, profile_data)
 
         # Contactos
         if payload.contactos is not None:

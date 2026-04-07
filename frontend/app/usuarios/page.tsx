@@ -16,6 +16,7 @@ import DataTable from "@/components/ui/DataTable";
 import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import { getUserDisplayName } from "@/lib/userName";
 import { ColumnDef } from "@tanstack/react-table";
 import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
@@ -26,11 +27,19 @@ interface User {
   email: string;
   username?: string;
   full_name?: string;
+  nombre?: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
   is_active: boolean;
   created_at: string;
   empresa?: { id: string; nombre: string } | null;
   empresas?: { id: string; nombre: string }[] | null;
   rol?: { id: string; nombre: string } | null;
+  perfil?: {
+    nombre?: string;
+    apellido_paterno?: string;
+    apellido_materno?: string;
+  } | null;
 }
 
 export default function UsuariosPage() {
@@ -122,7 +131,9 @@ export default function UsuariosPage() {
     setUsuarioForm({
       email: "",
       username: "",
-      full_name: "",
+      nombre: "",
+      apellido_paterno: "",
+      apellido_materno: "",
       password: "",
       empresa_ids: [],
       rol_id: "",
@@ -138,7 +149,17 @@ export default function UsuariosPage() {
   const submitUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await apiService.registerUser(usuarioForm);
+      await apiService.registerUser({
+        email: usuarioForm.email,
+        username: usuarioForm.username || undefined,
+        nombre: usuarioForm.nombre,
+        apellido_paterno: usuarioForm.apellido_paterno,
+        apellido_materno: usuarioForm.apellido_materno || undefined,
+        password: usuarioForm.password,
+        empresa_ids: usuarioForm.empresa_ids || [],
+        rol_id: usuarioForm.rol_id || undefined,
+        is_active: usuarioForm.is_active,
+      });
       await swalSuccess("Usuario creado correctamente");
       setUsuarioModalOpen(false);
       loadUsuarios();
@@ -177,7 +198,7 @@ export default function UsuariosPage() {
     {
       accessorKey: "full_name",
       header: "Nombre Completo",
-      cell: ({ row }) => row.original.full_name || "Sin nombre",
+      cell: ({ row }) => getUserDisplayName(row.original, "Sin nombre"),
       enableSorting: true,
     },
     {
@@ -497,11 +518,29 @@ export default function UsuariosPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Completo</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
             <Input
-              name="full_name"
-              value={usuarioForm.full_name || ""}
-              onChange={(e) => setUsuarioForm({ ...usuarioForm, full_name: e.target.value })}
+              name="nombre"
+              value={usuarioForm.nombre || ""}
+              onChange={(e) => setUsuarioForm({ ...usuarioForm, nombre: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Apellido paterno *</label>
+            <Input
+              name="apellido_paterno"
+              value={usuarioForm.apellido_paterno || ""}
+              onChange={(e) => setUsuarioForm({ ...usuarioForm, apellido_paterno: e.target.value })}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Apellido materno</label>
+            <Input
+              name="apellido_materno"
+              value={usuarioForm.apellido_materno || ""}
+              onChange={(e) => setUsuarioForm({ ...usuarioForm, apellido_materno: e.target.value })}
             />
           </div>
           <div>

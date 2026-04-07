@@ -6,6 +6,8 @@ import Switch from "@/components/ui/Switch";
 import JoditEditor from "@/components/ui/JoditEditor";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import apiService from "@/lib/apiService";
+import { buildPersonFullName } from "@/lib/userName";
+import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 
 declare global {
   interface Window {
@@ -141,6 +143,7 @@ export type PersonaLigera = {
   telefono?: string;
   estado?: string;
   ciudad?: string;
+  areas?: { id: string; nombre?: string }[];
 };
 
 type SiniestroWizardProps = {
@@ -349,12 +352,44 @@ export default function SiniestroWizard({
     }));
   }, [provenientes]);
 
-  const abogadoOptions = useMemo(() => {
-    return abogados.map((p) => ({
-      id: p.id,
-      nombre: `${p.nombre || ""} ${p.apellido_paterno || ""}`.trim() || p.email || p.id,
+  const abogadosFiltrados = useMemo(
+    () =>
+      filtrarAbogadosPorAreas(
+        abogados as any[],
+        extendedForm.generales.areas_ids || [],
+      ),
+    [abogados, extendedForm.generales.areas_ids],
+  );
+
+  const abogadoOptionsFiltrados = useMemo(
+    () =>
+      abogadosFiltrados.map((p: any) => ({
+        id: p.id,
+        nombre: buildPersonFullName(p) || p.email || p.id,
+      })),
+    [abogadosFiltrados],
+  );
+
+  useEffect(() => {
+    const abogadosDisponiblesIds = new Set(
+      abogadoOptionsFiltrados.map((abogado) => abogado.id),
+    );
+    const usuariosSeleccionados = extendedForm.generales.usuarios_ids || [];
+    const usuariosValidos = usuariosSeleccionados.filter((usuarioId) =>
+      abogadosDisponiblesIds.has(usuarioId),
+    );
+
+    if (usuariosValidos.length === usuariosSeleccionados.length) return;
+
+    setExtendedForm((prev) => ({
+      ...prev,
+      generales: {
+        ...prev.generales,
+        usuarios_ids: usuariosValidos,
+        abogado_id: usuariosValidos[0] || "",
+      },
     }));
-  }, [abogados]);
+  }, [abogadoOptionsFiltrados, extendedForm.generales.usuarios_ids, setExtendedForm]);
 
   const handleSelectAsegurado = async (id: string) => {
     if (!id) {
@@ -1121,11 +1156,16 @@ export default function SiniestroWizard({
                       }
                     }}
                     isMulti
-                    options={abogadoOptions.map((option) => ({
+                    options={abogadoOptionsFiltrados.map((option) => ({
                       value: option.id,
                       label: option.nombre,
                     }))}
-                    placeholder="Seleccionar usuarios..."
+                    placeholder={
+                      (extendedForm.generales.areas_ids || []).length > 0
+                        ? "Seleccionar usuarios..."
+                        : "Selecciona primero al menos un área..."
+                    }
+                    disabled={(extendedForm.generales.areas_ids || []).length === 0}
                   />
                   <CustomSelect
                     label="Prioridad"

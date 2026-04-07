@@ -8,7 +8,8 @@ from app.api.routes import (
     user_routes, flujo_trabajo_routes, legal_routes, siniestros_routes,
     bitacora_routes, documentos_routes, notificaciones_routes, evidencias_routes,
     siniestro_relaciones_routes, versiones_descripcion_routes, dashboard_routes, rol_routes, empresa_routes,
-    permiso_routes, pdf_routes, config_routes, reporte_routes, export_routes, auditoria_routes, backup_routes
+    permiso_routes, pdf_routes, config_routes, reporte_routes, export_routes, auditoria_routes, backup_routes,
+    legacy_document_migration_routes, generated_files_routes,
 )
 
 # Router principal
@@ -52,6 +53,12 @@ api_router.include_router(
 )
 
 api_router.include_router(
+    generated_files_routes.router,
+    prefix="",
+    tags=["Archivos Generados"]
+)
+
+api_router.include_router(
     notificaciones_routes.router,
     prefix="",
     tags=["Notificaciones"]
@@ -67,6 +74,12 @@ api_router.include_router(
     siniestro_relaciones_routes.router,
     prefix="",
     tags=["Siniestros - Relaciones"]
+)
+
+api_router.include_router(
+    legacy_document_migration_routes.router,
+    prefix="",
+    tags=["Siniestros - Migración Documental"]
 )
 
 api_router.include_router(

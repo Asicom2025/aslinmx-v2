@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Button from "@/components/ui/Button";
 import apiService from "@/lib/apiService";
-import { downloadPDFFromBase64, downloadPDFFromBlob } from "@/lib/pdfUtils";
 import { swalError, swalSuccess } from "@/lib/swal";
 
 interface PDFGeneratorProps {
@@ -97,12 +96,12 @@ export default function PDFGenerator({
 
       if (download) {
         // Descargar directamente
-        const blob = plantillaId
-          ? await apiService.downloadPDFFromTemplate(pdfData as any)
-          : await apiService.downloadPDF(pdfData as any);
-
         const finalFilename = filename || "documento";
-        downloadPDFFromBlob(blob, finalFilename);
+        if (plantillaId) {
+          await apiService.downloadPDFFromTemplate(pdfData as any);
+        } else {
+          await apiService.downloadPDF(pdfData as any);
+        }
         await swalSuccess("PDF generado y descargado exitosamente");
         onSuccess?.(finalFilename);
       } else {

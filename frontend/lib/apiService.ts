@@ -102,6 +102,39 @@ api.interceptors.response.use(
   }
 );
 
+const triggerDownloadFromAccess = async (access: any, preferredFilename?: string) => {
+  const provider = String(access?.provider || "").toLowerCase();
+  const finalFilename = preferredFilename || access?.filename || "archivo";
+  if (!access?.url) {
+    throw new Error("La respuesta de descarga no incluye una URL válida");
+  }
+
+  if (provider === "r2" && access?.url) {
+    const link = document.createElement("a");
+    link.href = access.url;
+    link.download = finalFilename;
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return access;
+  }
+
+  const response = await api.get(access?.url, {
+    responseType: "blob",
+  });
+  const blob = response.data as Blob;
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = finalFilename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+  return access;
+};
+
 // Servicios de autenticación
 const authService = {
   login: async (username: string, password: string, recaptchaToken?: string) => {
@@ -119,8 +152,11 @@ const authService = {
 
   register: async (userData: {
     email: string;
-    username: string;
+    username?: string;
     password: string;
+    nombre?: string;
+    apellido_paterno?: string;
+    apellido_materno?: string;
     full_name?: string;
   }) => {
     const response = await api.post("/users/register", userData);
@@ -177,6 +213,9 @@ const userService = {
     email: string;
     username?: string;
     password: string;
+    nombre?: string;
+    apellido_paterno?: string;
+    apellido_materno?: string;
     full_name?: string;
     empresa_id?: string;
     empresa_ids?: string[];
@@ -190,6 +229,9 @@ const userService = {
     email?: string;
     username?: string;
     full_name?: string;
+    nombre?: string;
+    apellido_paterno?: string;
+    apellido_materno?: string;
     empresa_id?: string;
     empresa_ids?: string[];
     rol_id?: string;
@@ -1188,6 +1230,11 @@ const documentoService = {
     return response.data;
   },
 
+  getDocumentoArchivoUrl: async (documentoId: string) => {
+    const response = await api.get(`/documentos/${documentoId}/archivo-url`);
+    return response.data;
+  },
+
   createDocumento: async (data: {
     siniestro_id: string;
     tipo_documento_id?: string;
@@ -1275,14 +1322,27 @@ const documentoService = {
 
   /** Descarga o abre el archivo de un documento (documentos subidos). */
   downloadDocumentoArchivo: async (documentoId: string, nombreArchivo?: string) => {
-    const response = await api.get(`/documentos/${documentoId}/archivo`, {
+    const access = await documentoService.getDocumentoArchivoUrl(documentoId);
+    const provider = String(access?.provider || "").toLowerCase();
+    const finalFilename = nombreArchivo || access?.filename || "archivo";
+
+    if (provider === "r2" && access?.url) {
+      const a = document.createElement("a");
+      a.href = access.url;
+      a.download = finalFilename;
+      a.rel = "noopener noreferrer";
+      a.click();
+      return;
+    }
+
+    const response = await api.get(access?.url || `/documentos/${documentoId}/archivo`, {
       responseType: "blob",
     });
     const blob = response.data as Blob;
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = nombreArchivo || "archivo";
+    a.download = finalFilename;
     a.click();
     window.URL.revokeObjectURL(url);
   },
@@ -1291,15 +1351,98 @@ const documentoService = {
   fetchDocumentoArchivoBlob: async (
     documentoId: string
   ): Promise<{ blob: Blob; contentType: string }> => {
-    const response = await api.get(`/documentos/${documentoId}/archivo`, {
-      responseType: "blob",
-    });
+    const access = await documentoService.getDocumentoArchivoUrl(documentoId);
+    const provider = String(access?.provider || "").toLowerCase();
+    const response =
+      provider === "r2" && access?.url
+        ? await axios.get(access.url, { responseType: "blob" })
+        : await api.get(access?.url || `/documentos/${documentoId}/archivo`, {
+            responseType: "blob",
+          });
     const raw =
       (response.headers["content-type"] as string | undefined) ||
       (response.headers["Content-Type"] as string | undefined) ||
       "application/octet-stream";
     const contentType = raw.split(";")[0].trim();
     return { blob: response.data as Blob, contentType };
+  },
+};
+
+// Servicios de migración documental legacy
+const legacyDocumentMigrationService = {
+  getLegacyDocumentMigrationContext: async (siniestroId: string, areaId?: string) => {
+    const params = new URLSearchParams();
+    if (areaId) params.append("area_id", areaId);
+    const query = params.toString();
+    const response = await api.get(
+      `/siniestros/${siniestroId}/migracion-documental/contexto${query ? `?${query}` : ""}`
+    );
+    return response.data;
+  },
+  rescanLegacyDocumentMigration: async (siniestroId: string, areaId?: string) => {
+    const params = new URLSearchParams();
+    if (areaId) params.append("area_id", areaId);
+    const query = params.toString();
+    const response = await api.post(`/siniestros/${siniestroId}/migracion-documental/scan${query ? `?${query}` : ""}`);
+    return response.data;
+  },
+  getLegacyDocumentMigrationFiles: async (siniestroId: string, areaId?: string) => {
+    const params = new URLSearchParams();
+    if (areaId) params.append("area_id", areaId);
+    const query = params.toString();
+    const response = await api.get(
+      `/siniestros/${siniestroId}/migracion-documental/archivos${query ? `?${query}` : ""}`
+    );
+    return response.data;
+  },
+  getLegacyDocumentMigrationDestinations: async (siniestroId: string, areaId?: string) => {
+    const params = new URLSearchParams();
+    if (areaId) params.append("area_id", areaId);
+    const query = params.toString();
+    const response = await api.get(
+      `/siniestros/${siniestroId}/migracion-documental/destinos${query ? `?${query}` : ""}`
+    );
+    return response.data;
+  },
+  fetchLegacyDocumentPreviewBlob: async (
+    siniestroId: string,
+    archivoId: string
+  ): Promise<{ blob: Blob; contentType: string }> => {
+    const response = await api.get(
+      `/siniestros/${siniestroId}/migracion-documental/archivos/${archivoId}/preview`,
+      { responseType: "blob" }
+    );
+    const raw =
+      (response.headers["content-type"] as string | undefined) ||
+      (response.headers["Content-Type"] as string | undefined) ||
+      "application/octet-stream";
+    return {
+      blob: response.data as Blob,
+      contentType: raw.split(";")[0].trim(),
+    };
+  },
+  finalizeLegacyDocumentMigration: async (
+    siniestroId: string,
+    data: {
+      items: Array<{
+        legacy_file_id: string;
+        flujo_trabajo_id: string;
+        categoria_documento_id?: string | null;
+        etapa_flujo_id: string;
+        tipo_documento_id: string;
+        requisito_documento_id?: string | null;
+      }>;
+    },
+    areaId?: string
+  ) => {
+    const params = new URLSearchParams();
+    if (areaId) params.append("area_id", areaId);
+    const query = params.toString();
+    const response = await api.post(
+      `/siniestros/${siniestroId}/migracion-documental/finalizar${query ? `?${query}` : ""}`,
+      data
+    );
+    return response.data;
   },
 };
 
@@ -1458,6 +1601,8 @@ const pdfService = {
 
   downloadPDF: async (data: {
     html_content: string;
+    plantilla_id?: string;
+    siniestro_id?: string;
     page_size?: "A4" | "Letter" | "Legal" | "A3" | "A5";
     orientation?: "portrait" | "landscape";
     margin_top?: string;
@@ -1468,14 +1613,14 @@ const pdfService = {
     variables?: Record<string, any>;
     filename?: string;
   }) => {
-    const response = await api.post("/pdf/download", data, {
-      responseType: "blob",
-    });
+    const response = await api.post("/pdf/download", data);
+    await triggerDownloadFromAccess(response.data, data.filename);
     return response.data;
   },
 
   downloadPDFFromTemplate: async (data: {
     plantilla_id: string;
+    siniestro_id?: string;
     variables?: Record<string, any>;
     page_size?: "A4" | "Letter" | "Legal" | "A3" | "A5";
     orientation?: "portrait" | "landscape";
@@ -1486,9 +1631,8 @@ const pdfService = {
     custom_css?: string;
     filename?: string;
   }) => {
-    const response = await api.post("/pdf/download-from-template", data, {
-      responseType: "blob",
-    });
+    const response = await api.post("/pdf/download-from-template", data);
+    await triggerDownloadFromAccess(response.data, data.filename);
     return response.data;
   },
 };
@@ -1542,6 +1686,18 @@ const configService = {
   },
   deletePlantillaCorreo: async (id: string) => {
     await api.delete(`/configuracion/plantillas-correo/${id}`);
+  },
+  getStorageStatus: async (verifyObjects: boolean = false) => {
+    const response = await api.get("/configuracion/storage/estado", {
+      params: { verify_objects: verifyObjects },
+    });
+    return response.data;
+  },
+  reconcileStorage: async (verifyObjects: boolean = true) => {
+    const response = await api.post("/configuracion/storage/reconciliar", null, {
+      params: { verify_objects: verifyObjects },
+    });
+    return response.data;
   },
   enviarCorreo: async (data: {
     configuracion_smtp_id: string;
@@ -1600,9 +1756,8 @@ const reporteService = {
     return response.data;
   },
   descargarReporte: async (data: any) => {
-    const response = await api.post("/reportes/generar/descargar", data, {
-      responseType: "blob",
-    });
+    const response = await api.post("/reportes/generar/descargar", data);
+    await triggerDownloadFromAccess(response.data, response.data?.filename || response.data?.nombre_archivo);
     return response.data;
   },
   getEstadisticasModulo: async (modulo: string, filtros?: any) => {
@@ -1616,22 +1771,22 @@ const exportService = {
   exportarDatos: async (modulo: string, formato: "excel" | "csv", filtros?: any) => {
     const response = await api.post(`/exportar/exportar/${modulo}`, filtros || {}, {
       params: { formato },
-      responseType: "blob",
     });
+    await triggerDownloadFromAccess(response.data);
     return response.data;
   },
   exportarExcel: async (modulo: string, filtros?: any) => {
     const response = await api.get(`/exportar/exportar/${modulo}/excel`, {
       params: filtros,
-      responseType: "blob",
     });
+    await triggerDownloadFromAccess(response.data);
     return response.data;
   },
   exportarCSV: async (modulo: string, filtros?: any) => {
     const response = await api.get(`/exportar/exportar/${modulo}/csv`, {
       params: filtros,
-      responseType: "blob",
     });
+    await triggerDownloadFromAccess(response.data);
     return response.data;
   },
 };
@@ -1711,6 +1866,7 @@ const apiService = {
   ...flujoTrabajoService,
   ...catalogService,
   ...documentoService,
+  ...legacyDocumentMigrationService,
   ...bitacoraService,
   ...notificacionService,
   ...configService,

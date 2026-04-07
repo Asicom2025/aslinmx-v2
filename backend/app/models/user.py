@@ -123,6 +123,24 @@ class Usuario(Base):
     updated_at = synonym("actualizado_en")
 
     @property
+    def nombre(self) -> str | None:
+        if self.perfil:
+            return self.perfil.nombre
+        return None
+
+    @property
+    def apellido_paterno(self) -> str | None:
+        if self.perfil:
+            return self.perfil.apellido_paterno
+        return None
+
+    @property
+    def apellido_materno(self) -> str | None:
+        if self.perfil:
+            return self.perfil.apellido_materno
+        return None
+
+    @property
     def full_name(self) -> str:
         if self.perfil:
             nombres = [self.perfil.nombre, self.perfil.apellido_paterno, self.perfil.apellido_materno]

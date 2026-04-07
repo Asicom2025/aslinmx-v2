@@ -2,13 +2,11 @@
 Rutas para generación de reportes
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
 import base64
-import io
 
 from app.db.session import get_db
 from app.core.security import get_current_user
@@ -19,10 +17,54 @@ from app.schemas.reporte_schema import (
     ReporteDisponible,
     ReporteFiltros
 )
+from app.schemas.storage_schema import GeneratedFileAccessResponse
+from app.services.generated_file_service import (
+    ArchivoGeneradoService,
+    build_generated_file_access_payload,
+)
 from app.services.reporte_service import ReporteService
-from app.services.export_service import ExportService
-
 router = APIRouter()
+
+
+def _persist_report_response(
+    *,
+    db: Session,
+    request: Request,
+    current_user: User,
+    request_payload: ReporteRequest,
+    nombre_archivo: str,
+    archivo_bytes: bytes,
+    media_type: str,
+) -> GeneratedFileAccessResponse:
+    try:
+        archivo_generado = ArchivoGeneradoService.persist_bytes(
+            db,
+            empresa_id=current_user.empresa_id,
+            filename=nombre_archivo,
+            data=archivo_bytes,
+            content_type=media_type,
+            tipo_origen="reporte",
+            formato=request_payload.formato,
+            generado_por=current_user.id,
+            category="reportes",
+            modulo=request_payload.modulo,
+            metadata_json={
+                "modulo": request_payload.modulo,
+                "columnas": request_payload.columnas or [],
+                "agrupaciones": request_payload.agrupaciones or [],
+                "ordenamiento": request_payload.ordenamiento or {},
+                "filtros": request_payload.filtros.model_dump(exclude_unset=True) if request_payload.filtros else {},
+                "incluir_graficos": bool(request_payload.incluir_graficos),
+            },
+        )
+        return GeneratedFileAccessResponse(
+            **build_generated_file_access_payload(archivo_generado, request)
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo persistir el reporte generado: {exc}",
+        ) from exc
 
 
 @router.get("/disponibles", response_model=List[ReporteDisponible])
@@ -215,8 +257,9 @@ async def generar_reporte(
         raise HTTPException(status_code=500, detail=f"Error al generar reporte: {str(e)}")
 
 
-@router.post("/generar/descargar")
+@router.post("/generar/descargar", response_model=GeneratedFileAccessResponse)
 async def descargar_reporte(
+    http_request: Request,
     request: ReporteRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -261,12 +304,14 @@ async def descargar_reporte(
         else:
             raise HTTPException(status_code=400, detail="Formato no soportado")
 
-        return StreamingResponse(
-            io.BytesIO(archivo_bytes),
+        return _persist_report_response(
+            db=db,
+            request=http_request,
+            current_user=current_user,
+            request_payload=request,
+            nombre_archivo=nombre_archivo,
+            archivo_bytes=archivo_bytes,
             media_type=media_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{nombre_archivo}"'
-            }
         )
 
     except ValueError as e:
