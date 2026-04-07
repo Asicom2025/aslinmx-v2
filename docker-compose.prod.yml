@@ -23,6 +23,7 @@ services:
     env_file: .env
     volumes:
       - ./db:/app/db:ro
+      - /opt/app/backend/uploads:/app/uploads:ro
     depends_on:
       db:
         condition: service_healthy
