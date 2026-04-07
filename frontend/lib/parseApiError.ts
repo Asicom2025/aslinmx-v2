@@ -18,6 +18,8 @@ const FIELD_LABELS: Record<string, string> = {
   email: "Correo electrónico",
   username: "Usuario",
   full_name: "Nombre completo",
+  apellido_paterno: "Apellido paterno",
+  apellido_materno: "Apellido materno",
   rol_id: "Rol",
   empresa_ids: "Empresas",
   is_active: "Estado activo",

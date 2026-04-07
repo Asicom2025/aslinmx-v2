@@ -311,6 +311,7 @@ class Siniestro(Base):
     proveniente_id = Column(UUID(as_uuid=True), ForeignKey("provenientes.id", ondelete="SET NULL"), nullable=True)
     codigo = Column(String(50), nullable=True, unique=True)  # Formato: {proveniente_id}-{consecutivo}-{año}
     numero_reporte = Column(String(100), nullable=True)
+    old_id = Column(String(255), nullable=True)
     
     # Calificación
     calificacion_id = Column(UUID(as_uuid=True), ForeignKey("calificaciones_siniestro.id", ondelete="SET NULL"), nullable=True)
@@ -362,6 +363,7 @@ class Documento(Base):
     flujo_trabajo_id = Column(UUID(as_uuid=True), ForeignKey("flujos_trabajo.id", ondelete="SET NULL"), nullable=True)
     # Requisito documental que originó este documento (nullable para documentos anteriores)
     requisito_documento_id = Column(UUID(as_uuid=True), ForeignKey("etapa_flujo_requisitos_documento.id", ondelete="SET NULL"), nullable=True)
+    storage_object_id = Column(UUID(as_uuid=True), ForeignKey("storage_objects.id", ondelete="SET NULL"), nullable=True)
     nombre_archivo = Column(String(255), nullable=False)
     ruta_archivo = Column(String(500), nullable=True)
     contenido = Column(Text, nullable=True)  # Contenido HTML del documento editado
@@ -383,6 +385,7 @@ class Documento(Base):
     plantilla_origen = relationship("PlantillaDocumento", foreign_keys=[plantilla_documento_id], lazy="joined")
     area = relationship("Area", foreign_keys=[area_id], lazy="select")
     flujo_trabajo = relationship("FlujoTrabajo", foreign_keys=[flujo_trabajo_id], lazy="select")
+    storage_object = relationship("StorageObject", foreign_keys=[storage_object_id], lazy="joined", back_populates="documentos")
 
 
 class BitacoraActividad(Base):

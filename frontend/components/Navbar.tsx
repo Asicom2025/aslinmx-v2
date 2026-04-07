@@ -9,6 +9,7 @@ import { FaSpinner } from "react-icons/fa";
 import { FiBell, FiMenu, FiSearch, FiChevronDown } from "react-icons/fi";
 import apiService from "@/lib/apiService";
 import { Notificacion } from "@/types/notificaciones";
+import { getUserDisplayName, getUserInitial } from "@/lib/userName";
 
 type BusquedaTab = "id" | "numero_siniestro" | "asegurado";
 
@@ -31,6 +32,8 @@ export default function Navbar() {
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const { user, logout, activeEmpresa, setActiveEmpresa } = useUser();
+  const userDisplayName = getUserDisplayName(user);
+  const userInitial = getUserInitial(user);
   const empresasDisponibles = useMemo<EmpresaSummary[]>(() => {
     const lista = user?.empresas ?? [];
     const empresaActual = user?.empresa ?? null;
@@ -370,11 +373,11 @@ export default function Navbar() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <span>{user?.full_name?.charAt(0).toUpperCase() || <FaSpinner className="animate-spin w-4 h-4" />}</span>
+                  <span>{userDisplayName ? userInitial : <FaSpinner className="animate-spin w-4 h-4" />}</span>
                 )}
               </div>
               <span className="hidden sm:inline line-clamp-1 truncate max-w-[200px]">
-                {user?.full_name || user?.email || <FaSpinner className="animate-spin w-4 h-4" />}
+                {userDisplayName || user?.email || <FaSpinner className="animate-spin w-4 h-4" />}
               </span>
               <FiChevronDown className={`w-4 h-4 transition-transform ${
                 profileOpen ? "rotate-180" : "rotate-0"
@@ -385,7 +388,7 @@ export default function Navbar() {
               <div className="absolute right-0 mt-2 w-auto bg-white text-gray-800 rounded-md shadow-lg ring-1 ring-black/5 z-50">
                 <div className="px-4 py-3 border-b">
                   <p className="font-medium">
-                    {user?.full_name || user?.email || "Mi Cuenta"}
+                    {userDisplayName || user?.email || "Mi Cuenta"}
                   </p>
                   <p className="text-sm text-gray-500 line-clamp-1">
                     {user?.email}

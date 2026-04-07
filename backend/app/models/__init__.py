@@ -51,6 +51,8 @@ from app.models.backup import (
     Backup,
     ConfiguracionBackup,
 )
+from app.models.storage import StorageObject, ArchivoGenerado
+from app.models.legacy_temp import TmpSiniestroFile
 
 __all__ = [
     "User",
@@ -95,4 +97,7 @@ __all__ = [
     "HistorialCorreo",
     "Backup",
     "ConfiguracionBackup",
+    "StorageObject",
+    "ArchivoGenerado",
+    "TmpSiniestroFile",
 ]

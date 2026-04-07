@@ -49,6 +49,28 @@ class Settings(BaseSettings):
     # Rutas de assets para plantillas de correo (servidos por el frontend en /assets/...)
     EMAIL_LOGO_PATH: str = "/assets/logos/logo_dx-legal.png"
     EMAIL_FILE_ICON_PATH: str = "/assets/icons/file2.png"
+
+    # Migración documental legacy
+    LEGACY_DOCUMENTS_ENABLED: bool = True
+    LEGACY_DOCUMENTS_ROOT: Optional[str] = None
+    LEGACY_DOCUMENTS_PATH_TEMPLATE: str = "{old_id}"
+    LEGACY_DOCUMENTS_SESSION_MINUTES: int = 30
+    LEGACY_DOCUMENTS_REMOTE_TIMEOUT_SECONDS: int = 30
+
+    # Storage de archivos
+    STORAGE_PROVIDER: str = "local"  # local, r2, auto
+    UPLOAD_DIR: str = "uploads"
+    STORAGE_LOCAL_ROOT: Optional[str] = None
+    STORAGE_SIGNED_URL_TTL_SECONDS: int = 900
+    STORAGE_VALIDATE_ON_STARTUP: bool = True
+    STORAGE_RECONCILE_SAMPLE_LIMIT: int = 25
+
+    # Cloudflare R2 (S3-compatible)
+    R2_ACCOUNT_ID: Optional[str] = None
+    R2_ACCESS_KEY_ID: Optional[str] = None
+    R2_SECRET_ACCESS_KEY: Optional[str] = None
+    R2_BUCKET_NAME: Optional[str] = None
+    R2_ENDPOINT_URL: Optional[str] = None
     
     class Config:
         env_file = ".env"

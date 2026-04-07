@@ -13,6 +13,8 @@ import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
 import { addRecentVisitedSiniestro } from "@/lib/recentSiniestrosStorage";
 import { swalError, swalSuccess, swalConfirm } from "@/lib/swal";
+import { getUserDisplayName } from "@/lib/userName";
+import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import JoditEditor from "@/components/ui/JoditEditor";
@@ -65,6 +67,7 @@ import {
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
+import LegacyDocumentClassificationModal from "@/components/siniestros/LegacyDocumentClassificationModal";
 import {
   buildPolizasPayload,
   PolizaDraft,
@@ -198,6 +201,14 @@ function getDisplayPolizasFromSiniestro(siniestro: Siniestro | null): PolizaDraf
   );
 }
 
+function formatSiniestroConsecutivo(value: string | number | null | undefined): string {
+  const normalized = String(value ?? "")
+    .trim()
+    .replace(/\D/g, "");
+  if (!normalized) return "";
+  return normalized.padStart(3, "0");
+}
+
 export default function SiniestroDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -216,6 +227,15 @@ export default function SiniestroDetailPage() {
   const [loadingFlujos, setLoadingFlujos] = useState(false);
   const [activeAreaTab, setActiveAreaTab] = useState<string>("");
   const [activeFlujoTab, setActiveFlujoTab] = useState<string>("");
+  const legacyAssignedAreas = useMemo(
+    () =>
+      areasConFlujos.map((areaConFlujos) => ({
+        id: areaConFlujos.area.id,
+        nombre: areaConFlujos.area.nombre,
+        flowNames: areaConFlujos.flujos.map((item) => item.flujo.nombre),
+      })),
+    [areasConFlujos],
+  );
 
   // Estado para el modal de edición de documento
   const [showEditorModal, setShowEditorModal] = useState(false);
@@ -535,9 +555,7 @@ export default function SiniestroDetailPage() {
       const codigoProveniente = provenienteInfo?.codigo || "";
 
       // Consecutivo desde siniestro.codigo (pad a 3 dígitos)
-      const consecutivo = siniestroData.codigo
-        ? siniestroData.codigo.toString().padStart(3, "0")
-        : "";
+      const consecutivo = formatSiniestroConsecutivo(siniestroData.codigo);
 
       // Anualidad: año de fecha de reporte (`fecha_registro`) o creación
       const baseFecha =
@@ -649,9 +667,7 @@ export default function SiniestroDetailPage() {
     const construirIdFormato = (): string => {
       if (!siniestroData) return "";
       const codigoProveniente = provenienteInfo?.codigo || "";
-      const consecutivo = siniestroData.codigo
-        ? siniestroData.codigo.toString().padStart(3, "0")
-        : "";
+      const consecutivo = formatSiniestroConsecutivo(siniestroData.codigo);
       const baseFecha =
         (siniestroData as any)?.fecha_registro || siniestroData.creado_en;
       const yearSource = baseFecha ? new Date(baseFecha) : hoy;
@@ -1886,15 +1902,12 @@ export default function SiniestroDetailPage() {
       {
         accessorKey: "usuario_id",
         header: "Usuario",
-        cell: ({ row }) => {
-          const u = row.original.usuario;
-          const nombre =
-            (u && (u.full_name || u.nombre || u.email)) ||
-            row.original.usuario_id ||
-            "-";
-          return <span className="text-gray-600">{nombre}</span>;
+          cell: ({ row }) => {
+            const u = row.original.usuario;
+            const nombre = getUserDisplayName(u, row.original.usuario_id || "-");
+            return <span className="text-gray-600">{nombre}</span>;
+          },
         },
-      },
     ],
     [],
   );
@@ -1965,10 +1978,7 @@ export default function SiniestroDetailPage() {
           (acf) => acf.area.id === (docExistente.area_id || activeAreaTab),
         )?.area.nombre || "";
       const autorNombre =
-        `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
-        (user as any)?.full_name ||
-        (user as any)?.email ||
-        "";
+        getUserDisplayName(user as any, "");
       let variables = getVariablesForPdf(
         siniestro,
         docExistente,
@@ -2042,10 +2052,7 @@ export default function SiniestroDetailPage() {
             (acf) => acf.area.id === (documento.area_id || activeAreaTab),
           )?.area.nombre || "";
         const autorNombre =
-          `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
-          (user as any)?.full_name ||
-          (user as any)?.email ||
-          "";
+          getUserDisplayName(user as any, "");
         let variables = getVariablesForPdf(
           siniestro,
           documento,
@@ -2277,13 +2284,13 @@ export default function SiniestroDetailPage() {
 
     todosLosUsuarios
       .filter((u) => (u.email || u.correo) && u.is_active !== false)
-      .forEach((u) => {
-        const email = (u.email || u.correo || "").trim().toLowerCase();
-        if (!email || vistos.has(email)) return;
-        vistos.add(email);
-        const nombre = (u.full_name || u.nombre || "").toString().trim();
-        internos.push({ value: email, label: nombre ? `${nombre} <${email}>` : email });
-      });
+        .forEach((u) => {
+          const email = (u.email || u.correo || "").trim().toLowerCase();
+          if (!email || vistos.has(email)) return;
+          vistos.add(email);
+          const nombre = getUserDisplayName(u, "");
+          internos.push({ value: email, label: nombre ? `${nombre} <${email}>` : email });
+        });
 
     provenienteContactos
       .filter((c) => c.correo)
@@ -2299,6 +2306,31 @@ export default function SiniestroDetailPage() {
     if (externos.length > 0) grupos.push({ label: "Externos (Proveniente)", options: externos });
     return grupos;
   }, [todosLosUsuarios, provenienteContactos]);
+
+  const areaIdsSiniestro = useMemo(
+    () =>
+      (areasAdicionales || [])
+        .map((areaRelacion) => String(areaRelacion.area_id || "").trim())
+        .filter(Boolean),
+    [areasAdicionales],
+  );
+
+  const abogadosDisponibles = useMemo(
+    () =>
+      filtrarAbogadosPorAreas(todosLosUsuarios, areaIdsSiniestro).filter(
+        (usuario) =>
+          !involucrados.some((involucrado) => involucrado.usuario_id === usuario.id),
+      ),
+    [todosLosUsuarios, areaIdsSiniestro, involucrados],
+  );
+
+  useEffect(() => {
+    if (!nuevoInvolucradoUsuarioId) return;
+    if (abogadosDisponibles.some((usuario) => usuario.id === nuevoInvolucradoUsuarioId)) {
+      return;
+    }
+    setNuevoInvolucradoUsuarioId("");
+  }, [abogadosDisponibles, nuevoInvolucradoUsuarioId]);
 
   const handleSendEmailWithDocument = async () => {
     if (!siniestro) return;
@@ -2449,11 +2481,8 @@ export default function SiniestroDetailPage() {
         areasConFlujos.find(
           (acf) => acf.area.id === (documento.area_id || activeAreaTab),
         )?.area.nombre || "";
-      const autorNombre =
-        `${(user as any)?.nombre || ""} ${(user as any)?.apellido_paterno || ""} ${(user as any)?.apellido_materno || ""}`.trim() ||
-        (user as any)?.full_name ||
-        (user as any)?.email ||
-        "";
+        const autorNombre =
+          getUserDisplayName(user as any, "");
 
       let variables = getVariablesForPdf(
         siniestro,
@@ -2483,7 +2512,7 @@ export default function SiniestroDetailPage() {
         ? baseName
         : baseName.replace(/\.[^/.]+$/, "") + ".pdf";
 
-      const pdfResponse = await apiService.generatePDF({
+      await apiService.downloadPDF({
         html_content: documento.contenido,
         plantilla_id: documento.plantilla_documento_id,
         siniestro_id: siniestroId,
@@ -2492,12 +2521,6 @@ export default function SiniestroDetailPage() {
         orientation: "portrait",
         filename,
       });
-
-      // Descargar desde base64 como PDF
-      const link = document.createElement("a");
-      link.href = `data:application/pdf;base64,${pdfResponse.pdf_base64}`;
-      link.download = pdfResponse.filename || filename;
-      link.click();
       swalSuccess("Descarga iniciada");
     } catch (error: any) {
       console.error("Error al descargar informe:", error);
@@ -3065,7 +3088,7 @@ export default function SiniestroDetailPage() {
                   const codigoProveniente = provenienteInfo?.codigo || "";
 
                   // Obtener consecutivo del código del siniestro
-                  const consecutivo = siniestro.codigo.padStart(3, "0");
+                  const consecutivo = formatSiniestroConsecutivo(siniestro.codigo);
 
                   // Obtener anualidad (últimos 2 dígitos del año)
                   const refAnualidad =
@@ -4227,11 +4250,9 @@ export default function SiniestroDetailPage() {
                             >
                               <div className="flex items-start justify-between">
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-gray-700 truncate">
-                                    {usuario?.full_name ||
-                                      usuario?.email ||
-                                      "Usuario desconocido"}
-                                  </p>
+                                    <p className="text-sm font-medium text-gray-700 truncate">
+                                      {getUserDisplayName(usuario, usuario?.email || "Usuario desconocido")}
+                                    </p>
                                   <p className="text-xs text-gray-500 mt-1">
                                     Rol del usuario:{" "}
                                     <span className="font-medium text-gray-700">
@@ -4276,21 +4297,19 @@ export default function SiniestroDetailPage() {
                                   typeof val === "string" ? val : "",
                                 )
                               }
-                              options={todosLosUsuarios
-                                .filter(
-                                  (usuario) =>
-                                    !involucrados.some(
-                                      (inv) => inv.usuario_id === usuario.id,
-                                    ),
-                                )
-                                .map((usuario) => ({
-                                  value: usuario.id,
-                                  label:
-                                    usuario.full_name ||
-                                    usuario.email ||
-                                    "Usuario",
-                                }))}
-                              placeholder="Seleccionar usuario…"
+                              options={abogadosDisponibles.map((usuario) => ({
+                                value: usuario.id,
+                                label: getUserDisplayName(
+                                  usuario,
+                                  usuario.email || "Usuario",
+                                ),
+                              }))}
+                              placeholder={
+                                areaIdsSiniestro.length > 0
+                                  ? "Seleccionar abogado…"
+                                  : "Asigna primero al menos un área al siniestro…"
+                              }
+                              disabled={areaIdsSiniestro.length === 0}
                               isSearchable
                               isClearable
                             />
@@ -5794,6 +5813,23 @@ export default function SiniestroDetailPage() {
           setShowCrearAseguradoModal(false);
         }}
         onAseguradoCreado={onAseguradoCreadoDesdeModal}
+      />
+
+      <LegacyDocumentClassificationModal
+        siniestroId={siniestroId}
+        areaId={activeAreaTab || undefined}
+        enabled={!!siniestroId}
+        assignedAreas={legacyAssignedAreas}
+        onFinalized={async () => {
+          await loadDocumentosSiniestro();
+          let flujoTrabajoIdActual: string | undefined = undefined;
+          if (activeFlujoTab.startsWith("general-")) {
+            flujoTrabajoIdActual = activeFlujoTab.replace("general-", "");
+          } else if (activeFlujoTab.startsWith("area-")) {
+            flujoTrabajoIdActual = activeFlujoTab.replace("area-", "");
+          }
+          await loadDocumentosFiltrados(activeAreaTab || undefined, flujoTrabajoIdActual);
+        }}
       />
     </div>
   );

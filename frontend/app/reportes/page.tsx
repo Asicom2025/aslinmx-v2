@@ -56,18 +56,7 @@ export default function ReportesPage() {
   const handleDescargarReporte = async (request: ReporteRequest) => {
     try {
       setGenerando(true);
-      const blob = await apiService.descargarReporte(request);
-      
-      // Crear URL del blob y descargar
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = request.modulo + "_" + new Date().toISOString().split("T")[0] + "." + request.formato;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
+      await apiService.descargarReporte(request);
       setShowGenerarModal(false);
     } catch (error: any) {
       console.error("Error al generar reporte:", error);

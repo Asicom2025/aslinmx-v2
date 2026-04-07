@@ -6,6 +6,7 @@ import apiService from "@/lib/apiService";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { swalSuccess, swalError, swalInfo } from "@/lib/swal";
+import { getUserDisplayName, getUserInitial } from "@/lib/userName";
 
 export default function PerfilPage() {
   const { user, refresh, loading } = useUser();
@@ -48,9 +49,9 @@ export default function PerfilPage() {
     setForm({
       perfil: {
         foto_de_perfil: user.perfil?.foto_de_perfil || "",
-        nombre: user.perfil?.nombre || "",
-        apellido_paterno: user.perfil?.apellido_paterno || "",
-        apellido_materno: user.perfil?.apellido_materno || "",
+        nombre: user.perfil?.nombre || user.nombre || "",
+        apellido_paterno: user.perfil?.apellido_paterno || user.apellido_paterno || "",
+        apellido_materno: user.perfil?.apellido_materno || user.apellido_materno || "",
         titulo: user.perfil?.titulo || "",
         cedula_profesional: user.perfil?.cedula_profesional || "",
         firma: user.perfil?.firma || "",
@@ -214,6 +215,14 @@ export default function PerfilPage() {
   if (loading) return null;
   if (!user) return null;
 
+  const profilePreviewUser = {
+    ...user,
+    perfil: {
+      ...(user.perfil || {}),
+      ...form.perfil,
+    },
+  };
+
   return (
     <div className="w-full p-6 space-y-6">
       <div className="rounded-xl bg-degradado-primario text-white shadow">
@@ -233,7 +242,7 @@ export default function PerfilPage() {
                 />
               ) : (
                 <span>
-                  {(user.full_name || user.email || "?").charAt(0).toUpperCase()}
+                  {getUserInitial(profilePreviewUser)}
                 </span>
               )}
             </button>
@@ -247,7 +256,7 @@ export default function PerfilPage() {
             />
             <div>
               <h1 className="text-xl md:text-2xl font-bold leading-tight">
-                {user.full_name || user.email}
+                {getUserDisplayName(profilePreviewUser, user.email)}
               </h1>
               <p className="text-white/80 text-sm md:text-base">
                 {user.rol?.nombre || "Sin rol"} ·{" "}

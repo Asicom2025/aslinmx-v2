@@ -20,6 +20,9 @@ export interface CurrentUser {
   email: string;
   username?: string | null;
   full_name?: string | null;
+  nombre?: string | null;
+  apellido_paterno?: string | null;
+  apellido_materno?: string | null;
   is_active: boolean;
   multiempresa?: boolean | null;
   ultimo_acceso?: string | null;

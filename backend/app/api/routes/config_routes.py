@@ -26,6 +26,7 @@ from app.schemas.config_schema import (
     HistorialCorreoResponse,
     HistorialCorreoFiltros,
 )
+from app.schemas.storage_schema import StorageReconciliationResponse, StorageSummaryResponse
 from app.services.email_service import EmailService, get_email_assets_bytes
 from app.services.auditoria_service import AuditoriaService
 from pathlib import Path
@@ -33,8 +34,64 @@ from pathlib import Path
 from app.services.legal_service import DocumentoService, TiposDocumentoService, SiniestroService
 from app.api.routes.pdf_routes import generar_pdf_bytes_para_documento
 from app.core.config import settings
+from app.services.storage_ops_service import StorageReconciliationService
+from app.services.storage_service import StorageError, get_storage_service
 
 router = APIRouter()
+
+
+@router.get("/storage/estado", response_model=StorageSummaryResponse)
+async def obtener_estado_storage(
+    verify_objects: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Resumen operativo del storage para la empresa activa."""
+    empresa_id = current_user.empresa_id
+    if not empresa_id:
+        raise HTTPException(status_code=400, detail="El usuario actual no tiene una empresa activa.")
+
+    return StorageReconciliationService.summarize_company(
+        db,
+        empresa_id=empresa_id,
+        verify_objects=verify_objects,
+        sample_limit=settings.STORAGE_RECONCILE_SAMPLE_LIMIT,
+    )
+
+
+@router.post("/storage/reconciliar", response_model=StorageReconciliationResponse)
+async def reconciliar_storage(
+    request: Request,
+    verify_objects: bool = True,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Marca metadata huérfana como inactiva/eliminada sin borrar el objeto físico."""
+    empresa_id = current_user.empresa_id
+    if not empresa_id:
+        raise HTTPException(status_code=400, detail="El usuario actual no tiene una empresa activa.")
+
+    result = StorageReconciliationService.reconcile_company(
+        db,
+        empresa_id=empresa_id,
+        verify_objects=verify_objects,
+        sample_limit=settings.STORAGE_RECONCILE_SAMPLE_LIMIT,
+    )
+
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="storage_reconciliado",
+        modulo="configuracion",
+        tabla="storage_objects",
+        registro_id=None,
+        datos_nuevos=result,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        descripcion="Se ejecutó la reconciliación operativa de storage",
+    )
+    return result
 
 
 # ========== Configuración SMTP ==========
@@ -573,6 +630,7 @@ async def enviar_archivo_correo(
     asunto, cuerpo_html, cuerpo_texto = EmailService.render_template(plantilla, variables)
 
     adjuntos_bytes = []
+    storage_service = get_storage_service()
     # Generar/adjuntar todos los documentos solicitados
     for doc_id in documento_ids:
         pdf_result = generar_pdf_bytes_para_documento(db, doc_id, current_user)
@@ -583,20 +641,16 @@ async def enviar_archivo_correo(
             adjuntos_bytes.append((nombre_pdf, pdf_bytes))
 
         doc = DocumentoService.get_by_id(db, doc_id)
-        # Además del PDF del informe, adjuntar archivo en disco si existe (p. ej. HTML/PDF guardado).
+        # Además del PDF del informe, adjuntar el archivo persistido en storage si existe.
         if doc and getattr(doc, "ruta_archivo", None):
             ruta_str = doc.ruta_archivo.strip()
             if ruta_str:
-                ruta_path = Path(ruta_str)
-                if not ruta_path.is_absolute():
-                    ruta_path = Path.cwd() / ruta_path
-                if ruta_path.exists():
-                    try:
-                        with open(ruta_path, "rb") as f:
-                            nombre = (doc.nombre_archivo or ruta_path.name) or "adjunto"
-                            adjuntos_bytes.append((nombre, f.read()))
-                    except Exception:
-                        pass
+                try:
+                    contenido_bytes = storage_service.get_bytes(ruta_str)
+                    nombre = (doc.nombre_archivo or Path(ruta_str).name) or "adjunto"
+                    adjuntos_bytes.append((nombre, contenido_bytes))
+                except StorageError:
+                    pass
 
     # Adjuntos adicionales enviados desde frontend en base64
     if request_data.archivos_adjuntos:

@@ -2,11 +2,9 @@
 Rutas para generación de PDFs
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
-from app.core.security import get_current_user
 from app.core.permisos import require_permiso
 from app.schemas.pdf_schema import (
     PDFGenerateRequest,
@@ -15,6 +13,12 @@ from app.schemas.pdf_schema import (
     PageSize,
     PageOrientation,
 )
+from app.schemas.storage_schema import GeneratedFileAccessResponse
+from app.services.generated_file_service import (
+    ArchivoGeneradoService,
+    build_generated_file_access_payload,
+)
+from app.services.storage_service import normalize_siniestro_consecutivo
 from app.services.pdf_service import PDFService
 from app.services.legal_service import (
     PlantillaDocumentoService,
@@ -252,7 +256,7 @@ def _variables_plantilla_alineadas_frontend(
             codigo_prov = str(prov.codigo).strip()
 
     sc = (getattr(siniestro, "codigo", None) or "").strip()
-    consecutivo = sc.zfill(3)[:3] if sc else ""
+    consecutivo = normalize_siniestro_consecutivo(sc) or ""
     fecha_ref = getattr(siniestro, "fecha_registro", None) or getattr(
         siniestro, "fecha_siniestro", None
     )
@@ -545,6 +549,62 @@ def _empresa_id_from_user(user: User) -> Optional[PyUUID]:
             eid = getattr(ue_list[0], "empresa_id", None)
             return PyUUID(str(eid)) if eid else None
     return None
+
+
+def _persist_generated_pdf_response(
+    *,
+    db: Session,
+    request: Request,
+    current_user: User,
+    pdf_bytes: bytes,
+    filename: str,
+    source_kind: str,
+    siniestro_id: Optional[str] = None,
+    plantilla_id: Optional[str] = None,
+    metadata_json: Optional[Dict[str, Any]] = None,
+) -> GeneratedFileAccessResponse:
+    empresa_id = _empresa_id_from_user(current_user)
+    if not empresa_id:
+        raise HTTPException(status_code=400, detail="No se pudo resolver la empresa activa del usuario.")
+
+    siniestro_uuid = None
+    if siniestro_id:
+        try:
+            siniestro_uuid = PyUUID(str(siniestro_id))
+        except (ValueError, TypeError):
+            siniestro_uuid = None
+
+    plantilla_uuid = None
+    if plantilla_id:
+        try:
+            plantilla_uuid = PyUUID(str(plantilla_id))
+        except (ValueError, TypeError):
+            plantilla_uuid = None
+
+    try:
+        archivo_generado = ArchivoGeneradoService.persist_bytes(
+            db,
+            empresa_id=empresa_id,
+            filename=filename,
+            data=pdf_bytes,
+            content_type="application/pdf",
+            tipo_origen=source_kind,
+            formato="pdf",
+            generado_por=current_user.id,
+            category="pdf",
+            modulo="documentos",
+            siniestro_id=siniestro_uuid,
+            plantilla_documento_id=plantilla_uuid,
+            metadata_json=metadata_json or {},
+        )
+        return GeneratedFileAccessResponse(
+            **build_generated_file_access_payload(archivo_generado, request)
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No se pudo persistir el PDF generado: {exc}",
+        ) from exc
 
 
 def _wrap_header_for_all_pages(header_html: str, body_html: str) -> str:
@@ -912,8 +972,9 @@ async def generate_pdf_from_template(
         )
 
 
-@router.post("/download")
+@router.post("/download", response_model=GeneratedFileAccessResponse)
 async def download_pdf(
+    http_request: Request,
     request: PDFGenerateRequest,
     current_user: User = Depends(require_permiso("siniestros", "generar_pdf")),
     db: Session = Depends(get_db)
@@ -970,10 +1031,16 @@ async def download_pdf(
                 filename = request.filename or "documento"
                 if not filename.endswith('.pdf'):
                     filename += '.pdf'
-                return StreamingResponse(
-                    io.BytesIO(pdf_bytes),
-                    media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+                return _persist_generated_pdf_response(
+                    db=db,
+                    request=http_request,
+                    current_user=current_user,
+                    pdf_bytes=pdf_bytes,
+                    filename=filename,
+                    source_kind="pdf_download",
+                    siniestro_id=request.siniestro_id,
+                    plantilla_id=request.plantilla_id,
+                    metadata_json={"mode": "download", "has_continuacion": True},
                 )
             header_html = ""
             if plantilla.header_plantilla_id:
@@ -1007,10 +1074,16 @@ async def download_pdf(
         filename = request.filename or "documento"
         if not filename.endswith('.pdf'):
             filename += '.pdf'
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        return _persist_generated_pdf_response(
+            db=db,
+            request=http_request,
+            current_user=current_user,
+            pdf_bytes=pdf_bytes,
+            filename=filename,
+            source_kind="pdf_download",
+            siniestro_id=request.siniestro_id,
+            plantilla_id=request.plantilla_id,
+            metadata_json={"mode": "download", "has_continuacion": False},
         )
     except Exception as e:
         raise HTTPException(
@@ -1019,8 +1092,9 @@ async def download_pdf(
         )
 
 
-@router.post("/download-from-template")
+@router.post("/download-from-template", response_model=GeneratedFileAccessResponse)
 async def download_pdf_from_template(
+    http_request: Request,
     request: PDFGenerateFromTemplateRequest,
     current_user: User = Depends(require_permiso("siniestros", "generar_pdf")),
     db: Session = Depends(get_db)
@@ -1102,12 +1176,16 @@ async def download_pdf_from_template(
         if not filename.endswith('.pdf'):
             filename += '.pdf'
 
-        return StreamingResponse(
-            io.BytesIO(pdf_bytes),
-            media_type="application/pdf",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"'
-            }
+        return _persist_generated_pdf_response(
+            db=db,
+            request=http_request,
+            current_user=current_user,
+            pdf_bytes=pdf_bytes,
+            filename=filename,
+            source_kind="pdf_download_from_template",
+            siniestro_id=request.siniestro_id,
+            plantilla_id=request.plantilla_id,
+            metadata_json={"mode": "download_from_template", "has_continuacion": bool(segunda)},
         )
     except HTTPException:
         raise

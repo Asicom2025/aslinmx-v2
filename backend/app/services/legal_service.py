@@ -5,13 +5,15 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import func, extract, nullslast, cast, or_
-from sqlalchemy.types import Integer
+from sqlalchemy import func, extract, nullslast, cast, or_, and_, case
+from sqlalchemy.types import Integer, String
 from datetime import datetime
 from fastapi import HTTPException, status
 
 from app.services.auditoria_service import AuditoriaService
 from app.services.email_service import EmailService
+from app.services.storage_metadata_service import StorageObjectService
+from app.services.storage_service import normalize_siniestro_consecutivo
 from app.utils.estado_normalization import normalizar_nombre_estado
 from app.models.legal import (
     Area,
@@ -1078,32 +1080,49 @@ class SiniestroService:
                 if len(parts) >= 1:
                     codigo_prov = parts[0]
                 if len(parts) >= 2:
-                    consecutivo = parts[1].replace(" ", "").zfill(3)[:3]
+                    consecutivo = normalize_siniestro_consecutivo(parts[1])
                 if len(parts) >= 3:
                     anualidad = parts[2].replace(" ", "").zfill(2)[-2:]
             else:
                 digits = "".join(c for c in raw if c.isdigit())
-                if len(digits) >= 5:
+                if len(digits) >= 6:
                     anualidad = digits[-2:]
-                    consecutivo = digits[-5:-2].zfill(3)
-                    codigo_prov = digits[:-5] or None
                 elif len(digits) >= 1:
                     codigo_prov = digits
             if codigo_prov is not None or consecutivo is not None or anualidad is not None:
                 q = q.outerjoin(Proveniente, Siniestro.proveniente_id == Proveniente.id)
+                prov_cod_norm = func.replace(func.replace(func.coalesce(Proveniente.codigo, ""), "-", ""), " ", "")
+                codigo_clean = func.replace(func.coalesce(Siniestro.codigo, ""), " ", "")
+                codigo_norm_expr = case(
+                    (func.length(codigo_clean) < 3, func.lpad(codigo_clean, 3, "0")),
+                    else_=codigo_clean,
+                )
                 if codigo_prov:
                     codigo_prov_norm = codigo_prov.replace("-", "").replace(" ", "")
-                    prov_cod_norm = func.replace(func.replace(func.coalesce(Proveniente.codigo, ""), "-", ""), " ", "")
                     q = q.filter(
                         or_(
                             prov_cod_norm == codigo_prov_norm,
                             prov_cod_norm.like(f"%{codigo_prov_norm}%"),
                         )
                     )
+                elif anualidad and raw.isdigit():
+                    body = digits[:-2]
+                    split_filters = []
+                    for split_index in range(1, len(body) - 1):
+                        candidate_prov = body[:split_index]
+                        candidate_consecutivo = normalize_siniestro_consecutivo(body[split_index:])
+                        if not candidate_prov or not candidate_consecutivo or len(candidate_consecutivo) < 3:
+                            continue
+                        split_filters.append(
+                            and_(
+                                prov_cod_norm == candidate_prov,
+                                codigo_norm_expr == candidate_consecutivo,
+                            )
+                        )
+                    if split_filters:
+                        q = q.filter(or_(*split_filters))
                 if consecutivo:
-                    consec_norm = consecutivo.zfill(3)[:3]
-                    codigo_padded = func.lpad(func.replace(func.coalesce(Siniestro.codigo, ""), " ", ""), 3, "0")
-                    q = q.filter(codigo_padded == consec_norm)
+                    q = q.filter(codigo_norm_expr == consecutivo)
                 if anualidad and anualidad.isdigit():
                     # Anualidad = 2 dígitos del año (igual que en listado: fecha_registro)
                     fecha_ref = func.coalesce(Siniestro.fecha_registro, Siniestro.fecha_siniestro)
@@ -1169,7 +1188,7 @@ class SiniestroService:
             codigo_prov = ""
             if siniestro.proveniente_id and siniestro.proveniente_id in provenientes_map:
                 codigo_prov = (provenientes_map[siniestro.proveniente_id].codigo or "").strip()
-            consecutivo = ((siniestro.codigo or "").strip()).zfill(3)[:3] if (siniestro.codigo or "").strip() else ""
+            consecutivo = normalize_siniestro_consecutivo((siniestro.codigo or "").strip()) or ""
             fecha_ref = siniestro.fecha_registro or siniestro.fecha_siniestro
             anualidad = ""
             if fecha_ref:
@@ -1725,6 +1744,7 @@ class DocumentoService:
             Documento.siniestro_id == siniestro_id,
             Documento.eliminado == False
         )
+        q = q.options(joinedload(Documento.storage_object))
         
         if tipo_documento_id is not None:
             q = q.filter(Documento.tipo_documento_id == tipo_documento_id)
@@ -1743,7 +1763,7 @@ class DocumentoService:
         return db.query(Documento).filter(
             Documento.id == documento_id,
             Documento.eliminado == False
-        ).first()
+        ).options(joinedload(Documento.storage_object)).first()
     
     @staticmethod
     def create(db: Session, payload: DocumentoCreate) -> Documento:
@@ -1751,6 +1771,8 @@ class DocumentoService:
         data = payload.model_dump(exclude={"horas_trabajadas_bitacora", "comentarios_bitacora"})
         documento = Documento(**data)
         db.add(documento)
+        db.flush()
+        StorageObjectService.sync_document_link_state(db, documento.storage_object_id)
         db.commit()
         db.refresh(documento)
         return documento
@@ -1798,6 +1820,7 @@ class DocumentoService:
 
         exclude = {"horas_trabajadas_bitacora", "comentarios_bitacora"}
         updates = payload.model_dump(exclude_unset=True, exclude=exclude)
+        previous_storage_object_id = documento.storage_object_id
 
         # Calcular siguiente versión para este informe (por contexto lógico)
         next_version = DocumentoService._get_next_version(
@@ -1819,6 +1842,7 @@ class DocumentoService:
             plantilla_documento_id=updates.get("plantilla_documento_id", documento.plantilla_documento_id),
             area_id=updates.get("area_id", documento.area_id),
             flujo_trabajo_id=updates.get("flujo_trabajo_id", documento.flujo_trabajo_id),
+            storage_object_id=updates.get("storage_object_id", documento.storage_object_id),
             nombre_archivo=updates.get("nombre_archivo", documento.nombre_archivo),
             ruta_archivo=updates.get("ruta_archivo", documento.ruta_archivo),
             contenido=updates.get("contenido", documento.contenido),
@@ -1835,6 +1859,10 @@ class DocumentoService:
         )
 
         db.add(nuevo)
+        db.flush()
+        StorageObjectService.sync_document_link_state(db, previous_storage_object_id)
+        if nuevo.storage_object_id != previous_storage_object_id:
+            StorageObjectService.sync_document_link_state(db, nuevo.storage_object_id)
         db.commit()
         db.refresh(nuevo)
         return nuevo
@@ -1852,6 +1880,7 @@ class DocumentoService:
         documento.eliminado = True
         documento.activo = False
         documento.eliminado_en = func.now()
+        StorageObjectService.sync_document_link_state(db, documento.storage_object_id)
         db.commit()
         return True
 
@@ -2029,6 +2058,73 @@ class EvidenciaFotograficaService:
 # ===== RELACIONES SINIESTRO-USUARIO (INVOLUCRADOS) =====
 class SiniestroUsuarioService:
     """Servicio para gestión de involucrados en siniestros"""
+
+    @staticmethod
+    def _get_siniestro_area_ids(db: Session, siniestro_id: UUID) -> set[str]:
+        """Obtiene las áreas activas asignadas al siniestro."""
+        return {
+            str(area_id)
+            for (area_id,) in db.query(SiniestroArea.area_id).filter(
+                SiniestroArea.siniestro_id == siniestro_id,
+                SiniestroArea.activo == True,
+            ).all()
+            if area_id
+        }
+
+    @staticmethod
+    def _get_usuario_area_ids(db: Session, usuario_id: UUID) -> set[str]:
+        """Obtiene las áreas asignadas al usuario."""
+        from app.models.user import UsuarioArea
+
+        return {
+            str(area_id)
+            for (area_id,) in db.query(UsuarioArea.area_id).filter(
+                UsuarioArea.usuario_id == usuario_id,
+            ).all()
+            if area_id
+        }
+
+    @staticmethod
+    def _validar_abogado_en_areas_del_siniestro(
+        db: Session,
+        siniestro_id: UUID,
+        usuario_id: UUID,
+    ) -> None:
+        """
+        Valida que el abogado tenga al menos un área coincidente con el siniestro.
+        """
+        siniestro_area_ids = SiniestroUsuarioService._get_siniestro_area_ids(
+            db, siniestro_id
+        )
+        if not siniestro_area_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "No se puede asignar un abogado porque el siniestro no "
+                    "tiene áreas asignadas"
+                ),
+            )
+
+        usuario_area_ids = SiniestroUsuarioService._get_usuario_area_ids(
+            db, usuario_id
+        )
+        if not usuario_area_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "No se puede asignar este abogado porque no tiene áreas "
+                    "asignadas"
+                ),
+            )
+
+        if usuario_area_ids.isdisjoint(siniestro_area_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "No se puede asignar este abogado porque no comparte "
+                    "ninguna de las áreas del siniestro"
+                ),
+            )
     
     @staticmethod
     def list(db: Session, siniestro_id: UUID, activo: Optional[bool] = None) -> List[SiniestroUsuario]:
@@ -2041,6 +2137,13 @@ class SiniestroUsuarioService:
     @staticmethod
     def create(db: Session, payload: SiniestroUsuarioCreate, usuario_audit_id: Optional[UUID] = None) -> SiniestroUsuario:
         """Agrega un involucrado a un siniestro"""
+        if payload.tipo_relacion == "tercero":
+            SiniestroUsuarioService._validar_abogado_en_areas_del_siniestro(
+                db,
+                payload.siniestro_id,
+                payload.usuario_id,
+            )
+
         # Verificar que no exista ya la misma relación
         existing = db.query(SiniestroUsuario).filter(
             SiniestroUsuario.siniestro_id == payload.siniestro_id,
