@@ -129,11 +129,12 @@ export default function CustomSelect({
       ...provided,
       borderRadius: "0.5rem",
       boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)",
-      zIndex: 9999,
+      /* Por encima de Modal (z-[1000]) y overlays comunes */
+      zIndex: 10050,
     }),
     menuPortal: (provided) => ({
       ...provided,
-      zIndex: 9999,
+      zIndex: 10050,
     }),
     groupHeading: (provided) => ({
       ...provided,

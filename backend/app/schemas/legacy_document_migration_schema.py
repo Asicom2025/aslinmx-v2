@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 LegacyMigrationStatus = Literal["pendiente", "en_progreso", "completado", "sin_archivos", "error_lectura"]
@@ -97,11 +97,22 @@ class LegacyDestinationsResponse(BaseModel):
 
 class LegacyFinalizeItemRequest(BaseModel):
     legacy_file_id: str = Field(..., min_length=1, max_length=50)
-    flujo_trabajo_id: UUID
+    flujo_trabajo_id: Optional[UUID] = None
     categoria_documento_id: Optional[UUID] = None
-    etapa_flujo_id: UUID
+    etapa_flujo_id: Optional[UUID] = None
     tipo_documento_id: UUID
     requisito_documento_id: Optional[UUID] = None
+
+    @model_validator(mode="after")
+    def flujo_etapa_consistentes(self):
+        """Flujo y etapa van juntos; si se omiten, clasificación solo por catálogo (sin etapas de flujo)."""
+        tiene_flujo = self.flujo_trabajo_id is not None
+        tiene_etapa = self.etapa_flujo_id is not None
+        if tiene_flujo != tiene_etapa:
+            raise ValueError("flujo_trabajo_id y etapa_flujo_id deben enviarse juntos o ambos omitirse.")
+        if not tiene_flujo and self.requisito_documento_id is not None:
+            raise ValueError("requisito_documento_id solo aplica cuando se indica flujo y etapa.")
+        return self
 
 
 class LegacyFinalizeRequest(BaseModel):

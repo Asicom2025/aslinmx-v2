@@ -14,10 +14,11 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { FiCheckCircle, FiFile, FiFolder, FiRefreshCw, FiSearch, FiTrash2 } from "react-icons/fi";
+import { FiCheckCircle, FiFile, FiFolder, FiRefreshCw, FiSearch, FiTrash2, FiLayers } from "react-icons/fi";
 
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
+import CustomSelect from "@/components/ui/Select";
 import apiService from "@/lib/apiService";
 import { swalConfirm, swalError, swalInfo, swalSuccess, swalWarning } from "@/lib/swal";
 import type {
@@ -51,6 +52,9 @@ interface DraftAssignment extends LegacyFinalizeItem {
 }
 
 const STORAGE_PREFIX = "legacy-doc-migration-draft";
+
+/** Zona especial: abre modal para elegir categoría / tipo / requisito manualmente. */
+const OTRO_DROP_KEY = "__otro__";
 
 function getStorageKey(siniestroId: string, areaId?: string) {
   return `${STORAGE_PREFIX}:${siniestroId}:${areaId || "all"}`;
@@ -106,6 +110,9 @@ function formatLegacyDateCompact(value?: string | null) {
 function buildCompactLabel(file: LegacyDetectedFile) {
   return `${file.nombre_archivo} - ${file.legacy_etapa || "sin etapa"} - ${formatLegacyDateCompact(file.fecha_archivo)}`;
 }
+
+/** Clave única para borradores asignados solo por catálogo (sin flujo/etapa). */
+const LEGACY_CATALOGO_BUCKET_KEY = "__catalogo__";
 
 function FileRow({
   file,
@@ -244,6 +251,65 @@ function CategoryCard({
   );
 }
 
+function OtroCategoryCard({
+  flow,
+  active,
+  onAssignSelected,
+  onNativeFileDrop,
+}: {
+  flow: LegacyDestinationFlow;
+  active: boolean;
+  onAssignSelected: () => void;
+  onNativeFileDrop: (file: File) => void;
+}) {
+  const { isOver, setNodeRef } = useDroppable({ id: buildDropId(flow.id, OTRO_DROP_KEY) });
+
+  return (
+    <div
+      ref={setNodeRef}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onAssignSelected();
+        }
+      }}
+      onClick={onAssignSelected}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const f = e.dataTransfer.files?.[0];
+        if (f) onNativeFileDrop(f);
+      }}
+      className={`rounded-xl border-2 border-dashed p-4 text-left transition ${
+        active
+          ? "border-violet-500 bg-violet-50"
+          : isOver
+            ? "border-violet-400 bg-violet-50/80"
+            : "border-violet-200 bg-white hover:border-violet-300 hover:bg-violet-50/50"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h4 className="truncate font-semibold text-violet-900">Otro</h4>
+          <p className="mt-1 text-xs text-violet-700/90">
+            Clasificación manual
+          </p>
+        </div>
+        <FiLayers className="h-6 w-6 shrink-0 text-violet-400" />
+      </div>
+      <div className="mt-3 rounded-lg border border-violet-100 bg-violet-50/50 px-3 py-3 text-center text-xs text-violet-800">
+        Suelta aquí · archivo del listado o desde el escritorio
+      </div>
+    </div>
+  );
+}
+
 export default function LegacyDocumentClassificationModal({
   siniestroId,
   areaId,
@@ -273,6 +339,20 @@ export default function LegacyDocumentClassificationModal({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewFilename, setPreviewFilename] = useState("");
 
+  /** Modal "Otro" — clasificación manual (legacy o archivo externo) */
+  const [otroOpen, setOtroOpen] = useState(false);
+  const [otroLegacyFile, setOtroLegacyFile] = useState<LegacyDetectedFile | null>(null);
+  const [otroExternalFile, setOtroExternalFile] = useState<File | null>(null);
+  const [otroDescripcion, setOtroDescripcion] = useState("");
+  const [otroSaving, setOtroSaving] = useState(false);
+  const [otroCatalogTipos, setOtroCatalogTipos] = useState<{ id: string; nombre: string; tipo: string }[]>([]);
+  const [otroCatalogCategorias, setOtroCatalogCategorias] = useState<{ id: string; nombre: string }[]>([]);
+  const [otroCatalogPlantillas, setOtroCatalogPlantillas] = useState<{ id: string; nombre: string }[]>([]);
+  const [otroTipoCatalogId, setOtroTipoCatalogId] = useState("");
+  const [otroCategoriaCatalogId, setOtroCategoriaCatalogId] = useState("");
+  const [otroPlantillaCatalogId, setOtroPlantillaCatalogId] = useState("");
+  const [otroLoadingCatalogos, setOtroLoadingCatalogos] = useState(false);
+
   useEffect(() => {
     if (!scopedEnabled) {
       setDrafts({});
@@ -296,6 +376,10 @@ export default function LegacyDocumentClassificationModal({
   }, [previewUrl]);
 
   const activeFlow = useMemo(() => flows.find((flow) => flow.id === activeFlowId) || null, [flows, activeFlowId]);
+  const otroTipoEsEditor = useMemo(() => {
+    const sel = otroCatalogTipos.find((x) => x.id === otroTipoCatalogId);
+    return (sel?.tipo ?? "").toLowerCase() === "editor";
+  }, [otroCatalogTipos, otroTipoCatalogId]);
   const selectedFile = useMemo(() => files.find((file) => file.id === selectedFileId) || null, [files, selectedFileId]);
   const activeDragFile = useMemo(() => files.find((file) => file.id === activeDragFileId) || null, [activeDragFileId, files]);
   const importedCount = useMemo(() => files.filter((file) => file.estado_revision === "clasificado").length, [files]);
@@ -323,7 +407,9 @@ export default function LegacyDocumentClassificationModal({
     Object.values(drafts).forEach((draft) => {
       const file = files.find((item) => item.id === draft.file_id);
       if (!file) return;
-      const key = `${draft.flujo_trabajo_id}:${draft.category_key}`;
+      const key = draft.flujo_trabajo_id
+        ? `${draft.flujo_trabajo_id}:${draft.category_key}`
+        : LEGACY_CATALOGO_BUCKET_KEY;
       const current = mapped.get(key) || [];
       current.push(file);
       mapped.set(key, current);
@@ -528,11 +614,11 @@ export default function LegacyDocumentClassificationModal({
       const payload = {
         items: items.map((draft): LegacyFinalizeItem => ({
           legacy_file_id: draft.legacy_file_id,
-          flujo_trabajo_id: draft.flujo_trabajo_id,
-          categoria_documento_id: draft.categoria_documento_id || null,
-          etapa_flujo_id: draft.etapa_flujo_id,
           tipo_documento_id: draft.tipo_documento_id,
-          requisito_documento_id: draft.requisito_documento_id || null,
+          categoria_documento_id: draft.categoria_documento_id ?? null,
+          flujo_trabajo_id: draft.flujo_trabajo_id ?? null,
+          etapa_flujo_id: draft.etapa_flujo_id ?? null,
+          requisito_documento_id: draft.requisito_documento_id ?? null,
         })),
       };
       const result = await apiService.finalizeLegacyDocumentMigration(siniestroId, payload, effectiveAreaId);
@@ -561,14 +647,176 @@ export default function LegacyDocumentClassificationModal({
     setActiveDragFileId(String(event.active.id));
   };
 
+  const openOtroModal = (
+    flowForHighlight: LegacyDestinationFlow | null,
+    legacy: LegacyDetectedFile | null,
+    external: File | null
+  ) => {
+    setOtroLegacyFile(legacy);
+    setOtroExternalFile(external);
+    setOtroDescripcion("");
+    setOtroTipoCatalogId("");
+    setOtroCategoriaCatalogId("");
+    setOtroPlantillaCatalogId("");
+    const highlight = flowForHighlight || flows[0];
+    if (highlight) {
+      setSelectedTarget({ flowId: highlight.id, categoryKey: OTRO_DROP_KEY });
+    }
+    setOtroOpen(true);
+  };
+
+  const closeOtroModal = (clearSelectedTarget = true) => {
+    setOtroOpen(false);
+    setOtroLegacyFile(null);
+    setOtroExternalFile(null);
+    setOtroDescripcion("");
+    setOtroTipoCatalogId("");
+    setOtroCategoriaCatalogId("");
+    setOtroPlantillaCatalogId("");
+    setOtroCatalogCategorias([]);
+    setOtroCatalogPlantillas([]);
+    if (clearSelectedTarget) setSelectedTarget(null);
+  };
+
+  useEffect(() => {
+    if (!otroOpen) return;
+    setOtroLoadingCatalogos(true);
+    apiService
+      .getPlantillas(true)
+      .then((data: unknown) => {
+        const arr = Array.isArray(data) ? data : [];
+        setOtroCatalogTipos(
+          arr.map((t: { id: unknown; nombre?: string; name?: string; tipo?: string }) => ({
+            id: String(t.id),
+            nombre: t.nombre || t.name || String(t.id),
+            tipo: String(t.tipo ?? "").toLowerCase(),
+          }))
+        );
+      })
+      .catch(() => setOtroCatalogTipos([]))
+      .finally(() => setOtroLoadingCatalogos(false));
+  }, [otroOpen]);
+
+  useEffect(() => {
+    if (!otroOpen || !otroTipoCatalogId) {
+      setOtroCatalogCategorias([]);
+      setOtroCatalogPlantillas([]);
+      setOtroCategoriaCatalogId("");
+      setOtroPlantillaCatalogId("");
+      return;
+    }
+    const sel = otroCatalogTipos.find((x) => x.id === otroTipoCatalogId);
+    const esEditor = (sel?.tipo ?? "").toLowerCase() === "editor";
+    setOtroLoadingCatalogos(true);
+    if (esEditor) {
+      setOtroCatalogCategorias([]);
+      setOtroCategoriaCatalogId("");
+      apiService
+        .getPlantillasDocumento(otroTipoCatalogId, undefined, true)
+        .then((plants: unknown) => {
+          const arr = Array.isArray(plants) ? plants : [];
+          setOtroCatalogPlantillas(
+            arr.map((p: { id: unknown; nombre?: string; name?: string }) => ({
+              id: String(p.id),
+              nombre: p.nombre || p.name || String(p.id),
+            }))
+          );
+        })
+        .catch(() => setOtroCatalogPlantillas([]))
+        .finally(() => setOtroLoadingCatalogos(false));
+    } else {
+      setOtroCatalogPlantillas([]);
+      setOtroPlantillaCatalogId("");
+      apiService
+        .getCategoriasDocumento(otroTipoCatalogId, true)
+        .then((cats: unknown) => {
+          const arr = Array.isArray(cats) ? cats : [];
+          setOtroCatalogCategorias(
+            arr.map((c: { id: unknown; nombre?: string; name?: string }) => ({
+              id: String(c.id),
+              nombre: c.nombre || c.name || String(c.id),
+            }))
+          );
+        })
+        .catch(() => setOtroCatalogCategorias([]))
+        .finally(() => setOtroLoadingCatalogos(false));
+    }
+  }, [otroOpen, otroTipoCatalogId, otroCatalogTipos]);
+
+  const handleOtroConfirm = async () => {
+    if (!otroTipoCatalogId) {
+      swalWarning("Selecciona el tipo de documento.");
+      return;
+    }
+    if (otroTipoEsEditor && otroExternalFile && !otroPlantillaCatalogId) {
+      swalWarning("Selecciona una plantilla para documentos de tipo editor.");
+      return;
+    }
+
+    if (otroLegacyFile) {
+      if (otroLegacyFile.estado_revision === "clasificado") {
+        swalInfo("Este archivo ya fue importado.");
+        return;
+      }
+      setDrafts((current) => ({
+        ...current,
+        [otroLegacyFile.id]: {
+          file_id: otroLegacyFile.id,
+          legacy_file_id: otroLegacyFile.legacy_file_id,
+          flujo_trabajo_id: null,
+          etapa_flujo_id: null,
+          category_key: LEGACY_CATALOGO_BUCKET_KEY,
+          categoria_documento_id: otroCategoriaCatalogId || null,
+          tipo_documento_id: otroTipoCatalogId,
+          requisito_documento_id: null,
+        },
+      }));
+      setSelectedFileId("");
+      closeOtroModal(false);
+      setSelectedTarget(null);
+      return;
+    }
+
+    if (otroExternalFile) {
+      setOtroSaving(true);
+      try {
+        await apiService.uploadDocumento(siniestroId, otroExternalFile, {
+          descripcion: otroDescripcion.trim() || undefined,
+          area_id: effectiveAreaId,
+          tipo_documento_id: otroTipoCatalogId,
+          plantilla_documento_id: otroTipoEsEditor && otroPlantillaCatalogId ? otroPlantillaCatalogId : undefined,
+        });
+        await swalSuccess("Archivo subido correctamente.");
+        closeOtroModal(true);
+        if (onFinalized) await onFinalized();
+        await loadAll();
+      } catch (error: any) {
+        swalError(error?.response?.data?.detail || error?.message || "No se pudo subir el archivo.");
+      } finally {
+        setOtroSaving(false);
+      }
+    }
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveDragFileId(null);
     const file = files.find((item) => item.id === String(event.active.id));
     const target = parseDropId(event.over?.id ? String(event.over.id) : null);
     if (!file || !target) return;
     const flow = flows.find((item) => item.id === target.flowId);
-    const category = flow?.categorias.find((item) => item.clave === target.categoryKey);
-    if (!flow || !category) return;
+    if (!flow) return;
+
+    if (target.categoryKey === OTRO_DROP_KEY) {
+      if (file.estado_revision === "clasificado") {
+        swalInfo("Este archivo ya fue importado.");
+        return;
+      }
+      openOtroModal(flow, file, null);
+      return;
+    }
+
+    const category = flow.categorias.find((item) => item.clave === target.categoryKey);
+    if (!category) return;
     upsertDraftForCategory(file, flow, category);
   };
 
@@ -717,9 +965,51 @@ export default function LegacyDocumentClassificationModal({
                       onClearDraft={handleClearDraft}
                     />
                   ))}
-                  {(activeFlow?.categorias || []).length === 0 && (
-                    <div className="rounded-lg border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500 sm:col-span-2 xl:col-span-3">
-                      No hay categorías disponibles para el flujo seleccionado.
+                  {activeFlow && (
+                    <OtroCategoryCard
+                      flow={activeFlow}
+                      active={
+                        selectedTarget?.flowId === activeFlow.id &&
+                        selectedTarget?.categoryKey === OTRO_DROP_KEY
+                      }
+                      onAssignSelected={() => {
+                        if (!selectedFile) {
+                          swalInfo(
+                            "Selecciona un archivo en la lista o arrastra un archivo desde tu equipo a la zona «Otro».",
+                          );
+                          return;
+                        }
+                        if (selectedFile.estado_revision === "clasificado") {
+                          swalInfo("Este archivo ya fue importado.");
+                          return;
+                        }
+                        openOtroModal(activeFlow, selectedFile, null);
+                      }}
+                      onNativeFileDrop={(file) => openOtroModal(activeFlow, null, file)}
+                    />
+                  )}
+                  {(assignedFilesByCategory.get(LEGACY_CATALOGO_BUCKET_KEY) || []).length > 0 ? (
+                    <div className="sm:col-span-2 xl:col-span-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+                      <h4 className="font-semibold text-emerald-900">Solo catálogo (sin flujo/etapa)</h4>
+                      <p className="mt-1 text-xs text-emerald-800/90">
+                        Clasificación por tipo y categoría del catálogo, sin vincular a etapas de flujo.
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {(assignedFilesByCategory.get(LEGACY_CATALOGO_BUCKET_KEY) || []).map((file) => (
+                          <DraggableFileRow
+                            key={file.id}
+                            file={file}
+                            selected={false}
+                            onPreview={() => handlePreview(file)}
+                            onClear={() => handleClearDraft(file.id)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {(activeFlow?.categorias || []).length === 0 && activeFlow && (
+                    <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:col-span-2 xl:col-span-3">
+                      No hay categorías predefinidas en este flujo. Usa «Otro» para elegir categoría y tipo manualmente.
                     </div>
                   )}
                 </div>
@@ -786,6 +1076,131 @@ export default function LegacyDocumentClassificationModal({
               No hay un archivo disponible para vista previa.
             </div>
           )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={otroOpen}
+        onClose={() => !otroSaving && closeOtroModal(true)}
+        title="Clasificación manual — Otro"
+        maxWidthClass="max-w-lg"
+        contentClassName="p-4 sm:p-6"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Elige el <strong>tipo de documento</strong> desde el catálogo general y, si aplica, la <strong>categoría</strong> o la{" "}
+            <strong>plantilla</strong> (editor). No se asocia a etapas ni requisitos de flujo: el documento queda clasificado por tipo
+            (y categoría opcional); el área actual se usa al finalizar la importación.
+          </p>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <p className="text-xs font-medium text-slate-500">Archivo</p>
+            <p className="break-all text-sm font-semibold text-slate-900">
+              {otroLegacyFile?.nombre_archivo || otroExternalFile?.name || "—"}
+            </p>
+            {otroExternalFile ? (
+              <p className="mt-1 text-xs text-slate-500">
+                {(otroExternalFile.size / 1024).toFixed(1)} KB
+              </p>
+            ) : null}
+          </div>
+
+          <CustomSelect
+            label="Tipo de documento"
+            name="otro_tipo_catalogo"
+            value={otroTipoCatalogId}
+            onChange={(val) => {
+              const v = typeof val === "string" ? val : "";
+              setOtroTipoCatalogId(v);
+              setOtroCategoriaCatalogId("");
+              setOtroPlantillaCatalogId("");
+            }}
+            options={otroCatalogTipos.map((t) => ({
+              value: t.id,
+              label: `${t.nombre}${
+                t.tipo === "pdf"
+                  ? " (PDF)"
+                  : t.tipo === "editor"
+                    ? " (Editor)"
+                    : t.tipo === "imagen"
+                      ? " (Imagen)"
+                      : ""
+              }`,
+            }))}
+            placeholder="Seleccionar tipo…"
+            required
+            disabled={otroSaving || otroCatalogTipos.length === 0}
+            isClearable
+            usePortal
+          />
+
+          {!otroTipoEsEditor && otroTipoCatalogId ? (
+            <CustomSelect
+              label="Categoría (opcional)"
+              name="otro_cat_catalogo"
+              value={otroCategoriaCatalogId}
+              onChange={(val) => {
+                setOtroCategoriaCatalogId(typeof val === "string" ? val : "");
+              }}
+              options={otroCatalogCategorias.map((c) => ({
+                value: c.id,
+                label: c.nombre,
+              }))}
+              placeholder="Todas las categorías"
+              disabled={otroSaving || otroLoadingCatalogos}
+              isClearable
+              usePortal
+            />
+          ) : null}
+
+          {otroTipoEsEditor && otroTipoCatalogId ? (
+            <CustomSelect
+              label="Plantilla"
+              name="otro_plantilla_catalogo"
+              value={otroPlantillaCatalogId}
+              onChange={(val) => setOtroPlantillaCatalogId(typeof val === "string" ? val : "")}
+              options={otroCatalogPlantillas.map((p) => ({
+                value: p.id,
+                label: p.nombre,
+              }))}
+              placeholder="Seleccionar plantilla…"
+              required
+              disabled={otroSaving || otroLoadingCatalogos}
+              isClearable
+              usePortal
+            />
+          ) : null}
+
+          {otroExternalFile ? (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-700">Descripción (opcional)</label>
+              <input
+                type="text"
+                value={otroDescripcion}
+                onChange={(e) => setOtroDescripcion(e.target.value)}
+                disabled={otroSaving}
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+                placeholder="Ej: documento adicional no listado en legacy"
+              />
+            </div>
+          ) : null}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => closeOtroModal(true)} disabled={otroSaving}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => handleOtroConfirm()}
+              disabled={
+                otroSaving ||
+                (!otroLegacyFile && !otroExternalFile) ||
+                !otroTipoCatalogId ||
+                (otroTipoEsEditor && !!otroExternalFile && !otroPlantillaCatalogId)
+              }
+            >
+              {otroSaving ? "Guardando…" : otroLegacyFile ? "Asignar" : "Subir archivo"}
+            </Button>
+          </div>
         </div>
       </Modal>
     </>
