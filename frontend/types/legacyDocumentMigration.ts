@@ -91,7 +91,7 @@ export interface LegacyDestinationsResponse {
 
 export interface LegacyFinalizeItem {
   legacy_file_id: string;
-  /** Si se omiten flujo y etapa, la importación usa solo tipo (y categoría opcional) del catálogo; el área va en la query `area_id`. */
+  /** Sin flujo ni etapa: solo catálogo. Con flujo sin etapa: vincula el documento al flujo (área del flujo o `area_id` de la petición si el flujo es general). Con ambos: destino en etapa del flujo. */
   flujo_trabajo_id?: string | null;
   categoria_documento_id?: string | null;
   etapa_flujo_id?: string | null;

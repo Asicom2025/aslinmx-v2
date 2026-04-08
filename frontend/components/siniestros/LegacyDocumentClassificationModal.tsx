@@ -49,7 +49,15 @@ interface SelectedTarget {
 interface DraftAssignment extends LegacyFinalizeItem {
   file_id: string;
   category_key: string;
+  /** Solo para mostrar en la UI; no se envía al API. */
+  flujo_display_name?: string | null;
 }
+
+type OtroFlujoOption = {
+  id: string;
+  nombre: string;
+  es_predeterminado?: boolean;
+};
 
 const STORAGE_PREFIX = "legacy-doc-migration-draft";
 
@@ -352,6 +360,9 @@ export default function LegacyDocumentClassificationModal({
   const [otroCategoriaCatalogId, setOtroCategoriaCatalogId] = useState("");
   const [otroPlantillaCatalogId, setOtroPlantillaCatalogId] = useState("");
   const [otroLoadingCatalogos, setOtroLoadingCatalogos] = useState(false);
+  const [otroFlujoOpciones, setOtroFlujoOpciones] = useState<OtroFlujoOption[]>([]);
+  const [otroFlujoId, setOtroFlujoId] = useState("");
+  const [otroFlujoLoading, setOtroFlujoLoading] = useState(false);
 
   useEffect(() => {
     if (!scopedEnabled) {
@@ -407,15 +418,22 @@ export default function LegacyDocumentClassificationModal({
     Object.values(drafts).forEach((draft) => {
       const file = files.find((item) => item.id === draft.file_id);
       if (!file) return;
-      const key = draft.flujo_trabajo_id
-        ? `${draft.flujo_trabajo_id}:${draft.category_key}`
-        : LEGACY_CATALOGO_BUCKET_KEY;
+      const key =
+        draft.category_key === LEGACY_CATALOGO_BUCKET_KEY
+          ? LEGACY_CATALOGO_BUCKET_KEY
+          : `${draft.flujo_trabajo_id}:${draft.category_key}`;
       const current = mapped.get(key) || [];
       current.push(file);
       mapped.set(key, current);
     });
     return mapped;
   }, [drafts, files]);
+
+  const flowNombrePorId = useMemo(() => {
+    const m = new Map<string, string>();
+    flows.forEach((f) => m.set(f.id, f.nombre));
+    return m;
+  }, [flows]);
 
   useEffect(() => {
     const validAreaIds = new Set(assignedAreas.map((area) => area.id));
@@ -658,6 +676,7 @@ export default function LegacyDocumentClassificationModal({
     setOtroTipoCatalogId("");
     setOtroCategoriaCatalogId("");
     setOtroPlantillaCatalogId("");
+    setOtroFlujoId(flowForHighlight?.id ?? "");
     const highlight = flowForHighlight || flows[0];
     if (highlight) {
       setSelectedTarget({ flowId: highlight.id, categoryKey: OTRO_DROP_KEY });
@@ -675,8 +694,67 @@ export default function LegacyDocumentClassificationModal({
     setOtroPlantillaCatalogId("");
     setOtroCatalogCategorias([]);
     setOtroCatalogPlantillas([]);
+    setOtroFlujoId("");
     if (clearSelectedTarget) setSelectedTarget(null);
   };
+
+  useEffect(() => {
+    if (!otroOpen || !effectiveAreaId) {
+      setOtroFlujoOpciones([]);
+      setOtroFlujoLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setOtroFlujoLoading(true);
+    (async () => {
+      try {
+        const assignedIds = new Set(assignedAreas.map((a) => a.id));
+        const byId = new Map<string, OtroFlujoOption>();
+        for (const f of flows) {
+          byId.set(f.id, { id: f.id, nombre: f.nombre, es_predeterminado: false });
+        }
+        if (assignedIds.size > 0) {
+          const allFlujos = await apiService.getFlujos(undefined, true);
+          const arr = Array.isArray(allFlujos) ? allFlujos : [];
+          for (const raw of arr) {
+            const id = String(raw.id);
+            const aid = raw.area_id != null && raw.area_id !== "" ? String(raw.area_id) : null;
+            if (aid !== null && !assignedIds.has(aid)) continue;
+            const nombre = typeof raw.nombre === "string" ? raw.nombre : id;
+            if (!byId.has(id)) byId.set(id, { id, nombre, es_predeterminado: false });
+          }
+        }
+        let pred: { id?: unknown; nombre?: string } | null = null;
+        try {
+          pred = await apiService.getFlujoPredeterminado(effectiveAreaId);
+        } catch {
+          try {
+            pred = await apiService.getFlujoPredeterminado();
+          } catch {
+            pred = null;
+          }
+        }
+        if (pred?.id) {
+          const id = String(pred.id);
+          const cur = byId.get(id);
+          const nombre = typeof pred.nombre === "string" ? pred.nombre : cur?.nombre || id;
+          byId.set(id, { id, nombre, es_predeterminado: true });
+        }
+        const list = Array.from(byId.values()).sort((a, b) => {
+          if (a.es_predeterminado !== b.es_predeterminado) return a.es_predeterminado ? -1 : 1;
+          return a.nombre.localeCompare(b.nombre, "es");
+        });
+        if (!cancelled) setOtroFlujoOpciones(list);
+      } catch {
+        if (!cancelled) setOtroFlujoOpciones([]);
+      } finally {
+        if (!cancelled) setOtroFlujoLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [otroOpen, effectiveAreaId, flows, assignedAreas]);
 
   useEffect(() => {
     if (!otroOpen) return;
@@ -758,17 +836,19 @@ export default function LegacyDocumentClassificationModal({
         swalInfo("Este archivo ya fue importado.");
         return;
       }
+      const flujoSel = otroFlujoId ? otroFlujoOpciones.find((x) => x.id === otroFlujoId) : null;
       setDrafts((current) => ({
         ...current,
         [otroLegacyFile.id]: {
           file_id: otroLegacyFile.id,
           legacy_file_id: otroLegacyFile.legacy_file_id,
-          flujo_trabajo_id: null,
+          flujo_trabajo_id: otroFlujoId || null,
           etapa_flujo_id: null,
           category_key: LEGACY_CATALOGO_BUCKET_KEY,
           categoria_documento_id: otroCategoriaCatalogId || null,
           tipo_documento_id: otroTipoCatalogId,
           requisito_documento_id: null,
+          flujo_display_name: flujoSel?.nombre ?? null,
         },
       }));
       setSelectedFileId("");
@@ -783,6 +863,7 @@ export default function LegacyDocumentClassificationModal({
         await apiService.uploadDocumento(siniestroId, otroExternalFile, {
           descripcion: otroDescripcion.trim() || undefined,
           area_id: effectiveAreaId,
+          flujo_trabajo_id: otroFlujoId || undefined,
           tipo_documento_id: otroTipoCatalogId,
           plantilla_documento_id: otroTipoEsEditor && otroPlantillaCatalogId ? otroPlantillaCatalogId : undefined,
         });
@@ -990,20 +1071,32 @@ export default function LegacyDocumentClassificationModal({
                   )}
                   {(assignedFilesByCategory.get(LEGACY_CATALOGO_BUCKET_KEY) || []).length > 0 ? (
                     <div className="sm:col-span-2 xl:col-span-3 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-                      <h4 className="font-semibold text-emerald-900">Solo catálogo (sin flujo/etapa)</h4>
+                      <h4 className="font-semibold text-emerald-900">Catálogo manual (sin etapa en flujo)</h4>
                       <p className="mt-1 text-xs text-emerald-800/90">
-                        Clasificación por tipo y categoría del catálogo, sin vincular a etapas de flujo.
+                        Tipo y categoría desde el catálogo general; sin etapa ni requisitos. Si indicaste un flujo, el documento queda
+                        asociado a ese flujo al importar.
                       </p>
                       <div className="mt-3 space-y-2">
-                        {(assignedFilesByCategory.get(LEGACY_CATALOGO_BUCKET_KEY) || []).map((file) => (
-                          <DraggableFileRow
-                            key={file.id}
-                            file={file}
-                            selected={false}
-                            onPreview={() => handlePreview(file)}
-                            onClear={() => handleClearDraft(file.id)}
-                          />
-                        ))}
+                        {(assignedFilesByCategory.get(LEGACY_CATALOGO_BUCKET_KEY) || []).map((file) => {
+                          const d = drafts[file.id];
+                          const flujoNombre =
+                            d?.flujo_trabajo_id != null && d.flujo_trabajo_id !== ""
+                              ? d.flujo_display_name || flowNombrePorId.get(d.flujo_trabajo_id) || null
+                              : null;
+                          return (
+                            <div key={file.id}>
+                              <DraggableFileRow
+                                file={file}
+                                selected={false}
+                                onPreview={() => handlePreview(file)}
+                                onClear={() => handleClearDraft(file.id)}
+                              />
+                              {flujoNombre ? (
+                                <p className="mt-1 pl-1 text-xs text-emerald-900/85">Flujo: {flujoNombre}</p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : null}
@@ -1089,8 +1182,9 @@ export default function LegacyDocumentClassificationModal({
         <div className="space-y-4">
           <p className="text-sm text-slate-600">
             Elige el <strong>tipo de documento</strong> desde el catálogo general y, si aplica, la <strong>categoría</strong> o la{" "}
-            <strong>plantilla</strong> (editor). No se asocia a etapas ni requisitos de flujo: el documento queda clasificado por tipo
-            (y categoría opcional); el área actual se usa al finalizar la importación.
+            <strong>plantilla</strong> (editor). Opcionalmente puedes <strong>vincular un flujo</strong> del siniestro (incluido el
+            predeterminado) <strong>sin elegir etapa</strong>. No se usan requisitos de etapa; el área efectiva se aplica al finalizar o
+            al subir.
           </p>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
             <p className="text-xs font-medium text-slate-500">Archivo</p>
@@ -1103,6 +1197,24 @@ export default function LegacyDocumentClassificationModal({
               </p>
             ) : null}
           </div>
+
+          <CustomSelect
+            label="Flujo (opcional)"
+            name="otro_flujo_catalogo"
+            value={otroFlujoId}
+            onChange={(val) => setOtroFlujoId(typeof val === "string" ? val : "")}
+            options={[
+              { value: "", label: "Sin vincular a flujo (solo catálogo)" },
+              ...otroFlujoOpciones.map((f) => ({
+                value: f.id,
+                label: f.es_predeterminado ? `${f.nombre} (predeterminado)` : f.nombre,
+              })),
+            ]}
+            placeholder={otroFlujoLoading ? "Cargando flujos…" : "Seleccionar flujo…"}
+            disabled={otroSaving || otroFlujoLoading}
+            isClearable
+            usePortal
+          />
 
           <CustomSelect
             label="Tipo de documento"

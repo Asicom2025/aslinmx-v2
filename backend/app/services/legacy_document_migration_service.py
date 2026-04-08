@@ -225,6 +225,14 @@ class LegacyDocumentMigrationService:
                             detail="Para clasificación solo por tipo/categoría (sin flujo ni etapa) se requiere area_id en la solicitud.",
                         )
                     destination_meta = {"area_id": area_id}
+                elif item.flujo_trabajo_id is not None and item.etapa_flujo_id is None:
+                    destination_meta = LegacyDocumentMigrationService._destination_meta_flujo_sin_etapa(
+                        db,
+                        siniestro,
+                        current_user,
+                        item.flujo_trabajo_id,
+                        area_id,
+                    )
                 else:
                     destination_meta = LegacyDocumentMigrationService._validate_destination(flow_index, item)
                 downloaded_file = LegacyDocumentMigrationService._download_remote_legacy_file(source_file)
@@ -958,6 +966,70 @@ class LegacyDocumentMigrationService:
                 "categories_by_stage": categories_by_stage,
             }
         return flow_index
+
+    @staticmethod
+    def _destination_meta_flujo_sin_etapa(
+        db: Session,
+        siniestro: Siniestro,
+        current_user: User,
+        flujo_id: UUID,
+        area_id_from_query: Optional[UUID],
+    ) -> dict[str, UUID]:
+        """Documento con tipo/categoría de catálogo pero asociado a un flujo (sin etapa)."""
+        flow = (
+            db.query(FlujoTrabajo)
+            .filter(
+                FlujoTrabajo.id == flujo_id,
+                FlujoTrabajo.empresa_id == current_user.empresa_id,
+                FlujoTrabajo.activo == True,
+                FlujoTrabajo.eliminado_en.is_(None),
+            )
+            .first()
+        )
+        if not flow:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El flujo indicado no es válido o no está activo.",
+            )
+        if str(flow.id) in EXCLUDED_FLOW_IDS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El flujo indicado no está disponible para importación legacy.",
+            )
+
+        siniestro_area_ids = {
+            aid
+            for (aid,) in db.query(SiniestroArea.area_id).filter(
+                SiniestroArea.siniestro_id == siniestro.id,
+                SiniestroArea.activo == True,
+            ).all()
+            if aid
+        }
+        if not siniestro_area_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="El siniestro no tiene áreas asignadas.",
+            )
+
+        if flow.area_id is not None:
+            if flow.area_id not in siniestro_area_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="El flujo no pertenece a las áreas asignadas a este siniestro.",
+                )
+            return {"area_id": flow.area_id}
+
+        if not area_id_from_query:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Para flujos generales (sin área propia) se requiere area_id en la solicitud.",
+            )
+        if area_id_from_query not in siniestro_area_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="area_id no está asignada a este siniestro.",
+            )
+        return {"area_id": area_id_from_query}
 
     @staticmethod
     def _validate_destination(
