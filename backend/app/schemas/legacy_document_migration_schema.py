@@ -105,12 +105,13 @@ class LegacyFinalizeItemRequest(BaseModel):
 
     @model_validator(mode="after")
     def flujo_etapa_consistentes(self):
-        """Flujo y etapa van juntos; si se omiten, clasificación solo por catálogo (sin etapas de flujo)."""
+        """Puede omitirse flujo y etapa (solo catálogo), enviarse flujo sin etapa (vincular flujo sin etapa)
+        o flujo y etapa juntos (destino en flujo)."""
         tiene_flujo = self.flujo_trabajo_id is not None
         tiene_etapa = self.etapa_flujo_id is not None
-        if tiene_flujo != tiene_etapa:
-            raise ValueError("flujo_trabajo_id y etapa_flujo_id deben enviarse juntos o ambos omitirse.")
-        if not tiene_flujo and self.requisito_documento_id is not None:
+        if tiene_etapa and not tiene_flujo:
+            raise ValueError("etapa_flujo_id requiere flujo_trabajo_id.")
+        if self.requisito_documento_id is not None and (not tiene_flujo or not tiene_etapa):
             raise ValueError("requisito_documento_id solo aplica cuando se indica flujo y etapa.")
         return self
 
