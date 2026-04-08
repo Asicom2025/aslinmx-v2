@@ -47,7 +47,7 @@ from app.services.storage_service import StorageError, get_storage_service, reso
 
 LEGACY_MARKER_RE = re.compile(r"\[LEGACY_ORIGEN:(.+?)\]")
 PREVIEWABLE_MIME_PREFIXES = ("image/", "application/pdf", "text/")
-EXCLUDED_FLOW_IDS = {"9bc86a1e-0892-43e0-8a4b-e76c94f32a7d"}
+EXCLUDED_FLOW_IDS = {""}
 LEGACY_TMP_SOURCE_PREFIX = "tmp_siniestros_files:"
 LEGACY_FILES_URL_PREFIX = "/backend/uploads/files/"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
