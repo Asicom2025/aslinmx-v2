@@ -132,7 +132,8 @@ class Asegurado(Base):
     - nombre, apellido_paterno, apellido_materno
     - telefono, tel_oficina, tel_casa
     - ciudad, estado, empresa
-    - timerst_list (único, usado como identificador externo)
+    - correo (contacto; no único)
+    - timerst_list (identificador externo TimerST; único entre registros activos — ver migración en db/)
     """
     __tablename__ = "asegurados"
 
@@ -149,7 +150,8 @@ class Asegurado(Base):
     ciudad = Column(String(100))
     estado = Column(String(100))
     empresa = Column(String(50))
-    timerst_list = Column(String(100), nullable=False, unique=True)
+    correo = Column(String(100), nullable=True)
+    timerst_list = Column(String(100), nullable=False)
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
 
 
@@ -291,6 +293,8 @@ class Siniestro(Base):
     numero_siniestro = Column(String(50), nullable=True)
     fecha_siniestro = Column(DateTime(timezone=True), nullable=True)
     fecha_registro = Column(DateTime(timezone=True), server_default=func.now(), nullable=True)
+    fecha_reporte = Column(DateTime(timezone=True), nullable=True)
+    fecha_asignacion = Column(DateTime(timezone=True), nullable=True)
     ubicacion = Column(Text)
     # descripcion_hechos removida - se maneja en versiones_descripcion_hechos
     
@@ -309,7 +313,10 @@ class Siniestro(Base):
     
     # Proveniente y código
     proveniente_id = Column(UUID(as_uuid=True), ForeignKey("provenientes.id", ondelete="SET NULL"), nullable=True)
-    codigo = Column(String(50), nullable=True, unique=True)  # Formato: {proveniente_id}-{consecutivo}-{año}
+    # Consecutivo del ID (ej. 099), único por proveniente + anualidad — ver db/postgresql_siniestros_codigo_por_proveniente.sql
+    codigo = Column(String(50), nullable=True)
+    # Año calendario (ej. 2026), alineado con fecha de reporte / referencia del consecutivo (NOT NULL tras db/postgresql_siniestros_codigo_por_proveniente.sql)
+    anualidad = Column(Integer, nullable=False)
     numero_reporte = Column(String(100), nullable=True)
     old_id = Column(String(255), nullable=True)
     

@@ -9,9 +9,10 @@ export interface Siniestro {
   id: string;
   empresa_id: string;
   numero_siniestro?: string | null;
-  /** Legado; la fecha de reporte en UI/PDF es `fecha_registro`. */
   fecha_siniestro?: string | null;
   fecha_registro?: string | null;
+  fecha_reporte?: string | null;
+  fecha_asignacion?: string | null;
   ubicacion?: string;
   descripcion_hechos: string;
 
@@ -34,6 +35,8 @@ export interface Siniestro {
   // Proveniente y código
   proveniente_id?: string;
   codigo?: string;  // Código generado automáticamente
+  /** Año calendario del consecutivo (ej. 2026) */
+  anualidad?: number | null;
   numero_reporte?: string;
   /** ID legible armado en API: proveniente-consecutivo-anualidad */
   id_formato?: string | null;
@@ -58,8 +61,10 @@ export interface Siniestro {
 
 export interface SiniestroCreate {
   numero_siniestro?: string | null;
-  /** Fecha de reporte (persiste en `fecha_registro`). */
   fecha_registro: string;
+  fecha_reporte?: string;
+  fecha_asignacion?: string;
+  fecha_siniestro?: string;
   ubicacion?: string;
   descripcion_hechos: string;
 
@@ -84,6 +89,9 @@ export interface SiniestroCreate {
 export interface SiniestroUpdate {
   numero_siniestro?: string;
   fecha_registro?: string;
+  fecha_reporte?: string;
+  fecha_asignacion?: string;
+  fecha_siniestro?: string;
   ubicacion?: string;
   descripcion_hechos?: string;
 

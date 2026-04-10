@@ -102,6 +102,7 @@ const getInitialForm = (): SiniestroFormState => ({
   numero_siniestro: "",
   fecha_registro: new Date().toISOString().split("T")[0],
   fecha_asignacion: new Date().toISOString().split("T")[0],
+  fecha_siniestro: "",
   ubicacion: "",
   descripcion_hechos: "",
   numero_poliza: "",
@@ -383,7 +384,7 @@ export default function NuevoSiniestroPage() {
       nombre: asegurado.nombre || "",
       apellido_paterno: asegurado.apellido_paterno || "",
       apellido_materno: asegurado.apellido_materno || "",
-      email: "", // la tabla de asegurados no tiene email
+      email: asegurado.correo || "",
       telefono:
         asegurado.telefono ||
         asegurado.tel_oficina ||
@@ -683,6 +684,9 @@ export default function NuevoSiniestroPage() {
       const fechaAsignacionDateTime = form.fecha_asignacion
         ? new Date(form.fecha_asignacion + "T00:00:00").toISOString()
         : new Date().toISOString();
+      const fechaSiniestroDateTime = form.fecha_siniestro?.trim()
+        ? new Date(form.fecha_siniestro + "T00:00:00").toISOString()
+        : undefined;
 
       const areasIds = extendedForm.generales.areas_ids || [];
       const usuariosIds = extendedForm.generales.usuarios_ids || [];
@@ -692,6 +696,7 @@ export default function NuevoSiniestroPage() {
       const {
         fecha_registro: _fr,
         fecha_asignacion: _fa,
+        fecha_siniestro: _fs,
         numero_poliza: _np,
         deducible: _de,
         reserva: _re,
@@ -702,6 +707,9 @@ export default function NuevoSiniestroPage() {
       const payload = {
         ...formRest,
         fecha_registro: fechaRegistroDateTime,
+        fecha_reporte: fechaRegistroDateTime,
+        fecha_asignacion: fechaAsignacionDateTime,
+        ...(fechaSiniestroDateTime ? { fecha_siniestro: fechaSiniestroDateTime } : {}),
         polizas: polizasPayload,
         descripcion_hechos: extendedForm.especificos.descripcion_html || form.descripcion_hechos,
         asegurado_id: aseguradoId,

@@ -65,8 +65,8 @@ def _get_siniestro_asegurado_variables(
     Variables para PDF desde siniestro y asegurado (header y cuerpo).
     - numero_poliza, numero_siniestro: del siniestro
     - lugar_ocurrido: dirección del asegurado (ciudad, estado)
-    - fecha_reporte, hora_fecha_reporte: de fecha_registro
-    - fecha_asignacion, hora_fecha_asignacion: de fecha_siniestro (expandidos por _expand_datetime_variables)
+    - fecha_reporte, hora_fecha_reporte: de `fecha_reporte` / `fecha_registro` / `fecha_siniestro`
+    - fecha_asignacion: de `siniestros.fecha_asignacion` o relación `siniestro_areas`
     """
     out = {}
     if not empresa_id:
@@ -82,13 +82,11 @@ def _get_siniestro_asegurado_variables(
     )
     out["numero_siniestro"] = (siniestro.numero_siniestro or "").strip()
 
-    # Unificación de fechas:
-    # - La app asume que fecha_captura == fecha_registro
-    # - Y que fecha_reporte deriva de fecha_registro
-    # En algunos casos tempranos puede venir vacío fecha_registro,
-    # así que hacemos fallback a fecha_siniestro y formateamos como DD/MM/YYYY.
-    fecha_reg = getattr(siniestro, "fecha_registro", None) or getattr(
-        siniestro, "fecha_siniestro", None
+    # fecha_reporte (columna) → fecha_registro → fecha_siniestro
+    fecha_reg = (
+        getattr(siniestro, "fecha_reporte", None)
+        or getattr(siniestro, "fecha_registro", None)
+        or getattr(siniestro, "fecha_siniestro", None)
     )
     out["fecha_reporte"] = _fecha_pdf_corta(fecha_reg)
 
@@ -110,7 +108,9 @@ def _get_siniestro_asegurado_variables(
         .order_by(SiniestroArea.fecha_asignacion.desc())
         .first()
     )
-    out["fecha_asignacion"] = getattr(area_asig, "fecha_asignacion", None)
+    out["fecha_asignacion"] = getattr(siniestro, "fecha_asignacion", None) or getattr(
+        area_asig, "fecha_asignacion", None
+    )
     autoridad_nombre = ""
     if getattr(siniestro, "autoridad_id", None):
         autoridad = (
@@ -308,6 +308,8 @@ def _variables_plantilla_alineadas_frontend(
             .first()
         )
         fecha_asig_src = getattr(area_asig, "fecha_asignacion", None)
+    if fecha_asig_src is None:
+        fecha_asig_src = getattr(siniestro, "fecha_asignacion", None)
 
     # Estado del siniestro (nombre legible)
     estado_nombre = ""

@@ -90,7 +90,7 @@ async def listar_reportes_disponibles(
             descripcion="Listado completo de siniestros con información relacionada",
             columnas_disponibles=[
                 # Columnas básicas
-                "id", "numero_siniestro", "fecha_siniestro", "fecha_registro", "ubicacion",
+                "id", "numero_siniestro", "fecha_siniestro", "fecha_registro", "fecha_reporte", "fecha_asignacion", "ubicacion",
                 "numero_poliza", "deducible", "reserva", "coaseguro", "suma_asegurada",
                 "polizas_numeros", "polizas_cantidad",
                 "prioridad", "forma_contacto", "observaciones", "codigo", "numero_reporte",
@@ -179,7 +179,7 @@ async def listar_reportes_disponibles(
             descripcion="Listado de asegurados (personas/entidades aseguradas)",
             columnas_disponibles=[
                 "id", "nombre", "apellido_paterno", "apellido_materno", "telefono", "tel_oficina", "tel_casa",
-                "ciudad", "estado", "empresa", "timerst_list", "activo", "creado_en", "actualizado_en"
+                "ciudad", "estado", "empresa", "correo", "timerst_list", "activo", "creado_en", "actualizado_en"
             ],
             filtros_disponibles=["activo", "fecha_desde", "fecha_hasta"]
         ),

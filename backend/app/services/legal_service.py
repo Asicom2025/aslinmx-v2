@@ -3,9 +3,10 @@ Servicios CRUD para catálogos legales
 """
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import func, extract, nullslast, cast, or_, and_, case
+from sqlalchemy import func, extract, cast, or_, and_, case
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.types import Integer, String
 from datetime import datetime, timezone
 from fastapi import HTTPException, status
@@ -428,9 +429,39 @@ class AseguradoService:
 
         Nota: empresa_id se ignora porque la tabla no tiene esa columna.
         """
-        asegurado = Asegurado(**payload.model_dump())
+        data = payload.model_dump()
+        c = data.get("correo")
+        if c is not None:
+            cs = str(c).strip()
+            data["correo"] = cs if cs else None
+        tl = (data.get("timerst_list") or "").strip()
+        if not tl:
+            data["timerst_list"] = f"tl-{uuid4()}"
+        else:
+            data["timerst_list"] = tl
+            dup = (
+                db.query(Asegurado)
+                .filter(
+                    Asegurado.timerst_list == data["timerst_list"],
+                    Asegurado.eliminado_en.is_(None),
+                )
+                .first()
+            )
+            if dup:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Ya existe un asegurado activo con el mismo timerst_list. Deje el campo vacío para generar uno automático o use otro valor.",
+                )
+        asegurado = Asegurado(**data)
         db.add(asegurado)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No se pudo crear el asegurado: conflicto en timerst_list (identificador externo). Si aplica, ejecute la migración en db/postgresql_asegurados_correo_y_timerst_list.sql.",
+            )
         db.refresh(asegurado)
         return asegurado
 
@@ -442,9 +473,37 @@ class AseguradoService:
         ).first()
         if not asegurado:
             return None
-        for k, v in payload.model_dump(exclude_unset=True).items():
+        data = payload.model_dump(exclude_unset=True)
+        if "correo" in data and data["correo"] is not None:
+            cs = str(data["correo"]).strip()
+            data["correo"] = cs if cs else None
+        new_tl = data.get("timerst_list")
+        if new_tl is not None:
+            ntl = new_tl.strip() if isinstance(new_tl, str) else new_tl
+            conflict = (
+                db.query(Asegurado)
+                .filter(
+                    Asegurado.timerst_list == ntl,
+                    Asegurado.id != asegurado_id,
+                    Asegurado.eliminado_en.is_(None),
+                )
+                .first()
+            )
+            if conflict:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Ya existe otro asegurado activo con el mismo timerst_list.",
+                )
+        for k, v in data.items():
             setattr(asegurado, k, v)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Conflicto al actualizar timerst_list (identificador externo).",
+            )
         db.refresh(asegurado)
         return asegurado
 
@@ -937,15 +996,22 @@ class SiniestroService:
                 if prov:
                     codigo_prov = (prov.codigo or "").strip()
         consecutivo = normalize_siniestro_consecutivo((siniestro.codigo or "").strip()) or ""
-        fecha_ref = siniestro.fecha_registro or siniestro.fecha_siniestro
         anualidad = ""
-        if fecha_ref:
+        year_full = getattr(siniestro, "anualidad", None)
+        if year_full is not None:
             try:
-                year = fecha_ref.year if hasattr(fecha_ref, "year") else None
-                if year is not None:
-                    anualidad = str(int(year) % 100).zfill(2)
+                anualidad = str(int(year_full) % 100).zfill(2)
             except (TypeError, ValueError):
                 pass
+        if not anualidad:
+            fecha_ref = siniestro.fecha_registro or siniestro.fecha_siniestro
+            if fecha_ref:
+                try:
+                    year = fecha_ref.year if hasattr(fecha_ref, "year") else None
+                    if year is not None:
+                        anualidad = str(int(year) % 100).zfill(2)
+                except (TypeError, ValueError):
+                    pass
         if codigo_prov and consecutivo and anualidad:
             setattr(siniestro, "id_formato", f"{codigo_prov}-{consecutivo}-{anualidad}")
         else:
@@ -1180,7 +1246,7 @@ class SiniestroService:
 
             q = q.filter(Siniestro.id.in_(siniestro_ids_filtrados))
         
-        siniestros = q.order_by(nullslast(Siniestro.fecha_registro.desc())).offset(skip).limit(limit).all()
+        siniestros = q.order_by(Siniestro.creado_en.desc()).offset(skip).limit(limit).all()
         
         # Cargar versión actual de descripción y id_formato (proveniente-consecutivo-año) para cada siniestro
         proveniente_ids = list({s.proveniente_id for s in siniestros if s.proveniente_id})
@@ -1223,92 +1289,137 @@ class SiniestroService:
         return siniestro
     
     @staticmethod
-    def _generar_codigo(db: Session, proveniente_id: UUID, fecha_siniestro: Optional[datetime] = None) -> str:
+    def _anio_calendario_referencia(fecha: Optional[datetime]) -> int:
+        """Año calendario para agrupar consecutivos (misma regla que el sufijo del id_formato)."""
+        if fecha is not None:
+            try:
+                y = getattr(fecha, "year", None)
+                if y is not None:
+                    return int(y)
+            except (TypeError, ValueError):
+                pass
+        return datetime.now(timezone.utc).year
+
+    @staticmethod
+    def _sql_anio_siniestro_columna():
         """
-        Genera código único para siniestro con formato: {consecutivo}
-        Ejemplo: 001, 002, 003, etc.
-        El código es único globalmente en la tabla siniestros.
+        Año calendario para filtros de consecutivo: columna `anualidad` si existe, si no fechas (filas legadas).
+        """
+        extract_part = extract(
+            "year",
+            func.coalesce(Siniestro.fecha_registro, Siniestro.fecha_siniestro, Siniestro.creado_en),
+        )
+        return func.coalesce(Siniestro.anualidad, extract_part)
+
+    @staticmethod
+    def _entero_desde_codigo_atributo(codigo: Optional[str]) -> Optional[int]:
+        """Interpreta el consecutivo numérico guardado en siniestros.codigo (001, 102-099-26, 1123124.01)."""
+        if codigo is None:
+            return None
+        s = str(codigo).strip()
+        if not s:
+            return None
+        if s.count("-") >= 2:
+            parts = [p.strip() for p in s.split("-") if p.strip() != ""]
+            if len(parts) >= 3 and parts[1].isdigit():
+                return int(parts[1])
+        if "." in s:
+            tail = s.rsplit(".", 1)[-1]
+            digits = "".join(c for c in tail if c.isdigit())
+            if digits:
+                return int(digits)
+        digits = "".join(c for c in s if c.isdigit())
+        if not digits:
+            return None
+        try:
+            return int(digits)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _normalizar_codigo_consecutivo_manual(raw: Optional[str]) -> Optional[str]:
+        """Normaliza entrada del usuario (622, 102-622-26) al formato de consecutivo persistido (mín. 3 dígitos visibles vía normalize_siniestro_consecutivo)."""
+        if raw is None:
+            return None
+        s = str(raw).strip()
+        if not s:
+            return None
+        if s.count("-") >= 2:
+            parts = [p.strip() for p in s.split("-") if p.strip() != ""]
+            if len(parts) >= 3 and parts[1].isdigit():
+                return normalize_siniestro_consecutivo(parts[1])
+        if "." in s:
+            tail = s.rsplit(".", 1)[-1].strip()
+            digits = "".join(c for c in tail if c.isdigit())
+            if digits:
+                return normalize_siniestro_consecutivo(digits)
+        digits = "".join(c for c in s if c.isdigit())
+        if digits:
+            return normalize_siniestro_consecutivo(digits)
+        return None
+
+    @staticmethod
+    def _generar_codigo(db: Session, proveniente_id: UUID, fecha_referencia: Optional[datetime] = None) -> str:
+        """
+        Genera consecutivo (codigo) ej. 001, 002, por proveniente y año calendario de referencia
+        (fecha_registro / fecha_siniestro / creado_en en filas existentes). Otro año u otro
+        proveniente reinicia la serie (p. ej. 102-099-25 y 102-099-26).
         """
         if not proveniente_id:
             return None
-        
-        # Buscar el último código usado globalmente (no eliminados)
-        ultimo_siniestro = db.query(Siniestro).filter(
-            Siniestro.eliminado == False,
-            Siniestro.codigo.isnot(None),
-            Siniestro.codigo != ''
-        ).order_by(
-            # Ordenar numéricamente si es posible, sino alfabéticamente
-            Siniestro.codigo.desc()
-        ).first()
-        
-        # Si existe un código previo, extraer el consecutivo y sumar 1
-        if ultimo_siniestro and ultimo_siniestro.codigo:
-            try:
-                # Intentar convertir el código a número
-                consecutivo = int(ultimo_siniestro.codigo) + 1
-            except (ValueError, TypeError):
-                # Si no es numérico, buscar el máximo numérico
-                todos_codigos = db.query(Siniestro.codigo).filter(
-                    Siniestro.eliminado == False,
-                    Siniestro.codigo.isnot(None),
-                    Siniestro.codigo != ''
-                ).all()
-                
-                numeros = []
-                for cod in todos_codigos:
-                    try:
-                        numeros.append(int(cod[0]))
-                    except (ValueError, TypeError):
-                        continue
-                
-                consecutivo = max(numeros) + 1 if numeros else 1
-        else:
-            consecutivo = 1
-        
-        # Formatear código con 3 dígitos: {consecutivo}
-        codigo = f"{str(consecutivo).zfill(3)}"
-        
-        # Verificar que no exista y si existe, incrementar hasta encontrar uno disponible
-        max_intentos = 1000  # Límite de seguridad
+
+        year_ref = SiniestroService._anio_calendario_referencia(fecha_referencia)
+
+        rows = (
+            db.query(Siniestro.codigo)
+            .filter(
+                Siniestro.eliminado == False,
+                Siniestro.proveniente_id == proveniente_id,
+                Siniestro.codigo.isnot(None),
+                Siniestro.codigo != "",
+                SiniestroService._sql_anio_siniestro_columna() == year_ref,
+            )
+            .all()
+        )
+        max_n = 0
+        for (c,) in rows:
+            n = SiniestroService._entero_desde_codigo_atributo(c)
+            if n is not None and n > max_n:
+                max_n = n
+        consecutivo = max_n + 1 if max_n else 1
+        codigo = str(consecutivo).zfill(3)
+
+        max_intentos = 1000
         intentos = 0
-        while db.query(Siniestro).filter(
-            Siniestro.codigo == codigo,
-            Siniestro.eliminado == False
-        ).first() and intentos < max_intentos:
+        while (
+            db.query(Siniestro)
+            .filter(
+                Siniestro.codigo == codigo,
+                Siniestro.proveniente_id == proveniente_id,
+                Siniestro.eliminado == False,
+                SiniestroService._sql_anio_siniestro_columna() == year_ref,
+            )
+            .first()
+            and intentos < max_intentos
+        ):
             consecutivo += 1
-            codigo = f"{str(consecutivo).zfill(3)}"
+            codigo = str(consecutivo).zfill(3)
             intentos += 1
-        
+
         if intentos >= max_intentos:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="No se pudo generar un código único para el siniestro"
+                detail="No se pudo generar un código único para el siniestro en este proveniente y año",
             )
-        
         return codigo
     
     @staticmethod
     def create(db: Session, empresa_id: UUID, payload: SiniestroCreate, creado_por: UUID) -> Siniestro:
         """
         Crea un nuevo siniestro.
-        Valida que el número de siniestro sea único por empresa (solo si se proporciona).
+        numero_siniestro y numero_reporte no son únicos (pueden repetirse, p. ej. S/N o N/A).
         Genera código automáticamente si hay proveniente_id.
         """
-        # Verificar unicidad del número de siniestro solo si se proporciona
-        if payload.numero_siniestro:
-            existing = db.query(Siniestro).filter(
-                Siniestro.empresa_id == empresa_id,
-                Siniestro.numero_siniestro == payload.numero_siniestro,
-                Siniestro.eliminado == False
-            ).first()
-            
-            if existing:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Ya existe un siniestro con el número {payload.numero_siniestro}"
-                )
-        
         # Extraer descripcion_hechos del payload para crear versión
         descripcion_hechos = payload.descripcion_hechos
         polizas_payload = SiniestroService._normalize_polizas_payload(
@@ -1320,26 +1431,60 @@ class SiniestroService:
         # La columna descripcion_hechos ya no existe en la tabla siniestros
         payload_dict.pop('descripcion_hechos', None)
 
-        # Fecha de reporte: solo `fecha_registro`. No persistir `fecha_siniestro` desde el alta (campo legado).
-        payload_dict.pop("fecha_siniestro", None)
         payload_dict.pop("polizas", None)
+        payload_dict.pop("anualidad", None)
+
+        fr = payload_dict.get("fecha_registro")
+        if payload_dict.get("fecha_reporte") is None and fr is not None:
+            payload_dict["fecha_reporte"] = fr
+
+        codigo_manual = payload_dict.pop("codigo", None)
+        texto_codigo_manual = None if codigo_manual is None else str(codigo_manual).strip()
+        ref_fecha_codigo = payload_dict.get("fecha_registro") or getattr(
+            payload, "fecha_registro", None
+        )
+        year_consecutivo = SiniestroService._anio_calendario_referencia(ref_fecha_codigo)
         
-        # Generar código automáticamente si hay proveniente_id
+        # Consecutivo del ID (codigo): manual opcional o autogenerado por proveniente + año
         if payload.proveniente_id:
-            try:
-                ref_fecha = payload_dict.get("fecha_registro") or getattr(
-                    payload, "fecha_registro", None
+            norm_manual = SiniestroService._normalizar_codigo_consecutivo_manual(texto_codigo_manual)
+            if texto_codigo_manual and not norm_manual:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="El consecutivo del ID debe ser numérico (ej. 622 o formato 102-622-26).",
                 )
-                codigo = SiniestroService._generar_codigo(db, payload.proveniente_id, ref_fecha)
-                if codigo:
-                    payload_dict['codigo'] = codigo
-            except Exception as e:
-                # Si hay error generando el código, continuar sin código
-                # El código se puede generar después al actualizar el siniestro
-                import logging
-                logging.warning(f"Error al generar código para siniestro: {str(e)}")
-                pass
-        
+            if norm_manual:
+                dup = (
+                    db.query(Siniestro)
+                    .filter(
+                        Siniestro.eliminado == False,
+                        Siniestro.proveniente_id == payload.proveniente_id,
+                        Siniestro.codigo == norm_manual,
+                        SiniestroService._sql_anio_siniestro_columna() == year_consecutivo,
+                    )
+                    .first()
+                )
+                if dup:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Ya existe un siniestro con el consecutivo {norm_manual} para este proveniente "
+                            f"en el año {year_consecutivo}."
+                        ),
+                    )
+                payload_dict["codigo"] = norm_manual
+            else:
+                try:
+                    codigo = SiniestroService._generar_codigo(db, payload.proveniente_id, ref_fecha_codigo)
+                    if codigo:
+                        payload_dict["codigo"] = codigo
+                except Exception as e:
+                    import logging
+
+                    logging.warning("Error al generar código para siniestro: %s", str(e))
+
+        payload_dict["anualidad"] = year_consecutivo
+
         siniestro = Siniestro(empresa_id=empresa_id, creado_por=creado_por, **payload_dict)
         db.add(siniestro)
         db.flush()
@@ -1386,7 +1531,7 @@ class SiniestroService:
     def update(db: Session, siniestro_id: UUID, empresa_id: UUID, payload: SiniestroUpdate, actualizado_por: UUID = None) -> Optional[Siniestro]:
         """
         Actualiza un siniestro existente.
-        Valida empresa y unicidad del número si se cambia.
+        Valida empresa. numero_siniestro y numero_reporte pueden repetirse entre siniestros.
         Genera código automáticamente si falta y hay proveniente_id.
         """
         siniestro = db.query(Siniestro).options(selectinload(Siniestro.polizas)).filter(
@@ -1401,23 +1546,6 @@ class SiniestroService:
         estado_id_antes = siniestro.estado_id
         calificacion_id_antes = siniestro.calificacion_id
 
-        # Validar unicidad del número si se cambia y se proporciona un valor
-        if payload.numero_siniestro is not None:
-            # Si se está estableciendo un número (cambiando de null a valor o cambiando el valor)
-            if payload.numero_siniestro != siniestro.numero_siniestro:
-                existing = db.query(Siniestro).filter(
-                    Siniestro.empresa_id == empresa_id,
-                    Siniestro.numero_siniestro == payload.numero_siniestro,
-                    Siniestro.id != siniestro_id,
-                    Siniestro.eliminado == False
-                ).first()
-                
-                if existing:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Ya existe un siniestro con el número {payload.numero_siniestro}"
-                    )
-        
         # Extraer descripcion_hechos del payload si viene
         payload_dict = payload.model_dump(exclude_unset=True)
         descripcion_hechos = payload_dict.pop('descripcion_hechos', None)
@@ -1431,13 +1559,69 @@ class SiniestroService:
             else None
         )
 
-        # Fecha de reporte: solo `fecha_registro`. Ignorar `fecha_siniestro` en actualizaciones.
-        payload_dict.pop("fecha_siniestro", None)
         payload_dict.pop("polizas", None)
-        
-        # Generar código automáticamente si falta y hay proveniente_id
-        proveniente_id_actualizado = payload_dict.get('proveniente_id', siniestro.proveniente_id)
-        if not siniestro.codigo and proveniente_id_actualizado:
+        payload_dict.pop("anualidad", None)
+
+        if "fecha_registro" in payload_dict:
+            fr_nueva = payload_dict["fecha_registro"]
+            ref_anualidad = fr_nueva if fr_nueva is not None else siniestro.fecha_registro
+            ref_anualidad = ref_anualidad or siniestro.fecha_siniestro or siniestro.creado_en
+            payload_dict["anualidad"] = SiniestroService._anio_calendario_referencia(ref_anualidad)
+            if "fecha_reporte" not in payload_dict:
+                if fr_nueva is not None:
+                    payload_dict["fecha_reporte"] = fr_nueva
+
+        proveniente_id_actualizado = payload_dict.get("proveniente_id", siniestro.proveniente_id)
+
+        codigo_explicito = "codigo" in payload_dict
+        if codigo_explicito:
+            raw_c = payload_dict["codigo"]
+            if raw_c is None or (isinstance(raw_c, str) and not str(raw_c).strip()):
+                payload_dict["codigo"] = None
+            else:
+                norm = SiniestroService._normalizar_codigo_consecutivo_manual(str(raw_c))
+                if not norm:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="El consecutivo del ID debe ser numérico (ej. 622 o 102-622-26).",
+                    )
+                if not proveniente_id_actualizado:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Asigne un proveniente antes de definir el consecutivo del ID.",
+                    )
+                ref_dup = (
+                    payload_dict.get("fecha_registro")
+                    if "fecha_registro" in payload_dict
+                    else None
+                ) or siniestro.fecha_registro or siniestro.fecha_siniestro
+                year_dup = SiniestroService._anio_calendario_referencia(ref_dup)
+                dup = (
+                    db.query(Siniestro)
+                    .filter(
+                        Siniestro.id != siniestro_id,
+                        Siniestro.eliminado == False,
+                        Siniestro.proveniente_id == proveniente_id_actualizado,
+                        Siniestro.codigo == norm,
+                        SiniestroService._sql_anio_siniestro_columna() == year_dup,
+                    )
+                    .first()
+                )
+                if dup:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Ya existe un siniestro con el consecutivo {norm} para este proveniente "
+                            f"en el año {year_dup}."
+                        ),
+                    )
+                payload_dict["codigo"] = norm
+
+        if (
+            not codigo_explicito
+            and not siniestro.codigo
+            and proveniente_id_actualizado
+        ):
             ref_fecha = (
                 payload_dict.get("fecha_registro")
                 if "fecha_registro" in payload_dict
@@ -1447,7 +1631,7 @@ class SiniestroService:
                 db, proveniente_id_actualizado, ref_fecha
             )
             if codigo:
-                payload_dict['codigo'] = codigo
+                payload_dict["codigo"] = codigo
         
         # Actualizar campos (sin descripcion_hechos)
         for k, v in payload_dict.items():

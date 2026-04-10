@@ -54,10 +54,12 @@ function loadGooglePlaces(): Promise<void> {
 
 export interface SiniestroFormState {
   numero_siniestro: string;
-  /** Fecha de reporte → persiste en `fecha_registro` (no usar `fecha_siniestro`). */
+  /** Fecha de reporte → `fecha_registro` y `fecha_reporte` en API. */
   fecha_registro: string;
-  /** Fecha de asignación de área(s) → `siniestro_areas.fecha_asignacion`. */
+  /** Fecha de asignación → `siniestros.fecha_asignacion` y relación `siniestro_areas`. */
   fecha_asignacion: string;
+  /** Fecha del siniestro (ocurrencia) → `fecha_siniestro`. Opcional. */
+  fecha_siniestro: string;
   ubicacion: string;
   descripcion_hechos: string;
   numero_poliza: string;
@@ -438,7 +440,7 @@ export default function SiniestroWizard({
             telefono_oficina: asegurado?.tel_oficina || "",
             estado: asegurado?.estado || "",
             ciudad: asegurado?.ciudad || "",
-            email: "",
+            email: asegurado?.correo || "",
             direccion: "",
             colonia: "",
             municipio: "",
@@ -607,8 +609,8 @@ export default function SiniestroWizard({
     if (step === 0) {
       if (extendedForm.asegurado.seleccionadoId) return null;
       const nuevo = extendedForm.asegurado.nuevo;
-      if (!nuevo.nombre.trim() || !nuevo.apellido_paterno.trim() || !nuevo.email.trim()) {
-        return "Selecciona un asegurado existente o captura nombre, apellido paterno y correo para crear uno nuevo.";
+      if (!nuevo.nombre.trim() || !nuevo.apellido_paterno.trim()) {
+        return "Selecciona un asegurado existente o captura nombre y apellido paterno.";
       }
       return null;
     }
@@ -866,7 +868,7 @@ export default function SiniestroWizard({
                       placeholder="Apellido materno"
                     />
                     <Input
-                      label="Correo electrónico *"
+                      label="Correo electrónico (opcional)"
                       name="asegurado_email"
                       value={extendedForm.asegurado.nuevo.email}
                       onChange={(event) => handleNuevoAseguradoChange("email", event.target.value)}
@@ -979,15 +981,15 @@ export default function SiniestroWizard({
             {currentStep === 1 && (
               <div className="space-y-6">
                 <div className="grid gap-4 md:grid-cols-3">
-                  <Input
-                    label="Número de reporte"
-                    name="numero_reporte"
-                    value={extendedForm.generales.numero_reporte}
-                    onChange={(event) => setGeneralesValue("numero_reporte", event.target.value)}
-                    placeholder="REP-2025-0001"
-                  />
-                  <Input
-                    label="Número de siniestro"
+                <Input
+                  label="Número de reporte"
+                  name="numero_reporte"
+                  value={extendedForm.generales.numero_reporte}
+                  onChange={(event) => setGeneralesValue("numero_reporte", event.target.value)}
+                  placeholder="REP-2025-0001"
+                />
+                <Input
+                  label="Número de siniestro"
                     name="numero_siniestro"
                     value={form.numero_siniestro}
                     onChange={onChange}
@@ -1008,6 +1010,13 @@ export default function SiniestroWizard({
                     value={form.fecha_asignacion}
                     onChange={onChange}
                     required
+                  />
+                  <Input
+                    label="Fecha del siniestro (ocurrencia)"
+                    type="date"
+                    name="fecha_siniestro"
+                    value={form.fecha_siniestro}
+                    onChange={onChange}
                   />
                 </div>
 

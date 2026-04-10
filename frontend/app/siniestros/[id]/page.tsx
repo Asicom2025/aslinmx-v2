@@ -371,6 +371,7 @@ export default function SiniestroDetailPage() {
     numero_siniestro: "",
     fecha_registro: "",
     fecha_asignacion: "",
+    fecha_siniestro: "",
     ubicacion: "",
     numero_poliza: "",
     deducible: 0,
@@ -474,6 +475,7 @@ export default function SiniestroDetailPage() {
         asegurado?.apellido_materno || ""
       }`.trim() ||
       asegurado?.full_name ||
+      asegurado?.correo ||
       asegurado?.email ||
       "";
 
@@ -611,6 +613,7 @@ export default function SiniestroDetailPage() {
         aseguradoData?.apellido_materno || ""
       }`.trim() ||
       aseguradoData?.full_name ||
+      aseguradoData?.correo ||
       aseguradoData?.email ||
       "";
 
@@ -1170,8 +1173,10 @@ export default function SiniestroDetailPage() {
     if (!siniestro) return;
     const primaryPoliza = getDisplayPolizasFromSiniestro(siniestro)[0];
 
-    const fechaReporte = siniestro.fecha_registro
-      ? new Date(siniestro.fecha_registro).toISOString().split("T")[0]
+    const reporteSrc =
+      (siniestro as any).fecha_reporte || siniestro.fecha_registro;
+    const fechaReporte = reporteSrc
+      ? new Date(reporteSrc).toISOString().split("T")[0]
       : "";
 
     const areaPrincipalId = (siniestro as any)?.area_principal_id;
@@ -1182,17 +1187,28 @@ export default function SiniestroDetailPage() {
           )
         : areasAdicionales[0];
 
-    const fechaAsignacion =
+    const fechaAsignacionRel =
       relacionPrincipal?.fecha_asignacion
         ? String(relacionPrincipal.fecha_asignacion).includes("T")
           ? String(relacionPrincipal.fecha_asignacion).split("T")[0]
           : String(relacionPrincipal.fecha_asignacion).slice(0, 10)
         : "";
+    const fechaAsignacionSin = (siniestro as any).fecha_asignacion
+      ? String((siniestro as any).fecha_asignacion).includes("T")
+        ? String((siniestro as any).fecha_asignacion).split("T")[0]
+        : String((siniestro as any).fecha_asignacion).slice(0, 10)
+      : "";
+    const fechaAsignacion = fechaAsignacionSin || fechaAsignacionRel;
+
+    const fechaSiniestroStr = (siniestro as any).fecha_siniestro
+      ? new Date((siniestro as any).fecha_siniestro).toISOString().split("T")[0]
+      : "";
 
     setEditForm({
       numero_siniestro: siniestro.numero_siniestro || "",
       fecha_registro: fechaReporte,
       fecha_asignacion: fechaAsignacion,
+      fecha_siniestro: fechaSiniestroStr,
       ubicacion: siniestro.ubicacion || "",
       numero_poliza: primaryPoliza?.numero_poliza || "",
       deducible: Number(primaryPoliza?.deducible || 0),
@@ -1233,6 +1249,12 @@ export default function SiniestroDetailPage() {
           : `${editForm.fecha_asignacion}T00:00:00`
         : undefined;
 
+      const fechaSiniestroIso = editForm.fecha_siniestro
+        ? editForm.fecha_siniestro.includes("T")
+          ? editForm.fecha_siniestro
+          : `${editForm.fecha_siniestro}T00:00:00`
+        : undefined;
+
       const areaPrincipalId = (siniestro as any)?.area_principal_id;
       const relacionPrincipal =
         areaPrincipalId
@@ -1258,6 +1280,9 @@ export default function SiniestroDetailPage() {
             ? editForm.numero_siniestro
             : null,
         fecha_registro: fechaRegistroIso,
+        fecha_reporte: fechaRegistroIso,
+        fecha_asignacion: fechaAsignacionIso,
+        fecha_siniestro: fechaSiniestroIso,
         ubicacion: editForm.ubicacion || undefined,
         polizas: buildPolizasPayload(polizasDraft),
         prioridad: editForm.prioridad || undefined,
@@ -5383,6 +5408,13 @@ export default function SiniestroDetailPage() {
                 value={editForm.fecha_registro}
                 onChange={handleEditFormChange}
                 required
+              />
+              <Input
+                label="Fecha del siniestro (ocurrencia)"
+                name="fecha_siniestro"
+                type="date"
+                value={editForm.fecha_siniestro}
+                onChange={handleEditFormChange}
               />
               <Input
                 label="Ubicación"
