@@ -227,6 +227,7 @@ function SiniestrosPageContent() {
     numero_siniestro: "",
     fecha_registro: new Date().toISOString().split("T")[0],
     fecha_asignacion: new Date().toISOString().split("T")[0],
+    fecha_siniestro: "",
     ubicacion: "",
     descripcion_hechos: "",
     numero_poliza: "",
@@ -635,6 +636,9 @@ function SiniestrosPageContent() {
       const fechaAsignacionDateTime = form.fecha_asignacion
         ? new Date(form.fecha_asignacion + "T00:00:00").toISOString()
         : new Date().toISOString();
+      const fechaSiniestroDateTime = form.fecha_siniestro?.trim()
+        ? new Date(form.fecha_siniestro + "T00:00:00").toISOString()
+        : undefined;
 
       const areasIds = extendedForm.generales.areas_ids || [];
       const usuariosIds = extendedForm.generales.usuarios_ids || [];
@@ -644,6 +648,7 @@ function SiniestrosPageContent() {
       const {
         fecha_registro: _fr,
         fecha_asignacion: _fa,
+        fecha_siniestro: _fs,
         numero_poliza: _np,
         deducible: _de,
         reserva: _re,
@@ -655,6 +660,9 @@ function SiniestrosPageContent() {
         ...formRest,
         numero_siniestro: form.numero_siniestro && form.numero_siniestro.trim() ? form.numero_siniestro : null,
         fecha_registro: fechaRegistroDateTime,
+        fecha_reporte: fechaRegistroDateTime,
+        fecha_asignacion: fechaAsignacionDateTime,
+        ...(fechaSiniestroDateTime ? { fecha_siniestro: fechaSiniestroDateTime } : {}),
         polizas: polizasPayload,
         descripcion_hechos:
           extendedForm.especificos.descripcion_html || form.descripcion_hechos,
@@ -1012,7 +1020,7 @@ function SiniestrosPageContent() {
       nombre: asegurado.nombre || "",
       apellido_paterno: asegurado.apellido_paterno || "",
       apellido_materno: asegurado.apellido_materno || "",
-      email: "", // la tabla de asegurados no tiene email
+      email: asegurado.correo || "",
       telefono:
         asegurado.telefono ||
         asegurado.tel_oficina ||
@@ -1075,7 +1083,7 @@ function SiniestrosPageContent() {
         const full = [aseguradoOriginal.nombre, aseguradoOriginal.apellido_paterno, aseguradoOriginal.apellido_materno]
           .filter(Boolean)
           .join(" ");
-        return full || aseguradoOriginal.email || "-";
+        return full || aseguradoOriginal.correo || "-";
       }
       // Debug: solo loguear si hay asegurados cargados pero no se encuentra el ID
       if (aseguradosCatalogo.length > 0) {
@@ -1102,7 +1110,7 @@ function SiniestrosPageContent() {
       // Si no se encuentra, intentar buscar directamente en el catálogo original
       const aseguradoOriginal = aseguradosCatalogo.find((a: any) => String(a.id).trim() === normalizedId);
       if (aseguradoOriginal) {
-        return aseguradoOriginal.email || "-";
+        return aseguradoOriginal.correo || "-";
       }
       return "-";
     }

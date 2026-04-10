@@ -248,13 +248,17 @@ class AseguradoBase(BaseModel):
     ciudad: Optional[str] = Field(None, max_length=100)
     estado: Optional[str] = Field(None, max_length=100)
     empresa: Optional[str] = Field(None, max_length=50)
-    timerst_list: str = Field(..., min_length=1, max_length=100)
+    correo: Optional[str] = Field(None, max_length=100)
     activo: bool = True
 
 
 class AseguradoCreate(AseguradoBase):
-    """Schema para crear asegurado"""
-    pass
+    """Schema para crear asegurado.
+
+    timerst_list es opcional: si no se envía, el servidor genera un identificador único.
+    El correo va en correo, no en timerst_list.
+    """
+    timerst_list: Optional[str] = Field(None, min_length=1, max_length=100)
 
 
 class AseguradoUpdate(BaseModel):
@@ -268,6 +272,7 @@ class AseguradoUpdate(BaseModel):
     ciudad: Optional[str] = Field(None, max_length=100)
     estado: Optional[str] = Field(None, max_length=100)
     empresa: Optional[str] = Field(None, max_length=50)
+    correo: Optional[str] = Field(None, max_length=100)
     timerst_list: Optional[str] = Field(None, min_length=1, max_length=100)
     activo: Optional[bool] = None
 
@@ -275,6 +280,7 @@ class AseguradoUpdate(BaseModel):
 class AseguradoResponse(AseguradoBase):
     """Schema de respuesta de asegurado"""
     id: UUID
+    timerst_list: str = Field(..., min_length=1, max_length=100)
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
@@ -572,8 +578,10 @@ class SiniestroPolizaResponse(SiniestroPolizaBase):
 
 class SiniestroBase(BaseModel):
     """Schema base de siniestro"""
-    numero_siniestro: Optional[str] = Field(None, min_length=1, max_length=50)
+    numero_siniestro: Optional[str] = Field(None, max_length=50)
     fecha_siniestro: Optional[datetime] = None
+    fecha_reporte: Optional[datetime] = None
+    fecha_asignacion: Optional[datetime] = None
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)  # Opcional, se maneja en versiones
 
@@ -604,6 +612,17 @@ class SiniestroBase(BaseModel):
     prioridad: Literal["baja", "media", "alta", "critica"] = "media"
     observaciones: Optional[str] = None
     activo: bool = True
+
+    @field_validator("numero_siniestro", "numero_reporte", mode="before")
+    @classmethod
+    def normalizar_numero_opcionales(cls, v):
+        """Permite S/N, N/A, etc.; cadena vacía o solo espacios → None."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
     
     @field_validator('proveniente_id', 'asegurado_id', 'estado_id', 'calificacion_id', mode='before')
     @classmethod
@@ -624,14 +643,31 @@ class SiniestroBase(BaseModel):
 
 class SiniestroCreate(SiniestroBase):
     """Schema para crear siniestro"""
-    # Fecha de reporte (PDF/correos): se persiste en `fecha_registro`. No usar `fecha_siniestro` para esto.
+    # `fecha_registro` y `fecha_reporte`: reporte al asegurador; si no viene `fecha_reporte`, el backend la iguala a `fecha_registro`.
     fecha_registro: Optional[datetime] = None
+    codigo: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Consecutivo del ID (ej. 622). Único por proveniente y año de fecha de reporte. Vacío = autogenerado.",
+    )
+
+    @field_validator("codigo", mode="before")
+    @classmethod
+    def strip_codigo_create(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
 
 
 class SiniestroUpdate(BaseModel):
     """Schema para actualizar siniestro"""
-    numero_siniestro: Optional[str] = Field(None, min_length=1, max_length=50)
+    numero_siniestro: Optional[str] = Field(None, max_length=50)
     fecha_siniestro: Optional[datetime] = None
+    fecha_reporte: Optional[datetime] = None
+    fecha_asignacion: Optional[datetime] = None
     fecha_registro: Optional[datetime] = None
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)
@@ -651,6 +687,11 @@ class SiniestroUpdate(BaseModel):
     # Proveniente y código
     proveniente_id: Optional[UUID] = None
     numero_reporte: Optional[str] = Field(None, max_length=100)
+    codigo: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="Consecutivo del ID; único por proveniente y año (fecha de reporte).",
+    )
     
     # Calificación
     calificacion_id: Optional[UUID] = None
@@ -662,6 +703,26 @@ class SiniestroUpdate(BaseModel):
     prioridad: Optional[Literal["baja", "media", "alta", "critica"]] = None
     observaciones: Optional[str] = None
     activo: Optional[bool] = None
+
+    @field_validator("codigo", mode="before")
+    @classmethod
+    def strip_codigo_update(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
+
+    @field_validator("numero_siniestro", "numero_reporte", mode="before")
+    @classmethod
+    def normalizar_numero_opcionales_update(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
     
     @field_validator('institucion_id', 'autoridad_id', 'proveniente_id', 'asegurado_id', 'estado_id', 'calificacion_id', mode='before')
     @classmethod
@@ -679,6 +740,7 @@ class SiniestroResponse(SiniestroBase):
     creado_por: Optional[UUID] = None
     asegurado_id: Optional[UUID] = None
     codigo: Optional[str] = None  # Código generado automáticamente
+    anualidad: Optional[int] = None  # Año calendario (ej. 2026); lo asigna el backend
     fecha_registro: Optional[datetime] = None
     polizas: List[SiniestroPolizaResponse] = Field(default_factory=list)
     eliminado: bool

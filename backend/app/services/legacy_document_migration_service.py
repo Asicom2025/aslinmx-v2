@@ -15,7 +15,7 @@ from uuid import UUID
 import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.core.config import settings
 from app.models.flujo_trabajo import EtapaFlujo, EtapaFlujoRequisitoDocumento, FlujoTrabajo
@@ -51,6 +51,7 @@ EXCLUDED_FLOW_IDS = {""}
 LEGACY_TMP_SOURCE_PREFIX = "tmp_siniestros_files:"
 LEGACY_FILES_URL_PREFIX = "/backend/uploads/files/"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LEGACY_MIGRADO_NOT_FOUND = "not_found"
 
 
 class LegacyDocumentMigrationService:
@@ -423,6 +424,10 @@ class LegacyDocumentMigrationService:
                 func.coalesce(TmpSiniestroFile.estatus, True) == True,
                 TmpSiniestroFile.url.isnot(None),
                 func.btrim(TmpSiniestroFile.url) != "",
+                or_(
+                    TmpSiniestroFile.migrado.is_(None),
+                    TmpSiniestroFile.migrado != LEGACY_MIGRADO_NOT_FOUND,
+                ),
             )
         )
         if area_id:
@@ -440,7 +445,12 @@ class LegacyDocumentMigrationService:
             return []
 
         files: list[dict[str, Any]] = []
+        marked_not_found = False
         for record in query.order_by(TmpSiniestroFile.fecha.desc().nullslast(), TmpSiniestroFile.id.asc()).all():
+            if not LegacyDocumentMigrationService._legacy_source_file_exists(record):
+                record.migrado = LEGACY_MIGRADO_NOT_FOUND
+                marked_not_found = True
+                continue
             filename = LegacyDocumentMigrationService._resolve_remote_filename(record)
             mime_type = LegacyDocumentMigrationService._infer_mime_type(record)
             files.append(
@@ -461,6 +471,8 @@ class LegacyDocumentMigrationService:
                     "etapa": record.etapa,
                 }
             )
+        if marked_not_found:
+            db.commit()
         return files
 
     @staticmethod
@@ -505,7 +517,8 @@ class LegacyDocumentMigrationService:
         return guessed_from_url or "application/octet-stream"
 
     @staticmethod
-    def _resolve_legacy_local_path(record: TmpSiniestroFile) -> Optional[Path]:
+    def _find_legacy_local_path(record: TmpSiniestroFile) -> Optional[Path]:
+        """Resuelve ruta local si el archivo existe y está bajo raíces permitidas; si no, None."""
         raw_url = str(record.url or "").strip()
         if not raw_url:
             return None
@@ -526,12 +539,9 @@ class LegacyDocumentMigrationService:
         allowed_roots.append(upload_root)
 
         candidate_paths: list[Path] = []
-        attempted_paths: list[str] = []
 
         def append_candidate(path: Path) -> None:
-            resolved_candidate = path.resolve()
-            candidate_paths.append(resolved_candidate)
-            attempted_paths.append(str(resolved_candidate))
+            candidate_paths.append(path.resolve())
 
         raw_path = Path(decoded_path)
         if raw_path.is_absolute():
@@ -552,13 +562,45 @@ class LegacyDocumentMigrationService:
                 continue
             if any(candidate == root or root in candidate.parents for root in allowed_roots):
                 return candidate
+        return None
 
+    @staticmethod
+    def _legacy_remote_url_exists(url: str) -> bool:
+        try:
+            with httpx.Client(
+                timeout=settings.LEGACY_DOCUMENTS_REMOTE_TIMEOUT_SECONDS,
+                follow_redirects=True,
+            ) as client:
+                response = client.head(url)
+                if response.status_code in (405, 501):
+                    response = client.get(url, headers={"Range": "bytes=0-0"})
+                return 200 <= response.status_code < 400
+        except httpx.HTTPError:
+            return False
+
+    @staticmethod
+    def _legacy_source_file_exists(record: TmpSiniestroFile) -> bool:
+        raw_url = str(record.url or "").strip()
+        if not raw_url:
+            return False
+        parsed = urlparse(raw_url)
+        if parsed.scheme in {"http", "https"}:
+            return LegacyDocumentMigrationService._legacy_remote_url_exists(raw_url)
+        return LegacyDocumentMigrationService._find_legacy_local_path(record) is not None
+
+    @staticmethod
+    def _resolve_legacy_local_path(record: TmpSiniestroFile) -> Path:
+        local = LegacyDocumentMigrationService._find_legacy_local_path(record)
+        if local is not None:
+            return local
+
+        raw_url = str(record.url or "").strip()
+        legacy_root = Path(settings.LEGACY_DOCUMENTS_ROOT).expanduser().resolve() if settings.LEGACY_DOCUMENTS_ROOT else None
         detail = f"No se encontró el archivo legacy {record.id} en la ruta configurada."
         if legacy_root:
             detail = f"{detail} URL={raw_url} raíz={legacy_root}"
-        if attempted_paths:
-            attempted_unique = ", ".join(dict.fromkeys(attempted_paths))
-            detail = f"{detail} rutas_intentadas=[{attempted_unique}]"
+        else:
+            detail = f"{detail} URL={raw_url}"
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
     @staticmethod
@@ -567,11 +609,6 @@ class LegacyDocumentMigrationService:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
             local_path = LegacyDocumentMigrationService._resolve_legacy_local_path(record)
-            if local_path is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"La URL legacy del archivo {record.id} no es válida para descarga.",
-                )
             try:
                 content = local_path.read_bytes()
             except OSError as exc:

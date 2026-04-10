@@ -89,7 +89,7 @@ def create_siniestro(
 ):
     """
     Crea un nuevo siniestro.
-    Valida que el número de siniestro sea único por empresa.
+    numero_siniestro y numero_reporte pueden repetirse (p. ej. S/N, N/A).
     El campo creado_por se establece automáticamente con el usuario actual.
     """
     try:

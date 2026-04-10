@@ -2,7 +2,7 @@
 Modelos temporales de apoyo para migraciones legacy.
 """
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -22,4 +22,5 @@ class TmpSiniestroFile(Base):
     area_id = Column(UUID(as_uuid=True), nullable=True)
     estatus = Column(Boolean, nullable=True, default=True)
     etapa = Column(Text, nullable=True)
-    migrado = Column(Boolean, nullable=True, default=True)
+    # Texto: 'true'/'false' (histórico), 'not_found' si la URL/ruta ya no existe en disco o remoto.
+    migrado = Column(String(50), nullable=True)

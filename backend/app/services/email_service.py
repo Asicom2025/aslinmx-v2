@@ -598,7 +598,7 @@ class EmailService:
         except Exception:
             fecha_asig_rel = None
 
-        fecha_asig = fecha_asig_rel or fecha_reg
+        fecha_asig = getattr(siniestro, "fecha_asignacion", None) or fecha_asig_rel or fecha_reg
         if hasattr(fecha_asig, "strftime"):
             fecha_asignacion_str = fecha_asig.strftime("%d/%m/%Y %H:%M")
         else:

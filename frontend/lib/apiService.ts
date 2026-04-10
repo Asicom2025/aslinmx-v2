@@ -958,6 +958,9 @@ const siniestroService = {
   createSiniestro: async (data: {
     numero_siniestro?: string | null;
     fecha_registro: string;
+    fecha_reporte?: string;
+    fecha_asignacion?: string;
+    fecha_siniestro?: string;
     ubicacion?: string;
     descripcion_hechos: string;
     polizas?: Array<{
@@ -974,6 +977,12 @@ const siniestroService = {
     estado_id?: string;
     institucion_id?: string;
     autoridad_id?: string;
+    proveniente_id?: string | null;
+    numero_reporte?: string | null;
+    /** Consecutivo del ID legible (mismo que backend `codigo`). Opcional. */
+    codigo?: string;
+    calificacion_id?: string;
+    forma_contacto?: string | null;
     prioridad?: "baja" | "media" | "alta" | "critica";
     observaciones?: string;
     activo?: boolean;
@@ -985,6 +994,9 @@ const siniestroService = {
   updateSiniestro: async (siniestroId: string, data: {
     numero_siniestro?: string;
     fecha_registro?: string;
+    fecha_reporte?: string;
+    fecha_asignacion?: string;
+    fecha_siniestro?: string;
     ubicacion?: string;
     descripcion_hechos?: string;
     polizas?: Array<{
@@ -1003,6 +1015,7 @@ const siniestroService = {
     autoridad_id?: string;
     proveniente_id?: string;
     numero_reporte?: string;
+    codigo?: string;
     calificacion_id?: string;
     forma_contacto?: "correo" | "telefono" | "directa";
     prioridad?: "baja" | "media" | "alta" | "critica";

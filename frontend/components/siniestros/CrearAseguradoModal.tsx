@@ -176,9 +176,7 @@ export default function CrearAseguradoModal({
       return;
     }
 
-    // timerst_list es obligatorio y único en la tabla asegurados; usamos email o un identificador generado
-    const timerstList =
-      formData.email?.trim() || `aseg-${Date.now()}-${formData.nombre.slice(0, 5)}`;
+    const correoTrim = formData.email?.trim() || "";
 
     setLoading(true);
     try {
@@ -192,7 +190,7 @@ export default function CrearAseguradoModal({
         ciudad: formData.ciudad?.trim() || null,
         estado: formData.estado?.trim() || null,
         empresa: null,
-        timerst_list: timerstList,
+        correo: correoTrim ? correoTrim : null,
         activo: true,
       };
 
@@ -236,7 +234,7 @@ export default function CrearAseguradoModal({
         </div>
 
         <Input
-          label="Correo electrónico (opcional; se usa como identificador único)"
+          label="Correo electrónico (opcional; no tiene que ser único)"
           name="email"
           type="email"
           value={formData.email}
