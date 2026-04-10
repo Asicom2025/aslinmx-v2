@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session, joinedload, selectinload
 from sqlalchemy import func, extract, nullslast, cast, or_, and_, case
 from sqlalchemy.types import Integer, String
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import HTTPException, status
 
 from app.services.auditoria_service import AuditoriaService
@@ -785,7 +785,6 @@ class SiniestroService:
     """Servicio para gestión de siniestros"""
 
     POLIZA_DECIMAL_FIELDS = ("deducible", "reserva", "coaseguro", "suma_asegurada")
-    POLIZA_COMPAT_FIELDS = ("numero_poliza",) + POLIZA_DECIMAL_FIELDS
 
     @staticmethod
     def _decimal_or_zero(value: Any) -> Decimal:
@@ -913,32 +912,44 @@ class SiniestroService:
         )
 
     @staticmethod
-    def _apply_poliza_compat_fields(siniestro: Siniestro) -> Siniestro:
-        ordered_polizas = SiniestroService._ordered_polizas(getattr(siniestro, "polizas", []))
-        setattr(siniestro, "polizas", ordered_polizas)
-        primaria = ordered_polizas[0] if ordered_polizas else None
-        setattr(siniestro, "numero_poliza", getattr(primaria, "numero_poliza", None))
-        setattr(
-            siniestro,
-            "deducible",
-            getattr(primaria, "deducible", Decimal("0.00")) if primaria else Decimal("0.00"),
-        )
-        setattr(
-            siniestro,
-            "reserva",
-            getattr(primaria, "reserva", Decimal("0.00")) if primaria else Decimal("0.00"),
-        )
-        setattr(
-            siniestro,
-            "coaseguro",
-            getattr(primaria, "coaseguro", Decimal("0.00")) if primaria else Decimal("0.00"),
-        )
-        setattr(
-            siniestro,
-            "suma_asegurada",
-            getattr(primaria, "suma_asegurada", Decimal("0.00")) if primaria else Decimal("0.00"),
-        )
+    def _ensure_polizas_ordered(siniestro: Siniestro) -> Siniestro:
+        ordered = SiniestroService._ordered_polizas(getattr(siniestro, "polizas", []))
+        setattr(siniestro, "polizas", ordered)
         return siniestro
+
+    @staticmethod
+    def _attach_id_formato(
+        db: Session,
+        siniestro: Siniestro,
+        provenientes_map: Optional[Dict[Any, Any]] = None,
+    ) -> None:
+        """ID legible: proveniente-consecutivo-anualidad (misma regla en listado y detalle)."""
+        codigo_prov = ""
+        if siniestro.proveniente_id:
+            if provenientes_map is not None and siniestro.proveniente_id in provenientes_map:
+                codigo_prov = (provenientes_map[siniestro.proveniente_id].codigo or "").strip()
+            else:
+                prov = (
+                    db.query(Proveniente)
+                    .filter(Proveniente.id == siniestro.proveniente_id)
+                    .first()
+                )
+                if prov:
+                    codigo_prov = (prov.codigo or "").strip()
+        consecutivo = normalize_siniestro_consecutivo((siniestro.codigo or "").strip()) or ""
+        fecha_ref = siniestro.fecha_registro or siniestro.fecha_siniestro
+        anualidad = ""
+        if fecha_ref:
+            try:
+                year = fecha_ref.year if hasattr(fecha_ref, "year") else None
+                if year is not None:
+                    anualidad = str(int(year) % 100).zfill(2)
+            except (TypeError, ValueError):
+                pass
+        if codigo_prov and consecutivo and anualidad:
+            setattr(siniestro, "id_formato", f"{codigo_prov}-{consecutivo}-{anualidad}")
+        else:
+            setattr(siniestro, "id_formato", None)
 
     @staticmethod
     def _sync_polizas(
@@ -1183,25 +1194,8 @@ class SiniestroService:
                 setattr(siniestro, "descripcion_hechos", version_actual.descripcion_html)
             else:
                 setattr(siniestro, "descripcion_hechos", None)
-            SiniestroService._apply_poliza_compat_fields(siniestro)
-            # ID formateado: clave proveniente - consecutivo - anualidad (ej. 102-001-26)
-            codigo_prov = ""
-            if siniestro.proveniente_id and siniestro.proveniente_id in provenientes_map:
-                codigo_prov = (provenientes_map[siniestro.proveniente_id].codigo or "").strip()
-            consecutivo = normalize_siniestro_consecutivo((siniestro.codigo or "").strip()) or ""
-            fecha_ref = siniestro.fecha_registro or siniestro.fecha_siniestro
-            anualidad = ""
-            if fecha_ref:
-                try:
-                    year = fecha_ref.year if hasattr(fecha_ref, "year") else (fecha_ref if isinstance(fecha_ref, int) else None)
-                    if year is not None:
-                        anualidad = str(int(year) % 100).zfill(2)
-                except (TypeError, ValueError):
-                    pass
-            if codigo_prov and consecutivo and anualidad:
-                setattr(siniestro, "id_formato", f"{codigo_prov}-{consecutivo}-{anualidad}")
-            else:
-                setattr(siniestro, "id_formato", None)
+            SiniestroService._ensure_polizas_ordered(siniestro)
+            SiniestroService._attach_id_formato(db, siniestro, provenientes_map)
         
         return siniestros
     
@@ -1223,7 +1217,8 @@ class SiniestroService:
                 setattr(siniestro, 'descripcion_hechos', version_actual.descripcion_html)
             else:
                 setattr(siniestro, 'descripcion_hechos', None)
-            SiniestroService._apply_poliza_compat_fields(siniestro)
+            SiniestroService._ensure_polizas_ordered(siniestro)
+            SiniestroService._attach_id_formato(db, siniestro, None)
 
         return siniestro
     
@@ -1328,8 +1323,6 @@ class SiniestroService:
         # Fecha de reporte: solo `fecha_registro`. No persistir `fecha_siniestro` desde el alta (campo legado).
         payload_dict.pop("fecha_siniestro", None)
         payload_dict.pop("polizas", None)
-        for campo in SiniestroService.POLIZA_COMPAT_FIELDS:
-            payload_dict.pop(campo, None)
         
         # Generar código automáticamente si hay proveniente_id
         if payload.proveniente_id:
@@ -1359,7 +1352,7 @@ class SiniestroService:
             .filter(Siniestro.id == siniestro.id)
             .first()
         )
-        SiniestroService._apply_poliza_compat_fields(siniestro)
+        SiniestroService._ensure_polizas_ordered(siniestro)
         
         # Crear primera versión de la descripción de hechos si se proporcionó
         if descripcion_hechos:
@@ -1428,9 +1421,7 @@ class SiniestroService:
         # Extraer descripcion_hechos del payload si viene
         payload_dict = payload.model_dump(exclude_unset=True)
         descripcion_hechos = payload_dict.pop('descripcion_hechos', None)
-        poliza_sync_requested = "polizas" in payload_dict or any(
-            campo in payload_dict for campo in SiniestroService.POLIZA_COMPAT_FIELDS
-        )
+        poliza_sync_requested = "polizas" in payload_dict
         polizas_payload = (
             SiniestroService._normalize_polizas_payload(
                 payload_dict.get("polizas"),
@@ -1443,8 +1434,6 @@ class SiniestroService:
         # Fecha de reporte: solo `fecha_registro`. Ignorar `fecha_siniestro` en actualizaciones.
         payload_dict.pop("fecha_siniestro", None)
         payload_dict.pop("polizas", None)
-        for campo in SiniestroService.POLIZA_COMPAT_FIELDS:
-            payload_dict.pop(campo, None)
         
         # Generar código automáticamente si falta y hay proveniente_id
         proveniente_id_actualizado = payload_dict.get('proveniente_id', siniestro.proveniente_id)
@@ -1475,7 +1464,7 @@ class SiniestroService:
             .filter(Siniestro.id == siniestro_id)
             .first()
         )
-        SiniestroService._apply_poliza_compat_fields(siniestro)
+        SiniestroService._ensure_polizas_ordered(siniestro)
         
         # Si se actualizó la descripción, crear nueva versión
         if descripcion_hechos:
@@ -1593,7 +1582,7 @@ class SiniestroService:
             )
 
         # Log genérico de actualización si hubo otros cambios (excluyendo estado, calificación y póliza ya logueados)
-        exclude_log = ("estado_id", "calificacion_id", "polizas") + SiniestroService.POLIZA_COMPAT_FIELDS
+        exclude_log = ("estado_id", "calificacion_id", "polizas")
         otros_cambios = {k: v for k, v in payload_dict.items() if k not in exclude_log}
         # Serializar UUIDs y otros tipos para JSON
         otros_cambios_ser = {}
@@ -1879,7 +1868,7 @@ class DocumentoService:
         
         documento.eliminado = True
         documento.activo = False
-        documento.eliminado_en = func.now()
+        documento.eliminado_en = datetime.now(timezone.utc)
         StorageObjectService.sync_document_link_state(db, documento.storage_object_id)
         db.commit()
         return True

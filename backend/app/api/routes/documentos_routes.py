@@ -557,9 +557,9 @@ def upload_documento_archivo(
 def delete_documento(
     documento_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "subir_archivo")),
 ):
-    """Elimina lógicamente un documento"""
+    """Elimina lógicamente un documento (sigue existiendo en base de datos)."""
     documento = DocumentoService.get_by_id(db, documento_id)
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")

@@ -970,11 +970,6 @@ const siniestroService = {
       es_principal?: boolean;
       orden?: number;
     }>;
-    numero_poliza?: string;
-    deducible?: number;
-    reserva?: number;
-    coaseguro?: number;
-    suma_asegurada?: number;
     asegurado_id?: string;
     estado_id?: string;
     institucion_id?: string;
@@ -1002,11 +997,6 @@ const siniestroService = {
       es_principal?: boolean;
       orden?: number;
     }>;
-    numero_poliza?: string;
-    deducible?: number;
-    reserva?: number;
-    coaseguro?: number;
-    suma_asegurada?: number;
     asegurado_id?: string;
     estado_id?: string;
     institucion_id?: string;

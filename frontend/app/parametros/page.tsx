@@ -250,7 +250,15 @@ function EstadosTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: a
       ),
     },
   ];
-  return <DataTable columns={columns} data={data} emptyText="Sin estados registrados" size="compact" />;
+  return (
+    <DataTable
+      layoutStorageKey="aslin-datatable-param-estados"
+      columns={columns}
+      data={data}
+      emptyText="Sin estados registrados"
+      size="compact"
+    />
+  );
 }
 
 // ========== Componente Instituciones ==========
@@ -575,6 +583,7 @@ function InstitucionesTable({
   ];
   return (
     <DataTable
+      layoutStorageKey="aslin-datatable-param-instituciones"
       columns={columns}
       data={data}
       emptyText="Sin instituciones registradas"
@@ -905,6 +914,7 @@ function AutoridadesTable({
   ];
   return (
     <DataTable
+      layoutStorageKey="aslin-datatable-param-autoridades"
       columns={columns}
       data={data}
       emptyText="Sin autoridades registradas"
@@ -1308,6 +1318,7 @@ function ProvenientesTable({
   ];
   return (
     <DataTable
+      layoutStorageKey="aslin-datatable-param-provenientes"
       columns={columns}
       data={data}
       emptyText="Sin provenientes registrados"
@@ -1470,5 +1481,13 @@ function CalificacionesTable({ data, onEdit, onDelete }: { data: any[]; onEdit: 
     },
   ];
 
-  return <DataTable columns={columns} data={data} emptyText="Sin calificaciones registradas" size="compact" />;
+  return (
+    <DataTable
+      layoutStorageKey="aslin-datatable-param-calificaciones"
+      columns={columns}
+      data={data}
+      emptyText="Sin calificaciones registradas"
+      size="compact"
+    />
+  );
 }

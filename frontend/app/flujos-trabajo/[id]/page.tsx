@@ -793,5 +793,12 @@ function EtapasTable({
     },
   ];
 
-  return <DataTable columns={columns} data={data} emptyText="Sin etapas" />;
+  return (
+    <DataTable
+      layoutStorageKey="aslin-datatable-flujo-etapas"
+      columns={columns}
+      data={data}
+      emptyText="Sin etapas"
+    />
+  );
 }

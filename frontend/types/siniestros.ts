@@ -14,14 +14,9 @@ export interface Siniestro {
   fecha_registro?: string | null;
   ubicacion?: string;
   descripcion_hechos: string;
-  
-  // Compatibilidad: póliza principal
-  numero_poliza?: string;
-  deducible: number;
-  reserva: number;
-  coaseguro: number;
-  suma_asegurada: number;
-  polizas: SiniestroPoliza[];
+
+  /** Pólizas en `siniestro_polizas` (API las devuelve anidadas). */
+  polizas?: SiniestroPoliza[];
   
   // Usuario que creó el siniestro
   creado_por?: string;
@@ -40,7 +35,8 @@ export interface Siniestro {
   proveniente_id?: string;
   codigo?: string;  // Código generado automáticamente
   numero_reporte?: string;
-  anualidad?: string;
+  /** ID legible armado en API: proveniente-consecutivo-anualidad */
+  id_formato?: string | null;
   
   // Calificación
   calificacion_id?: string;
@@ -66,13 +62,7 @@ export interface SiniestroCreate {
   fecha_registro: string;
   ubicacion?: string;
   descripcion_hechos: string;
-  
-  // Compatibilidad: póliza principal
-  numero_poliza?: string;
-  deducible?: number;
-  reserva?: number;
-  coaseguro?: number;
-  suma_asegurada?: number;
+
   polizas?: SiniestroPolizaPayload[];
   
   // Usuario asegurado (rol asegurado)
@@ -96,13 +86,7 @@ export interface SiniestroUpdate {
   fecha_registro?: string;
   ubicacion?: string;
   descripcion_hechos?: string;
-  
-  // Compatibilidad: póliza principal
-  numero_poliza?: string;
-  deducible?: number;
-  reserva?: number;
-  coaseguro?: number;
-  suma_asegurada?: number;
+
   polizas?: SiniestroPolizaPayload[];
   
   // Usuario asegurado (rol asegurado)

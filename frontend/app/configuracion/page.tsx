@@ -21,7 +21,7 @@ import CategoriasModal from "./components/CategoriasModal";
 import PlantillasSinCategoriaModal from "./components/PlantillasSinCategoriaModal";
 import apiService from "@/lib/apiService";
 import { getUserDisplayName } from "@/lib/userName";
-import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import { swalSuccess, swalError, swalConfirm, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
 import { FiFolder, FiFileText, FiEye } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
@@ -1241,7 +1241,14 @@ function AreasTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: any
     },
   ];
 
-  return <DataTable columns={columns} data={data} emptyText="No hay áreas registradas" />;
+  return (
+    <DataTable
+      layoutStorageKey="aslin-datatable-config-areas"
+      columns={columns}
+      data={data}
+      emptyText="No hay áreas registradas"
+    />
+  );
 }
 
 function DocumentosTab() {
@@ -1353,7 +1360,12 @@ function DocumentosTab() {
   };
 
   const deleteDocumento = async (id: string) => {
-    const confirmed = await swalConfirmDelete("¿Eliminar documento? Esta acción no se puede deshacer.");
+    const confirmed = await swalConfirm(
+      "Se eliminará el documento del expediente.",
+      "Eliminar del expediente",
+      "Sí, eliminar",
+      "Cancelar",
+    );
     if (!confirmed) return;
     try {
       await apiService.deleteDocumento(id);
@@ -1522,7 +1534,14 @@ function DocumentosTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row
     },
   ];
 
-  return <DataTable columns={columns} data={data} emptyText="No hay documentos disponibles" />;
+  return (
+    <DataTable
+      layoutStorageKey="aslin-datatable-config-documentos"
+      columns={columns}
+      data={data}
+      emptyText="No hay documentos disponibles"
+    />
+  );
 }
 
 function PlantillasTab() {
@@ -1876,5 +1895,12 @@ function PlantillasTable({
     },
   ];
 
-  return <DataTable columns={columns} data={data} emptyText="No hay plantillas registradas" />;
+  return (
+    <DataTable
+      layoutStorageKey="aslin-datatable-config-plantillas"
+      columns={columns}
+      data={data}
+      emptyText="No hay plantillas registradas"
+    />
+  );
 }

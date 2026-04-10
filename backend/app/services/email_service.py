@@ -75,6 +75,29 @@ def get_email_assets_bytes() -> Tuple[Optional[bytes], Optional[bytes]]:
     return (logo_bytes, icon_bytes)
 
 
+def _siniestro_id_legible_para_correo(db: Session, siniestro: Any) -> str:
+    """
+    ID legible tipo 102-001-26 para plantillas de correo (misma regla que id_formato en API).
+    No usa numero_reporte.
+    """
+    fid = getattr(siniestro, "id_formato", None)
+    if fid and str(fid).strip():
+        return str(fid).strip()
+    from app.services.legal_service import SiniestroService
+
+    try:
+        SiniestroService._attach_id_formato(db, siniestro, None)
+    except Exception:
+        logger.debug("No se pudo calcular id_formato para correo", exc_info=True)
+    fid = getattr(siniestro, "id_formato", None)
+    if fid and str(fid).strip():
+        return str(fid).strip()
+    ns = getattr(siniestro, "numero_siniestro", None)
+    if ns and str(ns).strip():
+        return str(ns).strip()
+    return str(getattr(siniestro, "id", ""))
+
+
 class EmailService:
     """Servicio para envío de correos electrónicos"""
 
@@ -586,7 +609,7 @@ class EmailService:
             raise RuntimeError("BASE_URL o FRONTEND_URL no están configurados en .env")
         base_for_assets = base_url.rstrip("/")
         enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
-        id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
+        id_display = _siniestro_id_legible_para_correo(db, siniestro)
 
         # Logo e icono como CID (como la firma) para que Gmail muestre las imágenes
         logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
@@ -701,7 +724,7 @@ class EmailService:
             raise RuntimeError("BASE_URL o FRONTEND_URL no están configurados en .env")
         base_for_assets = base_url.rstrip("/")
         enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
-        id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
+        id_display = _siniestro_id_legible_para_correo(db, siniestro)
 
         logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
         logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))
@@ -791,7 +814,7 @@ class EmailService:
             raise RuntimeError("BASE_URL o FRONTEND_URL no están configurados en .env")
         base_for_assets = base_url.rstrip("/")
         enlace_ver_id = f"{base_for_assets}/siniestros/{siniestro.id}"
-        id_display = getattr(siniestro, "numero_reporte", None) or getattr(siniestro, "numero_siniestro", None) or str(siniestro.id)
+        id_display = _siniestro_id_legible_para_correo(db, siniestro)
 
         logo_cid_bytes, file_icon_cid_bytes = get_email_assets_bytes()
         logo_url = "cid:logo" if logo_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_LOGO_PATH", "/assets/logos/logo_dx-legal.png"))

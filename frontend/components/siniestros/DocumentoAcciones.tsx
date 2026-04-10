@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Button from "@/components/ui/Button";
-import { FiEdit3, FiEye, FiFile, FiMail, FiSave, FiMoreVertical } from "react-icons/fi";
+import { FiEdit3, FiEye, FiFile, FiMail, FiSave, FiMoreVertical, FiTrash2 } from "react-icons/fi";
 
 export type DocumentoEmpresaColors = {
   primary: string;
@@ -20,6 +20,8 @@ type TablaFilaProps = {
   onSendByEmail: (documento: unknown) => void;
   onDownloadDocument?: (documento: unknown) => void;
   onDownloadInforme?: (documento: unknown) => void;
+  /** Eliminación lógica (oculta en listados; el registro permanece en BD). */
+  onDeleteDocument?: (documento: unknown) => void;
 };
 
 export type DocumentoModalPreviewAccionesProps = {
@@ -87,6 +89,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
       onSendByEmail,
       onDownloadDocument,
       onDownloadInforme,
+      onDeleteDocument,
     } = props;
     const plantillaDocId = (documento as any).plantilla_documento_id;
     const rutaArchivo = (documento as any).ruta_archivo;
@@ -141,6 +144,14 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
         disabled: !puedeDescargarInforme,
         action: () => onDownloadInforme?.(documento),
       });
+      if (onDeleteDocument && tieneId) {
+        items.push({
+          key: "eliminar",
+          label: "Eliminar del expediente",
+          icon: <FiTrash2 className="w-4 h-4 text-red-600" />,
+          action: () => onDeleteDocument(documento),
+        });
+      }
     } else {
       items.push({
         key: "descargar",
@@ -156,6 +167,14 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
         disabled: !onSendByEmail,
         action: () => onSendByEmail(documento),
       });
+      if (onDeleteDocument && tieneId) {
+        items.push({
+          key: "eliminar",
+          label: "Eliminar del expediente",
+          icon: <FiTrash2 className="w-4 h-4 text-red-600" />,
+          action: () => onDeleteDocument(documento),
+        });
+      }
     }
 
     const canRender = items.some((it) => !it.disabled);
@@ -199,7 +218,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
                   disabled={it.disabled}
                   className={`w-full text-left px-3 py-2 flex items-center gap-2 text-sm hover:bg-gray-50 ${
                     it.disabled ? "opacity-50 cursor-not-allowed" : ""
-                  }`}
+                  } ${it.key === "eliminar" ? "text-red-700 hover:bg-red-50" : ""}`}
                   onClick={() => {
                     if (it.disabled) return;
                     it.action?.();

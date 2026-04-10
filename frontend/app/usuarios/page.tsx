@@ -469,7 +469,12 @@ export default function UsuariosPage() {
           {usuariosLoading ? (
             <div className="text-center text-gray-500 py-8">Cargando usuarios...</div>
           ) : (
-            <DataTable columns={usuariosColumns} data={usuarios} emptyText="No hay usuarios registrados" />
+            <DataTable
+              layoutStorageKey="aslin-datatable-usuarios"
+              columns={usuariosColumns}
+              data={usuarios}
+              emptyText="No hay usuarios registrados"
+            />
           )}
         </div>
       )}
@@ -487,7 +492,12 @@ export default function UsuariosPage() {
           {rolesLoading ? (
             <div className="text-center text-gray-500 py-8">Cargando roles...</div>
           ) : (
-            <DataTable columns={rolesColumns} data={roles} emptyText="No hay roles registrados" />
+            <DataTable
+              layoutStorageKey="aslin-datatable-roles"
+              columns={rolesColumns}
+              data={roles}
+              emptyText="No hay roles registrados"
+            />
           )}
         </div>
       )}

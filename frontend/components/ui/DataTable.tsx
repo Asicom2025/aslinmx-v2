@@ -1,17 +1,36 @@
 "use client";
 
 import {
+  Column,
   ColumnDef,
+  ColumnSizingState,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   SortingState,
+  Table,
   useReactTable,
 } from "@tanstack/react-table";
-import { useState } from "react";
-import { FiChevronLeft, FiChevronRight, FiChevronsLeft, FiChevronsRight, FiArrowUp, FiArrowDown } from "react-icons/fi";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FiArrowDown,
+  FiArrowUp,
+  FiChevronLeft,
+  FiChevronRight,
+  FiChevronsLeft,
+  FiChevronsRight,
+  FiMenu,
+} from "react-icons/fi";
+import {
+  DATA_TABLE_LAYOUT_VERSION,
+  getColumnIdsFromDefs,
+  mergeColumnOrder,
+  mergeColumnVisibility,
+  parseLayoutFromStorage,
+  type DataTableLayoutPersisted,
+} from "./dataTableLayout";
 
 /**
  * Función helper para truncar texto a un número máximo de caracteres
@@ -56,6 +75,22 @@ export function TruncatedText({
   );
 }
 
+/**
+ * Dentro de un `cell` de ColumnDef, indica si el DataTable tiene layout redimensionable
+ * (`layoutStorageKey`). Usar clases `break-words min-w-0` en lugar de `truncate max-w-[…]`.
+ */
+export function isDataTableFluidLayout<TData>(table: Table<TData>): boolean {
+  return Boolean((table.options.meta as { fluidCells?: boolean } | undefined)?.fluidCells);
+}
+
+function getColumnPickerLabel<TData>(column: Column<TData, unknown>): string {
+  const meta = column.columnDef.meta as { columnPickerLabel?: string } | undefined;
+  if (meta?.columnPickerLabel) return meta.columnPickerLabel;
+  const h = column.columnDef.header;
+  if (typeof h === "string") return h;
+  return column.id;
+}
+
 type DataTableProps<TData> = {
   columns: ColumnDef<TData, any>[];
   data: TData[];
@@ -68,6 +103,16 @@ type DataTableProps<TData> = {
   pageSize?: number;
   size?: "default" | "compact";
   maxTextLength?: number; // Longitud máxima de texto antes de truncar (por defecto 50)
+  /**
+   * Clave única en localStorage para guardar orden y anchos de columnas.
+   * Si se define, el usuario puede redimensionar y arrastrar cabeceras para reordenar.
+   * Las columnas deben tener `id` o `accessorKey` estable para que la preferencia sea fiable.
+   */
+  layoutStorageKey?: string;
+  /** Mostrar selector para ocultar/mostrar columnas (requiere `layoutStorageKey`). Se persiste en el mismo JSON. */
+  enableColumnVisibility?: boolean;
+  /** Visibilidad inicial antes de hidratar localStorage; también se aplica al restablecer layout. */
+  initialColumnVisibility?: Record<string, boolean>;
 };
 
 export default function DataTable<TData>({ 
@@ -82,10 +127,113 @@ export default function DataTable<TData>({
   pageSize = 10,
   size = "default",
   maxTextLength = 50,
+  layoutStorageKey,
+  enableColumnVisibility = false,
+  initialColumnVisibility,
 }: DataTableProps<TData>) {
   const [globalFilter, setGlobalFilter] = useState<string>("");
   const [sorting, setSorting] = useState<SortingState>([]);
-  
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => ({
+    ...(initialColumnVisibility ?? {}),
+  }));
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [prefsReady, setPrefsReady] = useState(!layoutStorageKey);
+  const dragColId = useRef<string | null>(null);
+  const skipNextPersistRef = useRef(false);
+  const columnPickerRef = useRef<HTMLDivElement>(null);
+
+  const columnIds = useMemo(() => getColumnIdsFromDefs(columns), [columns]);
+  const columnIdsKey = columnIds.join("|");
+  const visibilityEnabled = Boolean(layoutStorageKey && enableColumnVisibility);
+
+  useEffect(() => {
+    if (!columnPickerOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (columnPickerRef.current?.contains(e.target as Node)) return;
+      setColumnPickerOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [columnPickerOpen]);
+
+  useEffect(() => {
+    if (!layoutStorageKey) {
+      setPrefsReady(true);
+      return;
+    }
+    skipNextPersistRef.current = true;
+    const raw = typeof window !== "undefined" ? localStorage.getItem(layoutStorageKey) : null;
+    const parsed = parseLayoutFromStorage(raw);
+    if (parsed) {
+      setColumnSizing(parsed.columnSizing);
+      setColumnOrder(mergeColumnOrder(parsed.columnOrder, columnIds));
+      if (enableColumnVisibility) {
+        setColumnVisibility(
+          mergeColumnVisibility(parsed.columnVisibility, columnIds),
+        );
+      }
+    } else {
+      setColumnSizing({});
+      setColumnOrder([...columnIds]);
+      if (enableColumnVisibility) {
+        setColumnVisibility(mergeColumnVisibility(initialColumnVisibility, columnIds));
+      }
+    }
+    setPrefsReady(true);
+  }, [layoutStorageKey, columnIdsKey, enableColumnVisibility, initialColumnVisibility]);
+
+  useEffect(() => {
+    if (!layoutStorageKey || !prefsReady) return;
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
+      return;
+    }
+    const payload: DataTableLayoutPersisted = {
+      v: DATA_TABLE_LAYOUT_VERSION,
+      columnOrder,
+      columnSizing,
+      ...(enableColumnVisibility ? { columnVisibility } : {}),
+    };
+    try {
+      localStorage.setItem(layoutStorageKey, JSON.stringify(payload));
+    } catch {
+      /* quota u otro error: ignorar */
+    }
+  }, [layoutStorageKey, prefsReady, columnOrder, columnSizing, columnVisibility, enableColumnVisibility]);
+
+  const reorderColumns = useCallback((sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return;
+    setColumnOrder((prev) => {
+      const order = prev.length ? prev : [...columnIds];
+      const from = order.indexOf(sourceId);
+      const to = order.indexOf(targetId);
+      if (from < 0 || to < 0) return order;
+      const next = [...order];
+      next.splice(from, 1);
+      next.splice(to, 0, sourceId);
+      return next;
+    });
+  }, [columnIds]);
+
+  const resetColumnLayout = useCallback(() => {
+    if (!layoutStorageKey) return;
+    try {
+      localStorage.removeItem(layoutStorageKey);
+    } catch {
+      /* ignore */
+    }
+    setColumnSizing({});
+    setColumnOrder([...columnIds]);
+    if (enableColumnVisibility) {
+      setColumnVisibility({ ...(initialColumnVisibility ?? {}) });
+    }
+  }, [layoutStorageKey, columnIds, enableColumnVisibility, initialColumnVisibility]);
+
+  const customizeLayout = Boolean(layoutStorageKey);
+  const layoutActive = customizeLayout && prefsReady;
+
   const table = useReactTable<TData>({
     data: data || [],
     columns,
@@ -93,9 +241,23 @@ export default function DataTable<TData>({
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: enablePagination ? getPaginationRowModel() : undefined,
     getSortedRowModel: enableSorting ? getSortedRowModel() : undefined,
-    state: { 
+    enableColumnResizing: layoutActive,
+    columnResizeMode: "onEnd",
+    columnResizeDirection: "ltr",
+    onColumnSizingChange: layoutActive ? setColumnSizing : undefined,
+    onColumnOrderChange: layoutActive ? setColumnOrder : undefined,
+    enableHiding: layoutActive && visibilityEnabled,
+    onColumnVisibilityChange: layoutActive && visibilityEnabled ? setColumnVisibility : undefined,
+    state: {
       globalFilter,
       sorting,
+      ...(layoutActive
+        ? {
+            columnSizing,
+            columnOrder: columnOrder.length ? columnOrder : columnIds,
+            ...(visibilityEnabled ? { columnVisibility } : {}),
+          }
+        : {}),
     },
     onGlobalFilterChange: setGlobalFilter,
     onSortingChange: setSorting,
@@ -104,10 +266,20 @@ export default function DataTable<TData>({
         pageSize,
       },
     },
+    defaultColumn: customizeLayout
+      ? {
+          minSize: 64,
+          maxSize: 640,
+          size: 160,
+        }
+      : undefined,
     globalFilterFn: (row, columnId, filterValue) => {
       const v = row.getValue<any>(columnId);
       const text = (v ?? "").toString().toLowerCase();
       return text.includes((filterValue ?? "").toString().toLowerCase());
+    },
+    meta: {
+      fluidCells: layoutActive,
     },
   });
 
@@ -128,7 +300,7 @@ export default function DataTable<TData>({
 
   return (
     <div className={`overflow-x-auto ${className}`}>
-      <div className="flex justify-between items-center mb-4 p-2">
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4 p-2">
         {enableSearch && (
           <div>
             <input
@@ -140,6 +312,62 @@ export default function DataTable<TData>({
             />
           </div>
         )}
+        <div className="flex flex-wrap items-center gap-2">
+          {layoutActive && visibilityEnabled && (
+            <div className="relative" ref={columnPickerRef}>
+              <button
+                type="button"
+                onClick={() => setColumnPickerOpen((o) => !o)}
+                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                Columnas visibles
+              </button>
+              {columnPickerOpen && (
+                <div
+                  className="absolute right-0 z-50 mt-1 max-h-80 min-w-[260px] overflow-y-auto rounded-md border border-gray-200 bg-white py-2 shadow-lg"
+                  role="menu"
+                >
+                  <div className="mb-1 flex items-center justify-between border-b border-gray-100 px-3 pb-2">
+                    <span className="text-xs font-medium text-gray-500">Mostrar u ocultar</span>
+                    <button
+                      type="button"
+                      className="text-xs text-primary-600 hover:underline"
+                      onClick={() => table.toggleAllColumnsVisible(true)}
+                    >
+                      Todas
+                    </button>
+                  </div>
+                  {table.getAllLeafColumns().map((column) => {
+                    if (!column.getCanHide()) return null;
+                    return (
+                      <label
+                        key={column.id}
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={column.getIsVisible()}
+                          onChange={column.getToggleVisibilityHandler()}
+                          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                        />
+                        <span className="min-w-0 flex-1 truncate">{getColumnPickerLabel(column)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+          {layoutActive && (
+            <button
+              type="button"
+              onClick={resetColumnLayout}
+              className="text-sm text-primary-600 hover:text-primary-800 underline-offset-2 hover:underline"
+            >
+              Restablecer columnas
+            </button>
+          )}
+        </div>
         {enablePagination && totalRows > 0 && (
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <span>
@@ -160,37 +388,102 @@ export default function DataTable<TData>({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
+        <table
+          className={`min-w-full divide-y divide-gray-200 ${layoutActive ? "table-fixed w-full" : ""}`}
+        >
           <thead className="bg-gray-50">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   const canSort = enableSorting && header.column.getCanSort();
                   const sortDirection = header.column.getIsSorted();
+                  const colId = header.column.id;
                   return (
-                    <th 
-                      key={header.id} 
-                      className={`${headerPadding} text-left ${textSize} font-medium text-gray-500 uppercase ${
-                        canSort ? "cursor-pointer select-none hover:bg-gray-100" : ""
-                      }`}
-                      onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                    <th
+                      key={header.id}
+                      style={
+                        layoutActive
+                          ? { width: header.getSize(), minWidth: header.getSize(), position: "relative" }
+                          : undefined
+                      }
+                      className={`${headerPadding} text-left ${textSize} font-medium text-gray-500 uppercase align-middle`}
+                      onDragOver={
+                        layoutActive
+                          ? (e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                            }
+                          : undefined
+                      }
+                      onDrop={
+                        layoutActive
+                          ? (e) => {
+                              e.preventDefault();
+                              const src = dragColId.current || e.dataTransfer.getData("text/plain");
+                              if (src) reorderColumns(src, colId);
+                              dragColId.current = null;
+                            }
+                          : undefined
+                      }
                     >
-                      <div className="flex items-center gap-2">
-                        {header.isPlaceholder
-                          ? null
-                          : flexRender(header.column.columnDef.header, header.getContext())}
-                        {canSort && (
-                          <span className="text-gray-400">
-                            {sortDirection === "asc" ? (
-                              <FiArrowUp className="w-4 h-4" />
-                            ) : sortDirection === "desc" ? (
-                              <FiArrowDown className="w-4 h-4" />
-                            ) : (
-                              <span className="opacity-0">↕</span>
-                            )}
+                      <div className="flex items-center gap-1 min-w-0">
+                        {layoutActive && (
+                          <span
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData("text/plain", colId);
+                              e.dataTransfer.effectAllowed = "move";
+                              dragColId.current = colId;
+                            }}
+                            onDragEnd={() => {
+                              dragColId.current = null;
+                            }}
+                            className="shrink-0 cursor-grab text-gray-400 hover:text-gray-600 active:cursor-grabbing p-0.5 rounded hover:bg-gray-100"
+                            title="Arrastrar para reordenar"
+                            aria-hidden={true}
+                          >
+                            <FiMenu className="w-4 h-4" />
                           </span>
                         )}
+                        <div
+                          className={`flex flex-1 items-center gap-2 min-w-0 ${
+                            canSort ? "cursor-pointer select-none hover:bg-gray-100/80 rounded px-0.5 -mx-0.5" : ""
+                          }`}
+                          onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                        >
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(header.column.columnDef.header, header.getContext())}
+                          {canSort && (
+                            <span className="text-gray-400 shrink-0">
+                              {sortDirection === "asc" ? (
+                                <FiArrowUp className="w-4 h-4" />
+                              ) : sortDirection === "desc" ? (
+                                <FiArrowDown className="w-4 h-4" />
+                              ) : (
+                                <span className="opacity-0">↕</span>
+                              )}
+                            </span>
+                          )}
+                        </div>
                       </div>
+                      {layoutActive && header.column.getCanResize() && (
+                        <div
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            header.getResizeHandler()(e);
+                          }}
+                          onTouchStart={(e) => {
+                            e.stopPropagation();
+                            header.getResizeHandler()(e);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize touch-none select-none border-r border-transparent hover:border-gray-300 ${
+                            header.column.getIsResizing() ? "border-primary-500 bg-primary-500/20" : ""
+                          }`}
+                          title="Arrastrar para cambiar ancho"
+                        />
+                      )}
                     </th>
                   );
                 })}
@@ -200,7 +493,10 @@ export default function DataTable<TData>({
           <tbody className="bg-white divide-y divide-gray-200">
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} className={`${emptyPadding} text-center text-gray-500 ${textSize}`}>
+                <td
+                  colSpan={table.getVisibleLeafColumns().length || columns.length}
+                  className={`${emptyPadding} text-center text-gray-500 ${textSize}`}
+                >
                   {emptyText}
                 </td>
               </tr>
@@ -209,26 +505,52 @@ export default function DataTable<TData>({
                 <tr key={row.id} className="hover:bg-gray-50">
                   {row.getVisibleCells().map((cell) => {
                     const cellValue = cell.getValue();
-                    const isStringValue = typeof cellValue === 'string' || typeof cellValue === 'number';
+                    const isStringValue =
+                      typeof cellValue === "string" || typeof cellValue === "number";
                     const textLength = isStringValue ? String(cellValue).length : 0;
-                    const shouldTruncate = textLength > maxTextLength;
-                    
+                    /** Con columnas redimensionables el ancho manda: no recortar por caracteres ni max-width fijo. */
+                    const shouldTruncate =
+                      !layoutActive && isStringValue && textLength > maxTextLength;
+
                     return (
-                      <td 
-                        key={cell.id} 
-                        className={`${cellPadding} ${textSize} ${shouldTruncate ? '' : 'whitespace-nowrap'}`}
-                        title={shouldTruncate ? String(cellValue) : undefined}
+                      <td
+                        key={cell.id}
+                        style={
+                          layoutActive
+                            ? { width: cell.column.getSize(), minWidth: cell.column.getSize() }
+                            : undefined
+                        }
+                        className={`${cellPadding} ${textSize} ${
+                          layoutActive
+                            ? ""
+                            : shouldTruncate
+                              ? ""
+                              : "whitespace-nowrap"
+                        } align-top`}
+                        title={
+                          shouldTruncate && isStringValue ? String(cellValue) : undefined
+                        }
                       >
-                        <div 
-                          className={shouldTruncate ? 'truncate max-w-md' : ''}
-                          style={shouldTruncate ? { 
-                            maxWidth: '400px',
-                            display: 'inline-block',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                            verticalAlign: 'middle'
-                          } : undefined}
+                        <div
+                          className={
+                            layoutActive
+                              ? "min-w-0 w-full break-words whitespace-normal [word-break:break-word]"
+                              : shouldTruncate
+                                ? "truncate max-w-md"
+                                : ""
+                          }
+                          style={
+                            !layoutActive && shouldTruncate
+                              ? {
+                                  maxWidth: "400px",
+                                  display: "inline-block",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  verticalAlign: "middle",
+                                }
+                              : undefined
+                          }
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </div>
