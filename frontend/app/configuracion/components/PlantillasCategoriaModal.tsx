@@ -318,6 +318,7 @@ export default function PlantillasCategoriaModal({
             <p className="text-gray-500">Cargando plantillas...</p>
           ) : (
             <DataTable
+              layoutStorageKey="aslin-datatable-modal-plantillas-por-categoria"
               columns={columns}
               data={plantillas}
               emptyText="No hay plantillas registradas. Crea una para comenzar."

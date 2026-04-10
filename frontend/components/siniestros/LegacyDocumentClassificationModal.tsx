@@ -68,6 +68,21 @@ function getStorageKey(siniestroId: string, areaId?: string) {
   return `${STORAGE_PREFIX}:${siniestroId}:${areaId || "all"}`;
 }
 
+/** Último flujo elegido en «Otro» (por siniestro/área) para no perderlo al cerrar el modal ni entre archivos. */
+function lastOtroFlujoStorageKey(siniestroId: string, areaId?: string) {
+  return `legacy-otro-last-flujo:${siniestroId}:${areaId || "all"}`;
+}
+
+function readLastOtroFlujoId(siniestroId: string, areaId?: string): string {
+  if (typeof window === "undefined") return "";
+  return window.sessionStorage.getItem(lastOtroFlujoStorageKey(siniestroId, areaId))?.trim() || "";
+}
+
+function writeLastOtroFlujoId(siniestroId: string, areaId: string | undefined, flujoId: string) {
+  if (typeof window === "undefined" || !flujoId.trim()) return;
+  window.sessionStorage.setItem(lastOtroFlujoStorageKey(siniestroId, areaId), flujoId.trim());
+}
+
 function readDrafts(siniestroId: string, areaId?: string): Record<string, DraftAssignment> {
   if (typeof window === "undefined") return {};
   try {
@@ -482,7 +497,26 @@ export default function LegacyDocumentClassificationModal({
       setContext(contextData);
       setFiles(nextFiles);
       setFlows(nextFlows);
-      setDrafts(nextDrafts);
+      setDrafts((prev) => {
+        const merged: Record<string, DraftAssignment> = { ...nextDrafts };
+        for (const id of Object.keys(merged)) {
+          const next = merged[id];
+          const previous = prev[id];
+          if (
+            previous?.category_key === LEGACY_CATALOGO_BUCKET_KEY &&
+            next.category_key === LEGACY_CATALOGO_BUCKET_KEY &&
+            previous.flujo_trabajo_id &&
+            !next.flujo_trabajo_id
+          ) {
+            merged[id] = {
+              ...next,
+              flujo_trabajo_id: previous.flujo_trabajo_id,
+              flujo_display_name: previous.flujo_display_name ?? next.flujo_display_name ?? null,
+            };
+          }
+        }
+        return merged;
+      });
       setOpen((current) => current || Boolean(contextData?.requiere_modal));
 
       if ((!activeFlowId || !nextFlows.some((flow) => flow.id === activeFlowId)) && nextFlows.length > 0) {
@@ -676,7 +710,9 @@ export default function LegacyDocumentClassificationModal({
     setOtroTipoCatalogId("");
     setOtroCategoriaCatalogId("");
     setOtroPlantillaCatalogId("");
-    setOtroFlujoId(flowForHighlight?.id ?? "");
+    setOtroFlujoId(
+      flowForHighlight?.id || readLastOtroFlujoId(siniestroId, effectiveAreaId) || ""
+    );
     const highlight = flowForHighlight || flows[0];
     if (highlight) {
       setSelectedTarget({ flowId: highlight.id, categoryKey: OTRO_DROP_KEY });
@@ -837,6 +873,7 @@ export default function LegacyDocumentClassificationModal({
         return;
       }
       const flujoSel = otroFlujoId ? otroFlujoOpciones.find((x) => x.id === otroFlujoId) : null;
+      if (otroFlujoId) writeLastOtroFlujoId(siniestroId, effectiveAreaId, otroFlujoId);
       setDrafts((current) => ({
         ...current,
         [otroLegacyFile.id]: {
@@ -860,6 +897,7 @@ export default function LegacyDocumentClassificationModal({
     if (otroExternalFile) {
       setOtroSaving(true);
       try {
+        if (otroFlujoId) writeLastOtroFlujoId(siniestroId, effectiveAreaId, otroFlujoId);
         await apiService.uploadDocumento(siniestroId, otroExternalFile, {
           descripcion: otroDescripcion.trim() || undefined,
           area_id: effectiveAreaId,

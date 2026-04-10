@@ -13,6 +13,7 @@ import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
 import { addRecentVisitedSiniestro } from "@/lib/recentSiniestrosStorage";
 import { swalError, swalSuccess, swalConfirm } from "@/lib/swal";
+import { buildSiniestroIdLegible } from "@/lib/siniestroIdDisplay";
 import { getUserDisplayName } from "@/lib/userName";
 import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
@@ -164,29 +165,6 @@ function getPolizaDraftsFromSiniestro(siniestro: Siniestro | null): PolizaDraft[
       suma_asegurada: poliza.suma_asegurada ?? 0,
     }));
   }
-  const legacySiniestro = siniestro;
-
-  if (
-    legacySiniestro &&
-    (
-      legacySiniestro.numero_poliza ||
-      (legacySiniestro.deducible || 0) > 0 ||
-      (legacySiniestro.reserva || 0) > 0 ||
-      (legacySiniestro.coaseguro || 0) > 0 ||
-      (legacySiniestro.suma_asegurada || 0) > 0
-    )
-  ) {
-    return [
-      {
-        tempId: buildPolizaTempId(),
-        numero_poliza: legacySiniestro.numero_poliza || "",
-        deducible: legacySiniestro.deducible ?? 0,
-        reserva: legacySiniestro.reserva ?? 0,
-        coaseguro: legacySiniestro.coaseguro ?? 0,
-        suma_asegurada: legacySiniestro.suma_asegurada ?? 0,
-      },
-    ];
-  }
   return [buildEmptyPolizaDraft()];
 }
 
@@ -199,14 +177,6 @@ function getDisplayPolizasFromSiniestro(siniestro: Siniestro | null): PolizaDraf
       Number(poliza.coaseguro || 0) > 0 ||
       Number(poliza.suma_asegurada || 0) > 0,
   );
-}
-
-function formatSiniestroConsecutivo(value: string | number | null | undefined): string {
-  const normalized = String(value ?? "")
-    .trim()
-    .replace(/\D/g, "");
-  if (!normalized) return "";
-  return normalized.padStart(3, "0");
 }
 
 export default function SiniestroDetailPage() {
@@ -546,30 +516,16 @@ export default function SiniestroDetailPage() {
       ? `<img src="${firmaSrc}" alt="Firma" style="max-height:80px;"/>`
       : "---";
 
-    // Construir ID con el formato: (codigo_proveniente-codigo_siniestro-anualidad)
-    // Ejemplo: 102-005-25
+    // ID legible: mismo criterio que API (id_formato o fecha_registro → fecha_siniestro)
     const construirIdFormato = (): string => {
       if (!siniestroData) return "";
-
-      // Código proveniente desde la info ya cargada
-      const codigoProveniente = provenienteInfo?.codigo || "";
-
-      // Consecutivo desde siniestro.codigo (pad a 3 dígitos)
-      const consecutivo = formatSiniestroConsecutivo(siniestroData.codigo);
-
-      // Anualidad: año de fecha de reporte (`fecha_registro`) o creación
-      const baseFecha =
-        (siniestroData as any)?.fecha_registro ||
-        siniestroData.creado_en;
-
-      const yearSource = baseFecha ? new Date(baseFecha) : hoy;
-      const anualidad = yearSource.getFullYear().toString().slice(-2);
-
-      if (!codigoProveniente || !consecutivo || !anualidad) {
-        return "";
-      }
-
-      return `${codigoProveniente}-${consecutivo}-${anualidad}`;
+      return buildSiniestroIdLegible({
+        id_formato: siniestroData.id_formato,
+        codigoProveniente: provenienteInfo?.codigo || "",
+        codigoSiniestro: siniestroData.codigo,
+        fecha_registro: siniestroData.fecha_registro,
+        fecha_siniestro: siniestroData.fecha_siniestro,
+      });
     };
 
     const idFormato = construirIdFormato();
@@ -666,14 +622,13 @@ export default function SiniestroDetailPage() {
 
     const construirIdFormato = (): string => {
       if (!siniestroData) return "";
-      const codigoProveniente = provenienteInfo?.codigo || "";
-      const consecutivo = formatSiniestroConsecutivo(siniestroData.codigo);
-      const baseFecha =
-        (siniestroData as any)?.fecha_registro || siniestroData.creado_en;
-      const yearSource = baseFecha ? new Date(baseFecha) : hoy;
-      const anualidad = yearSource.getFullYear().toString().slice(-2);
-      if (!codigoProveniente || !consecutivo || !anualidad) return "";
-      return `${codigoProveniente}-${consecutivo}-${anualidad}`;
+      return buildSiniestroIdLegible({
+        id_formato: siniestroData.id_formato,
+        codigoProveniente: provenienteInfo?.codigo || "",
+        codigoSiniestro: siniestroData.codigo,
+        fecha_registro: siniestroData.fecha_registro,
+        fecha_siniestro: siniestroData.fecha_siniestro,
+      });
     };
 
     const relacionParaFechaAsignacion = doc?.area_id
@@ -2530,6 +2485,45 @@ export default function SiniestroDetailPage() {
     }
   };
 
+  /** Eliminación lógica: el documento deja de mostrarse pero permanece en base de datos. */
+  const handleEliminarDocumento = async (documento: any) => {
+    if (!documento?.id || !canSubirArchivo) return;
+    const nombre = documento.nombre_archivo || "este documento";
+    const confirmed = await swalConfirm(
+      `Se eliminará «${nombre}» del expediente.`,
+      "Eliminar del expediente",
+      "Sí, eliminar",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+    try {
+      await apiService.deleteDocumento(documento.id);
+      await swalSuccess("Documento eliminado del expediente");
+      if (documentoEnVistaPrevia?.id === documento.id) {
+        setShowPdfModal(false);
+        setPdfBase64(null);
+        setPdfFilename("");
+        revokeArchivoPreviewUrl();
+        setDocumentoEnVistaPrevia(null);
+      }
+      let flujoId: string | undefined;
+      let areaIdForContext: string | undefined = activeAreaTab || undefined;
+      if (activeFlujoTab?.startsWith("general-")) {
+        flujoId = activeFlujoTab.replace("general-", "");
+      } else if (activeFlujoTab?.startsWith("area-")) {
+        flujoId = activeFlujoTab.replace("area-", "");
+        areaIdForContext = activeAreaTab;
+      }
+      await loadDocumentosSiniestro();
+      await loadDocumentosFiltrados(areaIdForContext, flujoId);
+      await loadLogsAuditoria();
+    } catch (e: any) {
+      swalError(
+        e.response?.data?.detail || "No se pudo eliminar el documento",
+      );
+    }
+  };
+
   // Abrir/cerrar modal de subir archivo (opcional: etapa → PDF/imagen bloquea tipo y muestra requisitos)
   const handleOpenUploadDocModal = useCallback((etapa?: EtapaFlujo) => {
     setUploadDocFile(null);
@@ -3079,30 +3073,14 @@ export default function SiniestroDetailPage() {
             <p className="text-gray-600 mt-2 flex flex-col gap-1 text-sm sm:text-base">
               {(() => {
                 // Construir código completo: proveniente-consecutivo-añalidad
-                const codigoCompleto = (() => {
-                  if (!siniestro.proveniente_id || !siniestro.codigo) {
-                    return null;
-                  }
-
-                  // Obtener código del proveniente
-                  const codigoProveniente = provenienteInfo?.codigo || "";
-
-                  // Obtener consecutivo del código del siniestro
-                  const consecutivo = formatSiniestroConsecutivo(siniestro.codigo);
-
-                  // Obtener anualidad (últimos 2 dígitos del año)
-                  const refAnualidad =
-                    siniestro.fecha_registro || siniestro.creado_en;
-                  const anualidad = refAnualidad
-                    ? new Date(refAnualidad).getFullYear().toString().slice(-2)
-                    : new Date().getFullYear().toString().slice(-2);
-
-                  if (!codigoProveniente) {
-                    return null;
-                  }
-
-                  return `${codigoProveniente}-${consecutivo}-${anualidad}`;
-                })();
+                const codigoCompleto =
+                  buildSiniestroIdLegible({
+                    id_formato: siniestro.id_formato,
+                    codigoProveniente: provenienteInfo?.codigo || "",
+                    codigoSiniestro: siniestro.codigo,
+                    fecha_registro: siniestro.fecha_registro,
+                    fecha_siniestro: siniestro.fecha_siniestro,
+                  }) || null;
 
                 const elementos = [];
 
@@ -3484,6 +3462,11 @@ export default function SiniestroDetailPage() {
                                             onDownloadInforme={
                                               handleDownloadInforme
                                             }
+                                            onDeleteDocument={
+                                              canSubirArchivo
+                                                ? handleEliminarDocumento
+                                                : undefined
+                                            }
                                             onUploadClick={
                                               canSubirArchivo
                                                 ? handleOpenUploadDocModal
@@ -3641,6 +3624,11 @@ export default function SiniestroDetailPage() {
                                           }
                                           onDownloadInforme={
                                             handleDownloadInforme
+                                          }
+                                          onDeleteDocument={
+                                            canSubirArchivo
+                                              ? handleEliminarDocumento
+                                              : undefined
                                           }
                                           onUploadClick={
                                             canSubirArchivo
@@ -4521,6 +4509,7 @@ export default function SiniestroDetailPage() {
               </div>
             ) : (
               <DataTable
+                layoutStorageKey="aslin-datatable-siniestro-log-auditoria"
                 columns={logColumns}
                 data={logsAuditoria}
                 emptyText="No hay registros de actividad"
@@ -6150,6 +6139,7 @@ function DocumentosList({
   onSendByEmail,
   onDownloadDocument,
   onDownloadInforme,
+  onDeleteDocument,
   onUploadClick,
   siniestroId,
   empresaColors,
@@ -6162,6 +6152,7 @@ function DocumentosList({
   onSendByEmail: (documento: any) => void;
   onDownloadDocument?: (documento: any) => void;
   onDownloadInforme?: (documento: any) => void;
+  onDeleteDocument?: (documento: any) => void;
   onUploadClick?: () => void;
   siniestroId: string;
   empresaColors: { primary: string; secondary: string; tertiary: string };
@@ -6184,6 +6175,7 @@ function DocumentosList({
               onSendByEmail={onSendByEmail}
               onDownloadDocument={onDownloadDocument}
               onDownloadInforme={onDownloadInforme}
+              onDeleteDocument={onDeleteDocument}
             />
           );
         },
@@ -6288,6 +6280,7 @@ function DocumentosList({
       onSendByEmail,
       onDownloadDocument,
       onDownloadInforme,
+      onDeleteDocument,
       empresaColors,
       etapas,
     ],
@@ -6348,6 +6341,7 @@ function DocumentosList({
         </div>
       )}
       <DataTable
+        layoutStorageKey="aslin-datatable-siniestro-documentos-generados"
         columns={columns}
         data={documentos}
         emptyText="No hay documentos generados"
@@ -6619,6 +6613,7 @@ function BitacoraList({
       </div>
 
       <DataTable
+        layoutStorageKey="aslin-datatable-siniestro-bitacora-actividades"
         columns={[
           {
             id: "tipo_actividad",

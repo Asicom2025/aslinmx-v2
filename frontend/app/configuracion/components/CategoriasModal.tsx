@@ -183,6 +183,7 @@ export default function CategoriasModal({ open, onClose, tipoDocumento }: Catego
             <p className="text-gray-500">Cargando categorías...</p>
           ) : (
             <DataTable
+              layoutStorageKey="aslin-datatable-modal-categorias-plantillas"
               columns={columns}
               data={categorias}
               emptyText="No hay categorías registradas. Crea una para organizar tus plantillas."

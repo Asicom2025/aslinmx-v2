@@ -576,13 +576,8 @@ class SiniestroBase(BaseModel):
     fecha_siniestro: Optional[datetime] = None
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)  # Opcional, se maneja en versiones
-    
-    # Compatibilidad: póliza principal (usar `polizas` como fuente de verdad)
-    numero_poliza: Optional[str] = Field(None, max_length=100)
-    deducible: Decimal = Field(Decimal("0.00"), ge=0)
-    reserva: Decimal = Field(Decimal("0.00"), ge=0)
-    coaseguro: Decimal = Field(Decimal("0.00"), ge=0)
-    suma_asegurada: Decimal = Field(Decimal("0.00"), ge=0)
+
+    # Datos de póliza(s): solo en `siniestro_polizas` vía esta lista
     polizas: List[SiniestroPolizaPayload] = Field(default_factory=list)
     
     # Usuario asegurado (rol asegurado)
@@ -640,13 +635,7 @@ class SiniestroUpdate(BaseModel):
     fecha_registro: Optional[datetime] = None
     ubicacion: Optional[str] = None
     descripcion_hechos: Optional[str] = Field(None, min_length=1)
-    
-    # Compatibilidad: póliza principal (usar `polizas` como fuente de verdad)
-    numero_poliza: Optional[str] = Field(None, max_length=100)
-    deducible: Optional[Decimal] = Field(None, ge=0)
-    reserva: Optional[Decimal] = Field(None, ge=0)
-    coaseguro: Optional[Decimal] = Field(None, ge=0)
-    suma_asegurada: Optional[Decimal] = Field(None, ge=0)
+
     polizas: Optional[List[SiniestroPolizaPayload]] = None
     
     # Usuario asegurado (rol asegurado)

@@ -11,11 +11,16 @@ import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
 import Button from "@/components/ui/Button";
-import DataTable from "@/components/ui/DataTable";
+import DataTable, { isDataTableFluidLayout } from "@/components/ui/DataTable";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import {
+  buildSiniestroIdLegible,
+  getSiniestroAnualidadDisplay,
+} from "@/lib/siniestroIdDisplay";
 import { ColumnDef } from "@tanstack/react-table";
 import { Siniestro } from "@/types/siniestros";
+import type { SiniestroPoliza } from "@/types/siniestrosRelaciones";
 import { FiEdit2, FiTrash2, FiEye } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
@@ -117,14 +122,6 @@ const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
     descripcion_html: "",
   },
 });
-
-function formatSiniestroConsecutivo(value: string | number | null | undefined): string {
-  const normalized = String(value ?? "")
-    .trim()
-    .replace(/\D/g, "");
-  if (!normalized) return "";
-  return normalized.padStart(3, "0");
-}
 
 const extractValue = (source: any, keys: string[]): string => {
   if (!source) return "";
@@ -565,18 +562,16 @@ function SiniestrosPageContent() {
         {
           tempId: initialExtended.generales.polizas[0].tempId,
           id: siniestro.polizas?.[0]?.id,
-          numero_poliza:
-            siniestro.polizas?.[0]?.numero_poliza || siniestro.numero_poliza || "",
-          deducible: siniestro.polizas?.[0]?.deducible ?? siniestro.deducible ?? "",
-          reserva: siniestro.polizas?.[0]?.reserva ?? siniestro.reserva ?? "",
-          coaseguro: siniestro.polizas?.[0]?.coaseguro ?? siniestro.coaseguro ?? "",
-          suma_asegurada:
-            siniestro.polizas?.[0]?.suma_asegurada ?? siniestro.suma_asegurada ?? "",
+          numero_poliza: siniestro.polizas?.[0]?.numero_poliza || "",
+          deducible: siniestro.polizas?.[0]?.deducible ?? "",
+          reserva: siniestro.polizas?.[0]?.reserva ?? "",
+          coaseguro: siniestro.polizas?.[0]?.coaseguro ?? "",
+          suma_asegurada: siniestro.polizas?.[0]?.suma_asegurada ?? "",
         },
       ],
     };
     if ((siniestro.polizas || []).length > 1) {
-      initialExtended.generales.polizas = siniestro.polizas.map((poliza, index) => ({
+      initialExtended.generales.polizas = (siniestro.polizas || []).map((poliza, index) => ({
         tempId: `${initialExtended.generales.polizas[0].tempId}-${index}`,
         id: poliza.id,
         numero_poliza: poliza.numero_poliza || "",
@@ -1146,11 +1141,48 @@ function SiniestrosPageContent() {
     return labels[forma] || forma;
   };
 
+  const getUsuarioNombre = (userId?: string | null) => {
+    if (!userId) return "-";
+    const u = usuarios.find((x: any) => String(x.id) === String(userId));
+    if (!u) return "-";
+    const parts = [u.nombre, u.apellido_paterno, u.apellido_materno].filter(Boolean);
+    if (parts.length) return parts.join(" ");
+    return u.email || u.username || String(userId);
+  };
+
+  const fmtMonto = (n: number | null | undefined) => {
+    if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
+    return new Intl.NumberFormat("es-MX", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(n));
+  };
+
+  const prioridadLabel = (p: string | undefined) => {
+    if (!p) return "—";
+    const m: Record<string, string> = {
+      baja: "Baja",
+      media: "Media",
+      alta: "Alta",
+      critica: "Crítica",
+    };
+    return m[p] || p;
+  };
+
+  const polizaPrincipalListado = (s: Siniestro): SiniestroPoliza | null => {
+    const ps = s.polizas;
+    if (!ps?.length) return null;
+    const prim = ps.find((p) => p.es_principal);
+    if (prim) return prim;
+    return [...ps].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))[0] ?? null;
+  };
+
   // Columnas de la tabla
   const columns: ColumnDef<Siniestro>[] = [
     {
       id: "acciones",
       header: "Acciones",
+      enableHiding: false,
       cell: ({ row }) => (
         <div className="flex gap-2">
           {canVerDetalle && (
@@ -1186,7 +1218,8 @@ function SiniestrosPageContent() {
     {
       accessorKey: "estado_id",
       header: "Status",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const estadoNombre = getEstadoNombre(row.original.estado_id);
         const estadoColor = obtenerColorEstado(
           row.original.estado_id,
@@ -1196,7 +1229,11 @@ function SiniestrosPageContent() {
         return (
           <span
             style={estilos}
-            className="text-sm truncate inline-block max-w-[120px] rounded-md"
+            className={
+              fluid
+                ? "text-sm inline-block min-w-0 max-w-full break-words rounded-md"
+                : "text-sm truncate inline-block max-w-[120px] rounded-md"
+            }
             title={estadoNombre}
           >
             {estadoNombre}
@@ -1207,7 +1244,8 @@ function SiniestrosPageContent() {
     {
       accessorKey: "calificacion_id",
       header: "Calif.",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const calificacionNombre = getCalificacionNombre(
           row.original.calificacion_id
         );
@@ -1219,7 +1257,11 @@ function SiniestrosPageContent() {
         return (
           <span
             style={estilos}
-            className="text-sm truncate inline-block max-w-[160px] rounded-md"
+            className={
+              fluid
+                ? "text-sm inline-block min-w-0 max-w-full break-words rounded-md"
+                : "text-sm truncate inline-block max-w-[160px] rounded-md"
+            }
             title={calificacionNombre}
           >
             {calificacionNombre}
@@ -1230,22 +1272,24 @@ function SiniestrosPageContent() {
     {
       accessorKey: "codigo",
       header: "ID",
-      cell: ({ row }) => {
-        // Extraer solo el consecutivo del código (formato: proveniente-consecutivo-año)
-        // encontrar el codigo del proveniente y concatenarlo con el consecutivo
-        const refFecha =
-          row.original.fecha_registro || row.original.fecha_siniestro || new Date().toISOString();
-        let anualidad = new Date(refFecha).getFullYear() % 100;
-        let codigo =
-          getProvenienteCodigo(row.original.proveniente_id) +
-          "-" +
-          formatSiniestroConsecutivo(row.original.codigo) +
-          "-" +
-          String(anualidad).padStart(2, '0');
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const codigo =
+          buildSiniestroIdLegible({
+            id_formato: row.original.id_formato,
+            codigoProveniente: getProvenienteCodigo(row.original.proveniente_id),
+            codigoSiniestro: row.original.codigo,
+            fecha_registro: row.original.fecha_registro,
+            fecha_siniestro: row.original.fecha_siniestro,
+          }) || "—";
         return (
           <span
-            className="font-medium text-primary-600 truncate block max-w-[120px]"
-            title={codigo || ""}
+            className={
+              fluid
+                ? "font-medium text-primary-600 block min-w-0 max-w-full break-words"
+                : "font-medium text-primary-600 truncate block max-w-[120px]"
+            }
+            title={codigo !== "—" ? codigo : undefined}
           >
             {codigo}
           </span>
@@ -1255,10 +1299,18 @@ function SiniestrosPageContent() {
     {
       accessorKey: "proveniente_id",
       header: "Proveniente",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const nombre = getProvenienteNombre(row.original.proveniente_id);
         return (
-          <span className="text-sm truncate block max-w-[150px]" title={nombre}>
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[150px]"
+            }
+            title={nombre}
+          >
             {nombre}
           </span>
         );
@@ -1267,34 +1319,56 @@ function SiniestrosPageContent() {
     {
       accessorKey: "numero_reporte",
       header: "N° Reporte",
-      cell: ({ row }) => (
-        <span
-          className="text-sm truncate block max-w-[120px]"
-          title={row.original.numero_reporte || ""}
-        >
-          {row.original.numero_reporte || "-"}
-        </span>
-      ),
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[120px]"
+            }
+            title={row.original.numero_reporte || ""}
+          >
+            {row.original.numero_reporte || "-"}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "numero_siniestro",
       header: "N° Siniestro",
-      cell: ({ row }) => (
-        <span
-          className="font-medium text-primary-600 truncate block max-w-[120px]"
-          title={row.original.numero_siniestro || ""}
-        >
-          {row.original.numero_siniestro || "-"}
-        </span>
-      ),
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        return (
+          <span
+            className={
+              fluid
+                ? "font-medium text-primary-600 block min-w-0 max-w-full break-words"
+                : "font-medium text-primary-600 truncate block max-w-[120px]"
+            }
+            title={row.original.numero_siniestro || ""}
+          >
+            {row.original.numero_siniestro || "-"}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "asegurado_id",
       header: "Asegurado",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const nombre = getAseguradoNombre(row.original.asegurado_id);
         return (
-          <span className="text-sm truncate block max-w-[180px]" title={nombre}>
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[180px]"
+            }
+            title={nombre}
+          >
             {nombre}
           </span>
         );
@@ -1303,10 +1377,18 @@ function SiniestrosPageContent() {
     {
       accessorKey: "asegurado_email",
       header: "Email Aseg.",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const email = getAseguradoEmail(row.original.asegurado_id);
         return (
-          <span className="text-sm truncate block max-w-[180px]" title={email}>
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[180px]"
+            }
+            title={email}
+          >
             {email}
           </span>
         );
@@ -1315,10 +1397,18 @@ function SiniestrosPageContent() {
     {
       accessorKey: "institucion_id",
       header: "Institución",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const nombre = getInstitucionNombre(row.original.institucion_id);
         return (
-          <span className="text-sm truncate block max-w-[150px]" title={nombre}>
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[150px]"
+            }
+            title={nombre}
+          >
             {nombre}
           </span>
         );
@@ -1327,10 +1417,18 @@ function SiniestrosPageContent() {
     {
       accessorKey: "autoridad_id",
       header: "Autoridad",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const nombre = getAutoridadNombre(row.original.autoridad_id);
         return (
-          <span className="text-sm truncate block max-w-[150px]" title={nombre}>
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[150px]"
+            }
+            title={nombre}
+          >
             {nombre}
           </span>
         );
@@ -1339,12 +1437,19 @@ function SiniestrosPageContent() {
     {
       accessorKey: "fecha_registro",
       header: "Fecha reporte",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const raw =
           row.original.fecha_registro || row.original.fecha_siniestro;
         if (!raw) return <span className="text-sm">—</span>;
         return (
-          <span className="text-sm truncate block max-w-[100px]">
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[100px]"
+            }
+          >
             {new Date(raw).toLocaleDateString("es-MX")}
           </span>
         );
@@ -1353,22 +1458,37 @@ function SiniestrosPageContent() {
     {
       accessorKey: "ubicacion",
       header: "Dirección",
-      cell: ({ row }) => (
-        <span
-          className="text-sm truncate block max-w-[200px]"
-          title={row.original.ubicacion || ""}
-        >
-          {row.original.ubicacion || "-"}
-        </span>
-      ),
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[200px]"
+            }
+            title={row.original.ubicacion || ""}
+          >
+            {row.original.ubicacion || "-"}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "forma_contacto",
       header: "Contacto",
-      cell: ({ row }) => {
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
         const label = getFormaContactoLabel(row.original.forma_contacto);
         return (
-          <span className="text-sm truncate block max-w-[100px]" title={label}>
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[100px]"
+            }
+            title={label}
+          >
             {label}
           </span>
         );
@@ -1377,11 +1497,251 @@ function SiniestrosPageContent() {
     {
       accessorKey: "creado_en",
       header: "Creado",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[100px]"
+            }
+          >
+            {new Date(row.original.creado_en).toLocaleDateString("es-MX")}
+          </span>
+        );
+      },
+    },
+    {
+      id: "id_interno",
+      accessorKey: "id",
+      meta: { columnPickerLabel: "ID sistema" },
+      header: "ID sistema",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const id = row.original.id;
+        return (
+          <span
+            className={
+              fluid
+                ? "font-mono text-xs block min-w-0 max-w-full break-all text-gray-600"
+                : "font-mono text-xs truncate block max-w-[100px] text-gray-600"
+            }
+            title={id}
+          >
+            {id}
+          </span>
+        );
+      },
+    },
+    {
+      id: "poliza_numero",
+      accessorFn: (row) => polizaPrincipalListado(row)?.numero_poliza ?? "",
+      header: "N° Póliza",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = polizaPrincipalListado(row.original)?.numero_poliza || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[120px]"
+            }
+            title={v !== "—" ? v : undefined}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      id: "poliza_deducible",
+      accessorFn: (row) => Number(polizaPrincipalListado(row)?.deducible ?? 0),
+      header: "Deducible",
       cell: ({ row }) => (
-        <span className="text-sm truncate block max-w-[100px]">
-          {new Date(row.original.creado_en).toLocaleDateString("es-MX")}
+        <span className="text-sm tabular-nums">
+          {fmtMonto(polizaPrincipalListado(row.original)?.deducible)}
         </span>
       ),
+    },
+    {
+      id: "poliza_reserva",
+      accessorFn: (row) => Number(polizaPrincipalListado(row)?.reserva ?? 0),
+      header: "Reserva",
+      cell: ({ row }) => (
+        <span className="text-sm tabular-nums">
+          {fmtMonto(polizaPrincipalListado(row.original)?.reserva)}
+        </span>
+      ),
+    },
+    {
+      id: "poliza_coaseguro",
+      accessorFn: (row) => Number(polizaPrincipalListado(row)?.coaseguro ?? 0),
+      header: "Coaseguro",
+      cell: ({ row }) => (
+        <span className="text-sm tabular-nums">
+          {fmtMonto(polizaPrincipalListado(row.original)?.coaseguro)}
+        </span>
+      ),
+    },
+    {
+      id: "poliza_suma_asegurada",
+      accessorFn: (row) => Number(polizaPrincipalListado(row)?.suma_asegurada ?? 0),
+      header: "Suma asegurada",
+      cell: ({ row }) => (
+        <span className="text-sm tabular-nums">
+          {fmtMonto(polizaPrincipalListado(row.original)?.suma_asegurada)}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "prioridad",
+      header: "Prioridad",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const label = prioridadLabel(row.original.prioridad);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words capitalize"
+                : "text-sm truncate block max-w-[90px] capitalize"
+            }
+          >
+            {label}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "activo",
+      header: "Activo",
+      cell: ({ row }) => (
+        <span className="text-sm">{row.original.activo ? "Sí" : "No"}</span>
+      ),
+    },
+    {
+      accessorKey: "fecha_siniestro",
+      meta: { columnPickerLabel: "Fecha siniestro (legado)" },
+      header: "Fecha siniestro",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const raw = row.original.fecha_siniestro;
+        if (!raw) return <span className="text-sm">—</span>;
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[100px]"
+            }
+          >
+            {new Date(raw).toLocaleDateString("es-MX")}
+          </span>
+        );
+      },
+    },
+    {
+      id: "anualidad_display",
+      accessorFn: (row) => getSiniestroAnualidadDisplay(row),
+      header: "Anualidad",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = getSiniestroAnualidadDisplay(row.original);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[80px]"
+            }
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "descripcion_hechos",
+      header: "Descripción hechos",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = row.original.descripcion_hechos || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words whitespace-pre-wrap"
+                : "text-sm truncate block max-w-[220px]"
+            }
+            title={!fluid && v !== "—" ? v : undefined}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "observaciones",
+      header: "Observaciones",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = row.original.observaciones?.trim() || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words whitespace-pre-wrap"
+                : "text-sm truncate block max-w-[220px]"
+            }
+            title={!fluid && v !== "—" ? v : undefined}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "creado_por",
+      header: "Creado por",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const nombre = getUsuarioNombre(row.original.creado_por);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[140px]"
+            }
+            title={nombre}
+          >
+            {nombre}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "actualizado_en",
+      header: "Actualizado",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[100px]"
+            }
+          >
+            {new Date(row.original.actualizado_en).toLocaleString("es-MX", {
+              dateStyle: "short",
+              timeStyle: "short",
+            })}
+          </span>
+        );
+      },
     },
   ];
 
@@ -1612,6 +1972,8 @@ function SiniestrosPageContent() {
             </div>
           ) : (
             <DataTable
+              layoutStorageKey="aslin-datatable-siniestros-listado"
+              enableColumnVisibility
               columns={columns}
               data={siniestros}
               emptyText="No hay siniestros"
