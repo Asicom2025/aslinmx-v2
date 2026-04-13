@@ -473,7 +473,14 @@ class LegacyDocumentMigrationService:
             )
         )
         if area_id:
-            query = query.filter(TmpSiniestroFile.area_id == area_id)
+            # Muchos legacies dejan area_id en NULL: si solo filtramos por área, al cambiar de tab
+            # la lista queda vacía. Los NULL se tratan como compartidos por el siniestro (timerst).
+            query = query.filter(
+                or_(
+                    TmpSiniestroFile.area_id == area_id,
+                    TmpSiniestroFile.area_id.is_(None),
+                )
+            )
         return query
 
     @staticmethod
