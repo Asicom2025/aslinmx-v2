@@ -38,6 +38,8 @@ interface Props {
     nombre: string;
     flowNames: string[];
   }>;
+  /** Mantiene el tab de área de la ficha alineado con el ámbito del modal (evita peticiones sin area_id). */
+  onEffectiveAreaChange?: (areaId: string) => void;
   onFinalized?: () => void | Promise<void>;
 }
 
@@ -338,6 +340,7 @@ export default function LegacyDocumentClassificationModal({
   areaId,
   enabled = true,
   assignedAreas = [],
+  onEffectiveAreaChange,
   onFinalized,
 }: Props) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -1033,7 +1036,10 @@ export default function LegacyDocumentClassificationModal({
                         <button
                           key={area.id}
                           type="button"
-                          onClick={() => setEffectiveAreaId(area.id)}
+                          onClick={() => {
+                            setEffectiveAreaId(area.id);
+                            onEffectiveAreaChange?.(area.id);
+                          }}
                           className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
                             effectiveAreaId === area.id
                               ? "bg-slate-900 text-white"
