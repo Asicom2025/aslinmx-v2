@@ -36,6 +36,7 @@ import re
 import io
 import base64
 import logging
+from urllib.parse import unquote_plus
 from pypdf import PdfReader, PdfWriter
 
 logger = logging.getLogger(__name__)
@@ -701,6 +702,7 @@ def _try_pdf_from_document_contenido(
     if not plantilla or not getattr(plantilla, "activo", True):
         return None
     try:
+        document_body_html = _normalize_pdf_html_content(doc.contenido)
         segunda = None
         if getattr(plantilla, "plantilla_continuacion_id", None):
             seg = PlantillaDocumentoService.get_by_id(
@@ -710,7 +712,7 @@ def _try_pdf_from_document_contenido(
                 segunda = seg
         if segunda:
             html1 = _build_section_html(
-                db, plantilla, current_user, body_override=doc.contenido
+                db, plantilla, current_user, body_override=document_body_html
             )
             html2 = _build_section_html(db, segunda, current_user)
             pdf1 = PDFService.generate_pdf(html_content=html1, **pdf_opts)
@@ -729,7 +731,7 @@ def _try_pdf_from_document_contenido(
                         )
                         + "\n"
                     )
-            body_content = doc.contenido
+            body_content = document_body_html
             if header_html:
                 html_content = _wrap_header_for_all_pages(header_html, body_content)
             else:
@@ -752,6 +754,45 @@ def _try_pdf_from_document_contenido(
             exc,
         )
         return None
+
+# esta adaptacion se hizo para la migracion desde app aslin.mx y php url_encode 
+def _normalize_pdf_html_content(html_value: Any) -> str:
+    """
+    Normaliza contenido HTML para PDF.
+    Soporta HTML plano y HTML codificado con urlencode/urlencode_plus desde PHP.
+    """
+    raw = "" if html_value is None else str(html_value)
+    if not raw:
+        return ""
+
+    trimmed = raw.strip()
+    if not trimmed:
+        return ""
+
+    # Caso normal: ya es HTML visible.
+    if "<" in trimmed and ">" in trimmed:
+        return raw
+
+    # Heurística: tags HTML codificados (%3Cdiv%3E, %3Cp%3E, etc.).
+    looks_encoded_html = bool(
+        re.search(r"%3C\s*/?\s*[a-zA-Z][a-zA-Z0-9:-]*", trimmed, flags=re.IGNORECASE)
+    )
+    if not looks_encoded_html:
+        return raw
+
+    # Tolerar una codificación doble (%253C...%253E).
+    decoded = trimmed
+    for _ in range(2):
+        candidate = unquote_plus(decoded)
+        if candidate == decoded:
+            break
+        decoded = candidate
+
+    # Solo aceptar la decodificación si realmente produce HTML.
+    if "<" in decoded and ">" in decoded:
+        return decoded
+
+    return raw
 
 
 @router.post("/generate", response_model=PDFResponse)
