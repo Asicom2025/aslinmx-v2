@@ -345,6 +345,9 @@ export default function LegacyDocumentClassificationModal({
 }: Props) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const loadRequestIdRef = useRef(0);
+  /** Evita que re-renders con nuevo array `assignedAreas` fuercen el área del padre sobre la elegida en el modal. */
+  const prevPropAreaIdRef = useRef<string | undefined>(undefined);
+  const prevSiniestroForAreaSyncRef = useRef(siniestroId);
   const [effectiveAreaId, setEffectiveAreaId] = useState<string | undefined>(areaId);
   const scopedEnabled = Boolean(enabled && effectiveAreaId);
   const [open, setOpen] = useState(false);
@@ -454,17 +457,32 @@ export default function LegacyDocumentClassificationModal({
   }, [flows]);
 
   useEffect(() => {
+    if (prevSiniestroForAreaSyncRef.current !== siniestroId) {
+      prevPropAreaIdRef.current = undefined;
+      prevSiniestroForAreaSyncRef.current = siniestroId;
+    }
+
     const validAreaIds = new Set(assignedAreas.map((area) => area.id));
     const preferredAreaId =
       (areaId && (validAreaIds.size === 0 || validAreaIds.has(areaId)) ? areaId : undefined) ||
       assignedAreas[0]?.id ||
       undefined;
 
+    if (!enabled) {
+      setEffectiveAreaId(undefined);
+      prevPropAreaIdRef.current = undefined;
+      return;
+    }
+
+    const propAreaChanged = prevPropAreaIdRef.current !== areaId;
+    prevPropAreaIdRef.current = areaId;
+
+    if (propAreaChanged && areaId && (validAreaIds.size === 0 || validAreaIds.has(areaId))) {
+      setEffectiveAreaId(areaId);
+      return;
+    }
+
     setEffectiveAreaId((current) => {
-      if (!enabled) return undefined;
-      if (areaId && (validAreaIds.size === 0 || validAreaIds.has(areaId)) && current !== areaId) {
-        return areaId;
-      }
       if (current && (validAreaIds.size === 0 || validAreaIds.has(current))) {
         return current;
       }
@@ -477,21 +495,22 @@ export default function LegacyDocumentClassificationModal({
     setSelectedFileId("");
   }, [effectiveAreaId]);
 
-  const loadAll = async () => {
-    if (!scopedEnabled || !effectiveAreaId) return;
+  const loadAll = async (areaForFetch?: string) => {
+    const scope = (areaForFetch ?? effectiveAreaId)?.trim();
+    if (!enabled || !scope) return;
     const requestId = ++loadRequestIdRef.current;
     setLoading(true);
     try {
       const [contextData, filesData, destinations] = await Promise.all([
-        apiService.getLegacyDocumentMigrationContext(siniestroId, effectiveAreaId),
-        apiService.getLegacyDocumentMigrationFiles(siniestroId, effectiveAreaId),
-        apiService.getLegacyDocumentMigrationDestinations(siniestroId, effectiveAreaId),
+        apiService.getLegacyDocumentMigrationContext(siniestroId, scope),
+        apiService.getLegacyDocumentMigrationFiles(siniestroId, scope),
+        apiService.getLegacyDocumentMigrationDestinations(siniestroId, scope),
       ]);
       if (requestId !== loadRequestIdRef.current) return;
 
       const nextFiles = (filesData || []) as LegacyDetectedFile[];
       const nextFlows = (destinations?.flujos || []) as LegacyDestinationFlow[];
-      const persistedDrafts = readDrafts(siniestroId, effectiveAreaId);
+      const persistedDrafts = readDrafts(siniestroId, scope);
       const validPendingIds = new Set(nextFiles.filter((file) => file.estado_revision !== "clasificado").map((file) => file.id));
       const nextDrafts = Object.fromEntries(
         Object.entries(persistedDrafts).filter(([fileId]) => validPendingIds.has(fileId))
@@ -545,14 +564,15 @@ export default function LegacyDocumentClassificationModal({
 
   useEffect(() => {
     if (!scopedEnabled || !effectiveAreaId) return;
-    loadAll().catch((error) => console.error(error));
+    const id = effectiveAreaId;
+    loadAll(id).catch((error) => console.error(error));
   }, [effectiveAreaId, scopedEnabled, siniestroId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       await apiService.rescanLegacyDocumentMigration(siniestroId, effectiveAreaId);
-      await loadAll();
+      await loadAll(effectiveAreaId);
     } catch (error: any) {
       swalError(error?.response?.data?.detail || "No se pudo recargar la fuente legacy.");
     } finally {
@@ -682,7 +702,7 @@ export default function LegacyDocumentClassificationModal({
       setOpen(false);
       swalSuccess(`Se importaron ${result.documentos_creados} documento(s) legacy.`);
       if (onFinalized) await onFinalized();
-      await loadAll();
+      await loadAll(effectiveAreaId);
     } catch (error: any) {
       swalError(error?.response?.data?.detail || "No se pudo finalizar la importación documental.");
     } finally {
@@ -911,7 +931,7 @@ export default function LegacyDocumentClassificationModal({
         await swalSuccess("Archivo subido correctamente.");
         closeOtroModal(true);
         if (onFinalized) await onFinalized();
-        await loadAll();
+        await loadAll(effectiveAreaId);
       } catch (error: any) {
         swalError(error?.response?.data?.detail || error?.message || "No se pudo subir el archivo.");
       } finally {
