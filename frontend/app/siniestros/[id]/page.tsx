@@ -1957,8 +1957,28 @@ export default function SiniestroDetailPage() {
         areasConFlujos.find(
           (acf) => acf.area.id === (docExistente.area_id || activeAreaTab),
         )?.area.nombre || "";
-      const autorNombre =
-        getUserDisplayName(user as any, "");
+
+      // Resolver el autor desde usuario_subio del documento, no desde el usuario logueado
+      let autorUsuario: any = user;
+      if (docExistente.usuario_subio) {
+        const encontrado = todosLosUsuarios.find(
+          (u) => u.id === docExistente.usuario_subio,
+        );
+        if (encontrado) {
+          autorUsuario = encontrado;
+        } else {
+          try {
+            const fetched = await apiService.getUserById(
+              docExistente.usuario_subio,
+            );
+            if (fetched) autorUsuario = fetched;
+          } catch {
+            // fallback al usuario logueado
+          }
+        }
+      }
+      const autorNombre = getUserDisplayName(autorUsuario, "");
+
       let variables = getVariablesForPdf(
         siniestro,
         docExistente,
@@ -2031,8 +2051,28 @@ export default function SiniestroDetailPage() {
           areasConFlujos.find(
             (acf) => acf.area.id === (documento.area_id || activeAreaTab),
           )?.area.nombre || "";
-        const autorNombre =
-          getUserDisplayName(user as any, "");
+
+        // Resolver el autor desde usuario_subio del documento, no desde el usuario logueado
+        let autorUsuarioDoc: any = user;
+        if (documento.usuario_subio) {
+          const encontrado = todosLosUsuarios.find(
+            (u) => u.id === documento.usuario_subio,
+          );
+          if (encontrado) {
+            autorUsuarioDoc = encontrado;
+          } else {
+            try {
+              const fetched = await apiService.getUserById(
+                documento.usuario_subio,
+              );
+              if (fetched) autorUsuarioDoc = fetched;
+            } catch {
+              // fallback al usuario logueado
+            }
+          }
+        }
+        const autorNombre = getUserDisplayName(autorUsuarioDoc, "");
+
         let variables = getVariablesForPdf(
           siniestro,
           documento,
