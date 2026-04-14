@@ -58,44 +58,6 @@ class LegacyDocumentMigrationService:
     """Importa documentos legacy sin alterar el modelo permanente."""
 
     @staticmethod
-    def _enforce_legacy_area_scope(
-        db: Session,
-        siniestro: Siniestro,
-        area_id: Optional[UUID],
-    ) -> Optional[UUID]:
-        """
-        Con más de un área activa en el siniestro, exige area_id para no listar/filtrar
-        tmp_siniestros_files de todas las áreas a la vez (sin filtro equivale a vista mezclada).
-        """
-        rows = (
-            db.query(SiniestroArea.area_id)
-            .filter(
-                SiniestroArea.siniestro_id == siniestro.id,
-                SiniestroArea.activo == True,
-            )
-            .all()
-        )
-        unique_areas = {aid for (aid,) in rows if aid is not None}
-        if len(unique_areas) >= 2:
-            if area_id is None:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="area_id es obligatorio para la migración documental legacy cuando el siniestro tiene más de un área asignada.",
-                )
-            if area_id not in unique_areas:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="El área indicada no está asignada a este siniestro.",
-                )
-            return area_id
-        if len(unique_areas) == 1 and area_id is not None and area_id not in unique_areas:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El área indicada no está asignada a este siniestro.",
-            )
-        return area_id
-
-    @staticmethod
     def get_context(
         db: Session,
         siniestro_id: UUID,
@@ -103,7 +65,6 @@ class LegacyDocumentMigrationService:
         area_id: Optional[UUID] = None,
     ) -> LegacyMigrationContextResponse:
         siniestro = LegacyDocumentMigrationService._get_siniestro(db, siniestro_id, current_user)
-        area_id = LegacyDocumentMigrationService._enforce_legacy_area_scope(db, siniestro, area_id)
         scanned_files = LegacyDocumentMigrationService._scan_legacy_files(db, siniestro, area_id)
         source_ref = LegacyDocumentMigrationService._build_legacy_source_reference(siniestro)
 
@@ -137,7 +98,6 @@ class LegacyDocumentMigrationService:
         area_id: Optional[UUID] = None,
     ) -> List[LegacyDetectedFileResponse]:
         siniestro = LegacyDocumentMigrationService._get_siniestro(db, siniestro_id, current_user)
-        area_id = LegacyDocumentMigrationService._enforce_legacy_area_scope(db, siniestro, area_id)
         scanned_files = LegacyDocumentMigrationService._scan_legacy_files(db, siniestro, area_id)
         imported_map = LegacyDocumentMigrationService._get_imported_documents_map(db, siniestro_id)
         return [
@@ -153,7 +113,6 @@ class LegacyDocumentMigrationService:
         area_id: Optional[UUID] = None,
     ) -> LegacyDestinationsResponse:
         siniestro = LegacyDocumentMigrationService._get_siniestro(db, siniestro_id, current_user)
-        area_id = LegacyDocumentMigrationService._enforce_legacy_area_scope(db, siniestro, area_id)
         flows = LegacyDocumentMigrationService._get_allowed_flows(db, siniestro, current_user, area_id)
         return LegacyDestinationsResponse(flujos=flows)
 
@@ -190,7 +149,6 @@ class LegacyDocumentMigrationService:
             )
 
         siniestro = LegacyDocumentMigrationService._get_siniestro(db, siniestro_id, current_user)
-        area_id = LegacyDocumentMigrationService._enforce_legacy_area_scope(db, siniestro, area_id)
         scanned_files = LegacyDocumentMigrationService._scan_legacy_files(db, siniestro, area_id)
         files_by_id = {item["id"]: item for item in scanned_files}
         imported_map = LegacyDocumentMigrationService._get_imported_documents_map(db, siniestro_id)
@@ -473,8 +431,8 @@ class LegacyDocumentMigrationService:
             )
         )
         if area_id:
-            # Muchos legacies dejan area_id en NULL: si solo filtramos por área, al cambiar de tab
-            # la lista queda vacía. Los NULL se tratan como compartidos por el siniestro (timerst).
+            # Archivos con area_id IS NULL son compartidos y se muestran en todas las áreas.
+            # Archivos con area_id de otra área se excluyen.
             query = query.filter(
                 or_(
                     TmpSiniestroFile.area_id == area_id,
