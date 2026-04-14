@@ -806,7 +806,7 @@ async def generate_pdf(
     Si se envía plantilla_id, se antepone el header de la plantilla (con logo) al contenido.
     El header se repite en todas las páginas.
     """
-    html_content = request.html_content
+    html_content = _normalize_pdf_html_content(request.html_content)
     merged_variables = dict(request.variables or {})
 
     # Variables desde siniestro/asegurado (numero_poliza, lugar_ocurrido, fecha_reporte, fecha_asignacion, numero_siniestro)
@@ -848,7 +848,7 @@ async def generate_pdf(
                 if seg and getattr(seg, "activo", True) and getattr(seg, "contenido", None):
                     segunda = seg
             if segunda:
-                html1 = _build_section_html(db, plantilla, current_user, body_override=request.html_content)
+                html1 = _build_section_html(db, plantilla, current_user, body_override=html_content)
                 html2 = _build_section_html(db, segunda, current_user)
                 pdf1 = PDFService.generate_pdf(html_content=html1, **pdf_opts)
                 pdf2 = PDFService.generate_pdf(html_content=html2, **pdf_opts)
@@ -868,7 +868,7 @@ async def generate_pdf(
                 header = PlantillaDocumentoService.get_by_id(db, plantilla_id=plantilla.header_plantilla_id)
                 if header and header.activo and header.contenido:
                     header_html = _build_header_html_with_logo(db, header.contenido, current_user, header_plantilla=header) + "\n"
-            body_content = request.html_content
+            body_content = html_content
             if header_html:
                 html_content = _wrap_header_for_all_pages(header_html, body_content)
             else:
@@ -1036,7 +1036,7 @@ async def download_pdf(
         except (ValueError, TypeError):
             pass
 
-    html_content = request.html_content
+    html_content = _normalize_pdf_html_content(request.html_content)
     if getattr(request, "plantilla_id", None):
         plantilla = PlantillaDocumentoService.get_by_id(db, plantilla_id=request.plantilla_id)
         if plantilla:
@@ -1066,7 +1066,7 @@ async def download_pdf(
                 if seg and getattr(seg, "activo", True) and getattr(seg, "contenido", None):
                     segunda = seg
             if segunda:
-                html1 = _build_section_html(db, plantilla, current_user, body_override=request.html_content)
+                html1 = _build_section_html(db, plantilla, current_user, body_override=html_content)
                 html2 = _build_section_html(db, segunda, current_user)
                 pdf1 = PDFService.generate_pdf(html_content=html1, **pdf_opts)
                 pdf2 = PDFService.generate_pdf(html_content=html2, **pdf_opts)
@@ -1090,7 +1090,7 @@ async def download_pdf(
                 header = PlantillaDocumentoService.get_by_id(db, plantilla_id=plantilla.header_plantilla_id)
                 if header and header.activo and header.contenido:
                     header_html = _build_header_html_with_logo(db, header.contenido, current_user, header_plantilla=header) + "\n"
-            body_content = request.html_content
+            body_content = html_content
             if header_html:
                 html_content = _wrap_header_for_all_pages(header_html, body_content)
             else:

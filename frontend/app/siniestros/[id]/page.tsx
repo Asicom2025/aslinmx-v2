@@ -5841,7 +5841,6 @@ export default function SiniestroDetailPage() {
         areaId={activeAreaTab || undefined}
         enabled={!!siniestroId}
         assignedAreas={legacyAssignedAreas}
-        onEffectiveAreaChange={(id) => setActiveAreaTab(id)}
         onFinalized={async () => {
           await loadDocumentosSiniestro();
           let flujoTrabajoIdActual: string | undefined = undefined;
