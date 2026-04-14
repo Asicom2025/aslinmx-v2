@@ -3,12 +3,41 @@ Servicio para auditoría y logging de acciones
 """
 
 from typing import Optional, Dict, Any
+from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.models.config import Auditoria
 from app.models.user import User
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
+
+
+def _sanitize_for_json(value: Any) -> Any:
+    """
+    Convierte valores a tipos compatibles con JSON/JSONB de PostgreSQL.
+    Evita TypeError al persistir datetime, UUID, Decimal, etc.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        return {str(k): _sanitize_for_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_for_json(v) for v in value]
+    if isinstance(value, set):
+        return [_sanitize_for_json(v) for v in value]
+    return str(value)
 
 
 class AuditoriaService:
@@ -32,6 +61,11 @@ class AuditoriaService:
         """
         Registra una acción en el log de auditoría
         """
+        datos_anteriores_clean = (
+            _sanitize_for_json(datos_anteriores) if datos_anteriores is not None else None
+        )
+        datos_nuevos_clean = _sanitize_for_json(datos_nuevos) if datos_nuevos is not None else None
+
         auditoria = Auditoria(
             usuario_id=usuario_id,
             empresa_id=empresa_id,
@@ -39,8 +73,8 @@ class AuditoriaService:
             modulo=modulo,
             tabla=tabla,
             registro_id=registro_id,
-            datos_anteriores=datos_anteriores,
-            datos_nuevos=datos_nuevos,
+            datos_anteriores=datos_anteriores_clean,
+            datos_nuevos=datos_nuevos_clean,
             ip_address=ip_address,
             user_agent=user_agent,
             descripcion=descripcion

@@ -958,7 +958,7 @@ def delete_plantilla_documento(
 # ===== RESPUESTAS FORMULARIO PLANTILLA =====
 @router.get(
     "/plantillas-documento/{plantilla_id}/respuesta/{siniestro_id}",
-    response_model=RespuestaFormularioResponse,
+    response_model=Optional[RespuestaFormularioResponse],
 )
 def get_respuesta_formulario(
     plantilla_id: UUID,
@@ -966,11 +966,8 @@ def get_respuesta_formulario(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Obtiene la respuesta de formulario para una plantilla+siniestro."""
-    respuesta = RespuestaFormularioService.get_or_none(db, plantilla_id, siniestro_id)
-    if not respuesta:
-        raise HTTPException(status_code=404, detail="Respuesta no encontrada")
-    return respuesta
+    """Obtiene la respuesta de formulario para una plantilla+siniestro. Devuelve null si no existe."""
+    return RespuestaFormularioService.get_or_none(db, plantilla_id, siniestro_id)
 
 
 @router.put(
