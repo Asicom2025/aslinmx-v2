@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import apiService from "@/lib/apiService";
@@ -340,6 +340,30 @@ export default function NuevoSiniestroPage() {
       console.error("Error al cargar autoridades:", e);
     }
   };
+
+  const crearInstitucionDesdeNombre = useCallback(async (nombre: string) => {
+    try {
+      const created = await apiService.createInstitucion({ nombre, activo: true });
+      if (!created?.id) return null;
+      setInstitucionesCatalogo((prev) => [...(prev || []), created]);
+      return String(created.id);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "No se pudo crear la institución");
+      return null;
+    }
+  }, []);
+
+  const crearAutoridadDesdeNombre = useCallback(async (nombre: string) => {
+    try {
+      const created = await apiService.createAutoridad({ nombre, activo: true });
+      if (!created?.id) return null;
+      setAutoridadesCatalogo((prev) => [...(prev || []), created]);
+      return String(created.id);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "No se pudo crear la autoridad");
+      return null;
+    }
+  }, []);
 
   const loadAsegurados = async () => {
     try {
@@ -969,6 +993,8 @@ export default function NuevoSiniestroPage() {
                         }))
                       : []),
                   ]}
+                  isCreatable
+                  onCreateOption={crearInstitucionDesdeNombre}
                   required
                 />
                 <CustomSelect
@@ -991,6 +1017,8 @@ export default function NuevoSiniestroPage() {
                         }))
                       : []),
                   ]}
+                  isCreatable
+                  onCreateOption={crearAutoridadDesdeNombre}
                   required
                 />
               </div>

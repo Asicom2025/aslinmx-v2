@@ -24,6 +24,8 @@ export interface Siniestro {
   
   // Usuario asegurado (rol asegurado)
   asegurado_id?: string;
+  /** Nombre completo del asegurado (solo lectura en API; no es columna en BD). */
+  asegurado_nombre?: string | null;
   
   // Estado del siniestro
   estado_id?: string;

@@ -14,6 +14,7 @@ import apiService from "@/lib/apiService";
 import { addRecentVisitedSiniestro } from "@/lib/recentSiniestrosStorage";
 import { swalError, swalSuccess, swalConfirm } from "@/lib/swal";
 import { buildSiniestroIdLegible } from "@/lib/siniestroIdDisplay";
+import { decodeHtmlForEditor } from "@/lib/decodeHtmlForEditor";
 import { getUserDisplayName } from "@/lib/userName";
 import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
@@ -136,6 +137,14 @@ interface DocumentoEtapa {
   categoria_documento_nombre?: string | null;
   version: number;
   creado_en: string;
+}
+
+interface VersionDescripcionHechos {
+  id: string;
+  version: number;
+  descripcion_html: string;
+  es_actual: boolean;
+  creado_en?: string;
 }
 
 function buildPolizaTempId(prefix = "poliza") {
@@ -363,6 +372,14 @@ export default function SiniestroDetailPage() {
   const [autoridadInfo, setAutoridadInfo] = useState<any>(null);
   const [provenienteInfo, setProvenienteInfo] = useState<any>(null);
   const [loadingInfoAdicional, setLoadingInfoAdicional] = useState(false);
+  const [versionesDescripcionHechos, setVersionesDescripcionHechos] = useState<
+    VersionDescripcionHechos[]
+  >([]);
+  const [selectedDescripcionVersionId, setSelectedDescripcionVersionId] =
+    useState<string>("");
+  const [showDescripcionModal, setShowDescripcionModal] = useState(false);
+  const [descripcionEditHtml, setDescripcionEditHtml] = useState("");
+  const [savingDescripcionVersion, setSavingDescripcionVersion] = useState(false);
 
   // Estados para modal de edición
   const [showEditModal, setShowEditModal] = useState(false);
@@ -373,18 +390,25 @@ export default function SiniestroDetailPage() {
     fecha_asignacion: "",
     fecha_siniestro: "",
     ubicacion: "",
-    numero_poliza: "",
-    deducible: 0,
-    reserva: 0,
-    coaseguro: 0,
-    suma_asegurada: 0,
     prioridad: "baja" as "baja" | "media" | "alta" | "critica",
     forma_contacto: "correo" as "correo" | "telefono" | "directa",
     numero_reporte: "",
     observaciones: "",
     asegurado_id: "" as string,
+    institucion_id: "" as string,
+    autoridad_id: "" as string,
+    proveniente_id: "" as string,
+    estado_id: "" as string,
+    calificacion_id: "" as string,
   });
   const [editModalAsegurados, setEditModalAsegurados] = useState<any[]>([]);
+  const [editModalInstituciones, setEditModalInstituciones] = useState<any[]>([]);
+  const [editModalAutoridades, setEditModalAutoridades] = useState<any[]>([]);
+  const [editModalProvenientes, setEditModalProvenientes] = useState<any[]>([]);
+  const [editModalEstados, setEditModalEstados] = useState<any[]>([]);
+  const [editModalCalificaciones, setEditModalCalificaciones] = useState<any[]>(
+    [],
+  );
   const [crearAseguradoDesdeEditModal, setCrearAseguradoDesdeEditModal] =
     useState(false);
 
@@ -422,6 +446,38 @@ export default function SiniestroDetailPage() {
     [siniestro],
   );
   const polizaPrincipal = polizasDisplay[0] || null;
+  const descripcionActual = useMemo(
+    () =>
+      versionesDescripcionHechos.find((version) => version.es_actual) ||
+      versionesDescripcionHechos[0] ||
+      null,
+    [versionesDescripcionHechos],
+  );
+  const descripcionSeleccionada = useMemo(() => {
+    if (!versionesDescripcionHechos.length) return null;
+    if (selectedDescripcionVersionId) {
+      const selected = versionesDescripcionHechos.find(
+        (version) => version.id === selectedDescripcionVersionId,
+      );
+      if (selected) return selected;
+    }
+    return descripcionActual;
+  }, [
+    versionesDescripcionHechos,
+    selectedDescripcionVersionId,
+    descripcionActual,
+  ]);
+  const isDescripcionSeleccionadaUltima =
+    !!descripcionSeleccionada &&
+    !!descripcionActual &&
+    descripcionSeleccionada.id === descripcionActual.id;
+
+  const descripcionHechosVistaHtml = useMemo(
+    () =>
+      decodeHtmlForEditor(descripcionSeleccionada?.descripcion_html) ||
+      decodeHtmlForEditor(siniestro?.descripcion_hechos || ""),
+    [descripcionSeleccionada?.descripcion_html, siniestro?.descripcion_hechos],
+  );
 
   // Autenticación
   useEffect(() => {
@@ -790,6 +846,46 @@ export default function SiniestroDetailPage() {
     }
   }, [siniestro, siniestroId]);
 
+  const loadVersionesDescripcionHechos = useCallback(
+    async (fallbackDescripcionHtml?: string) => {
+      try {
+        const versiones = await apiService.getVersionesDescripcion(siniestroId);
+        const versionesOrdenadas = Array.isArray(versiones)
+          ? [...versiones]
+              .sort(
+                (a, b) => Number(b?.version || 0) - Number(a?.version || 0),
+              )
+              .map((v: any) => ({
+                ...v,
+                descripcion_html: decodeHtmlForEditor(v?.descripcion_html),
+              }))
+          : [];
+        setVersionesDescripcionHechos(versionesOrdenadas);
+        const versionActual =
+          versionesOrdenadas.find((version) => version.es_actual) ||
+          versionesOrdenadas[0];
+        setSelectedDescripcionVersionId(versionActual?.id || "");
+      } catch (error: any) {
+        // Fallback para casos de datos heredados sin versiones.
+        const descripcionLegacy = fallbackDescripcionHtml || "";
+        if (descripcionLegacy.trim()) {
+          const fallbackVersion: VersionDescripcionHechos = {
+            id: "legacy-v1",
+            version: 1,
+            descripcion_html: decodeHtmlForEditor(descripcionLegacy),
+            es_actual: true,
+          };
+          setVersionesDescripcionHechos([fallbackVersion]);
+          setSelectedDescripcionVersionId(fallbackVersion.id);
+          return;
+        }
+        setVersionesDescripcionHechos([]);
+        setSelectedDescripcionVersionId("");
+      }
+    },
+    [siniestroId],
+  );
+
   const loadSiniestro = async () => {
     try {
       setSiniestroLoading(true);
@@ -805,6 +901,7 @@ export default function SiniestroDetailPage() {
       }
       const data = await apiService.getSiniestroById(siniestroId);
       setSiniestro(data);
+      await loadVersionesDescripcionHechos(data?.descripcion_hechos || "");
 
       // Registrar en "recientes visitados" para el dashboard
       try {
@@ -853,6 +950,56 @@ export default function SiniestroDetailPage() {
       setSiniestroLoading(false);
     }
   };
+
+  const handleOpenEditDescripcion = useCallback(() => {
+    if (!descripcionSeleccionada || !isDescripcionSeleccionadaUltima) return;
+    setDescripcionEditHtml(
+      decodeHtmlForEditor(descripcionSeleccionada.descripcion_html || ""),
+    );
+    setShowDescripcionModal(true);
+  }, [descripcionSeleccionada, isDescripcionSeleccionadaUltima]);
+
+  const handleSaveDescripcionVersion = useCallback(async () => {
+    if (!descripcionActual) return;
+    const html = descripcionEditHtml.trim();
+    if (!html) {
+      swalError("La descripción de los hechos no puede quedar vacía");
+      return;
+    }
+    try {
+      setSavingDescripcionVersion(true);
+      const nuevaVersion = await apiService.createVersionDescripcion(siniestroId, {
+        descripcion_html: html,
+      });
+      setSiniestro((prev) =>
+        prev
+          ? {
+              ...prev,
+              descripcion_hechos: decodeHtmlForEditor(
+                nuevaVersion.descripcion_html || html,
+              ),
+            }
+          : prev,
+      );
+      await loadVersionesDescripcionHechos(nuevaVersion.descripcion_html || html);
+      await loadLogsAuditoria();
+      setShowDescripcionModal(false);
+      swalSuccess("Descripción de los hechos actualizada correctamente");
+    } catch (error: any) {
+      console.error("Error al guardar versión de descripción:", error);
+      swalError(
+        error.response?.data?.detail ||
+          "Error al actualizar descripción de los hechos",
+      );
+    } finally {
+      setSavingDescripcionVersion(false);
+    }
+  }, [
+    descripcionActual,
+    descripcionEditHtml,
+    loadVersionesDescripcionHechos,
+    siniestroId,
+  ]);
 
   const loadDocumentosSiniestro = async () => {
     if (!canVerDocumentos) {
@@ -1168,10 +1315,33 @@ export default function SiniestroDetailPage() {
     }
   };
 
+  const crearInstitucionEditModalDesdeNombre = useCallback(async (nombre: string) => {
+    try {
+      const created = await apiService.createInstitucion({ nombre, activo: true });
+      if (!created?.id) return null;
+      setEditModalInstituciones((prev) => [...(prev || []), created]);
+      return String(created.id);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "No se pudo crear la institución");
+      return null;
+    }
+  }, []);
+
+  const crearAutoridadEditModalDesdeNombre = useCallback(async (nombre: string) => {
+    try {
+      const created = await apiService.createAutoridad({ nombre, activo: true });
+      if (!created?.id) return null;
+      setEditModalAutoridades((prev) => [...(prev || []), created]);
+      return String(created.id);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "No se pudo crear la autoridad");
+      return null;
+    }
+  }, []);
+
   // Abrir modal de edición
   const handleOpenEditModal = async () => {
     if (!siniestro) return;
-    const primaryPoliza = getDisplayPolizasFromSiniestro(siniestro)[0];
 
     const reporteSrc =
       (siniestro as any).fecha_reporte || siniestro.fecha_registro;
@@ -1210,23 +1380,47 @@ export default function SiniestroDetailPage() {
       fecha_asignacion: fechaAsignacion,
       fecha_siniestro: fechaSiniestroStr,
       ubicacion: siniestro.ubicacion || "",
-      numero_poliza: primaryPoliza?.numero_poliza || "",
-      deducible: Number(primaryPoliza?.deducible || 0),
-      reserva: Number(primaryPoliza?.reserva || 0),
-      coaseguro: Number(primaryPoliza?.coaseguro || 0),
-      suma_asegurada: Number(primaryPoliza?.suma_asegurada || 0),
       prioridad: siniestro.prioridad || "baja",
       forma_contacto: siniestro.forma_contacto || "correo",
       numero_reporte: siniestro.numero_reporte || "",
       observaciones: siniestro.observaciones || "",
       asegurado_id: siniestro.asegurado_id || "",
+      institucion_id: siniestro.institucion_id || "",
+      autoridad_id: siniestro.autoridad_id || "",
+      proveniente_id: siniestro.proveniente_id || "",
+      estado_id: siniestro.estado_id || "",
+      calificacion_id: siniestro.calificacion_id || "",
     });
     setShowEditModal(true);
     try {
-      const data = await apiService.getAsegurados(true);
-      setEditModalAsegurados(data || []);
+      const [
+        aseguradosData,
+        institucionesData,
+        autoridadesData,
+        provenientesData,
+        estadosData,
+        calificacionesData,
+      ] = await Promise.all([
+        apiService.getAsegurados(true),
+        apiService.getInstituciones(true),
+        apiService.getAutoridades(true),
+        apiService.getProvenientes(true),
+        apiService.getEstadosSiniestro(true),
+        apiService.getCalificacionesSiniestro(true),
+      ]);
+      setEditModalAsegurados(aseguradosData || []);
+      setEditModalInstituciones(institucionesData || []);
+      setEditModalAutoridades(autoridadesData || []);
+      setEditModalProvenientes(provenientesData || []);
+      setEditModalEstados(estadosData || []);
+      setEditModalCalificaciones(calificacionesData || []);
     } catch (_) {
       setEditModalAsegurados([]);
+      setEditModalInstituciones([]);
+      setEditModalAutoridades([]);
+      setEditModalProvenientes([]);
+      setEditModalEstados([]);
+      setEditModalCalificaciones([]);
     }
   };
 
@@ -1263,17 +1457,6 @@ export default function SiniestroDetailPage() {
             )
           : areasAdicionales[0];
       const relacionPrincipalId = relacionPrincipal?.id;
-      const polizasDraft = getPolizaDraftsFromSiniestro(siniestro);
-      if (polizasDraft.length > 0) {
-        polizasDraft[0] = {
-          ...polizasDraft[0],
-          numero_poliza: editForm.numero_poliza || "",
-          deducible: editForm.deducible || 0,
-          reserva: editForm.reserva || 0,
-          coaseguro: editForm.coaseguro || 0,
-          suma_asegurada: editForm.suma_asegurada || 0,
-        };
-      }
       const updateData: any = {
         numero_siniestro:
           editForm.numero_siniestro && editForm.numero_siniestro.trim()
@@ -1284,7 +1467,6 @@ export default function SiniestroDetailPage() {
         fecha_asignacion: fechaAsignacionIso,
         fecha_siniestro: fechaSiniestroIso,
         ubicacion: editForm.ubicacion || undefined,
-        polizas: buildPolizasPayload(polizasDraft),
         prioridad: editForm.prioridad || undefined,
         forma_contacto: editForm.forma_contacto || undefined,
         numero_reporte:
@@ -1295,6 +1477,26 @@ export default function SiniestroDetailPage() {
         asegurado_id:
           editForm.asegurado_id && editForm.asegurado_id.trim()
             ? editForm.asegurado_id
+            : null,
+        institucion_id:
+          editForm.institucion_id && editForm.institucion_id.trim()
+            ? editForm.institucion_id
+            : null,
+        autoridad_id:
+          editForm.autoridad_id && editForm.autoridad_id.trim()
+            ? editForm.autoridad_id
+            : null,
+        proveniente_id:
+          editForm.proveniente_id && editForm.proveniente_id.trim()
+            ? editForm.proveniente_id
+            : null,
+        estado_id:
+          editForm.estado_id && editForm.estado_id.trim()
+            ? editForm.estado_id
+            : null,
+        calificacion_id:
+          editForm.calificacion_id && editForm.calificacion_id.trim()
+            ? editForm.calificacion_id
             : null,
       };
 
@@ -1332,12 +1534,7 @@ export default function SiniestroDetailPage() {
     setEditForm((prev) => ({
       ...prev,
       [name]:
-        name === "deducible" ||
-        name === "reserva" ||
-        name === "coaseguro" ||
-        name === "suma_asegurada"
-          ? parseFloat(value) || 0
-          : value,
+        value,
     }));
   };
 
@@ -2011,7 +2208,7 @@ export default function SiniestroDetailPage() {
         docExistente.nombre_archivo.replace(".html", ".pdf") ||
         `${etapa.nombre}.pdf`;
       const pdfResponse = await apiService.generatePDF({
-        html_content: docExistente.contenido,
+        html_content: decodeHtmlForEditor(docExistente.contenido || ""),
         plantilla_id: plantillaId || undefined,
         siniestro_id: siniestroId,
         variables,
@@ -2099,7 +2296,7 @@ export default function SiniestroDetailPage() {
         const filename =
           documento.nombre_archivo.replace(".html", ".pdf") || "documento.pdf";
         const pdfResponse = await apiService.generatePDF({
-          html_content: documento.contenido,
+          html_content: decodeHtmlForEditor(documento.contenido || ""),
           plantilla_id: documento.plantilla_documento_id || undefined,
           siniestro_id: siniestroId,
           variables,
@@ -2533,7 +2730,7 @@ export default function SiniestroDetailPage() {
         : baseName.replace(/\.[^/.]+$/, "") + ".pdf";
 
       await apiService.downloadPDF({
-        html_content: documento.contenido,
+        html_content: decodeHtmlForEditor(documento.contenido || ""),
         plantilla_id: documento.plantilla_documento_id,
         siniestro_id: siniestroId,
         variables,
@@ -2907,7 +3104,9 @@ export default function SiniestroDetailPage() {
       if (docExistente) {
         // Si existe, cargar el contenido existente
         setDocumentoExistente(docExistente);
-        setDocumentoContenido(docExistente.contenido || "");
+        setDocumentoContenido(
+          decodeHtmlForEditor(docExistente.contenido || ""),
+        );
       } else {
         // Si no existe, cargar la plantilla para precargar
         let plantillaId = etapa.plantilla_documento_id;
@@ -2932,7 +3131,9 @@ export default function SiniestroDetailPage() {
             await apiService.getPlantillaDocumentoById(plantillaId);
           setPlantillaActual(plantilla);
           const contenidoBase =
-            plantilla.contenido || "<p>Contenido de la plantilla...</p>";
+            decodeHtmlForEditor(
+              plantilla.contenido || "<p>Contenido de la plantilla...</p>",
+            ) || "<p>Contenido de la plantilla...</p>";
 
           // Aplicar placeholders solo cuando se genera el documento por primera vez
           const contenidoConDatos = aplicarPlaceholdersPlantilla(
@@ -4120,21 +4321,52 @@ export default function SiniestroDetailPage() {
                 </div>
 
                 {/* Descripción de los Hechos */}
-                {siniestro.descripcion_hechos && (
+                {descripcionHechosVistaHtml.trim() && (
                   <div className="mt-6 pt-6 border-t border-gray-200">
-                    <div className="flex items-center gap-2 mb-3">
-                      <FiFileText
-                        className="w-5 h-5"
-                        style={{ color: empresaColors.primary }}
-                      />
-                      <h3 className="font-semibold text-gray-700">
-                        Descripción de los Hechos
-                      </h3>
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <div className="flex items-center gap-2">
+                        <FiFileText
+                          className="w-5 h-5"
+                          style={{ color: empresaColors.primary }}
+                        />
+                        <h3 className="font-semibold text-gray-700">
+                          Descripción de los Hechos
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <CustomSelect
+                          name="descripcion_version_selector"
+                          value={
+                            descripcionSeleccionada?.id ||
+                            selectedDescripcionVersionId
+                          }
+                          onChange={(value) =>
+                            setSelectedDescripcionVersionId((value as string) || "")
+                          }
+                          options={versionesDescripcionHechos.map((version) => ({
+                            value: version.id,
+                            label: `v${version.version}`,
+                          }))}
+                          placeholder="Versión"
+                          isSearchable={false}
+                          isClearable={false}
+                        />
+                        {canActualizarSiniestro && isDescripcionSeleccionadaUltima && (
+                          <EmpresaButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleOpenEditDescripcion}
+                          >
+                            <FiEdit3 className="w-4 h-4 mr-2" />
+                            Editar
+                          </EmpresaButton>
+                        )}
+                      </div>
                     </div>
                     <div
                       className="prose max-w-none text-sm text-gray-700 bg-gray-50 p-4 rounded-lg"
                       dangerouslySetInnerHTML={{
-                        __html: siniestro.descripcion_hechos,
+                        __html: descripcionHechosVistaHtml,
                       }}
                     />
                   </div>
@@ -5411,6 +5643,42 @@ export default function SiniestroDetailPage() {
         </div>
       </Modal>
 
+      {/* Modal de edición de descripción de hechos (solo última versión) */}
+      <Modal
+        open={showDescripcionModal}
+        onClose={() => !savingDescripcionVersion && setShowDescripcionModal(false)}
+        title={`Editar Descripción de los Hechos (${descripcionActual ? `v${descripcionActual.version}` : "última"})`}
+        maxWidthClass="max-w-5xl"
+      >
+        <div className="space-y-4">
+          <JoditEditor
+            key={descripcionActual?.id || "descripcion-hechos-editor"}
+            value={descripcionEditHtml}
+            onChange={setDescripcionEditHtml}
+            placeholder="Escribe la descripción de los hechos..."
+          />
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+            <EmpresaButton
+              variant="outline"
+              onClick={() => setShowDescripcionModal(false)}
+              disabled={savingDescripcionVersion}
+            >
+              Cancelar
+            </EmpresaButton>
+            <EmpresaButton
+              variant="primary"
+              onClick={handleSaveDescripcionVersion}
+              loading={savingDescripcionVersion}
+              disabled={savingDescripcionVersion}
+            >
+              <FiSave className="w-4 h-4 mr-2" />
+              Guardar como nueva versión
+            </EmpresaButton>
+          </div>
+        </div>
+      </Modal>
+
       {/* Modal de Edición del Siniestro */}
       <Modal
         open={showEditModal}
@@ -5517,52 +5785,108 @@ export default function SiniestroDetailPage() {
             </div>
           </div>
 
-          {/* Información de Póliza */}
+          {/* Relaciones institucionales */}
           <div>
             <h3
               className="text-lg font-semibold mb-4"
-              style={{ color: empresaColors.secondary }}
+              style={{ color: empresaColors.primary }}
             >
-              Información de Póliza Principal
+              Relaciones del Siniestro
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input
-                label="Número de Póliza Principal"
-                name="numero_poliza"
-                value={editForm.numero_poliza}
-                onChange={handleEditFormChange}
+              <CustomSelect
+                label="Institución"
+                name="institucion_id"
+                value={editForm.institucion_id}
+                onChange={(v) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    institucion_id: (v as string) || "",
+                  }))
+                }
+                options={editModalInstituciones.map((institucion: any) => ({
+                  value: institucion.id,
+                  label: institucion.nombre || "Sin nombre",
+                }))}
+                placeholder="Seleccionar institución"
+                isSearchable
+                isClearable
+                isCreatable
+                onCreateOption={crearInstitucionEditModalDesdeNombre}
               />
-              <Input
-                label="Suma Asegurada"
-                name="suma_asegurada"
-                type="number"
-                value={editForm.suma_asegurada}
-                onChange={handleEditFormChange}
-                step="0.01"
+              <CustomSelect
+                label="Autoridad"
+                name="autoridad_id"
+                value={editForm.autoridad_id}
+                onChange={(v) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    autoridad_id: (v as string) || "",
+                  }))
+                }
+                options={editModalAutoridades.map((autoridad: any) => ({
+                  value: autoridad.id,
+                  label: autoridad.nombre || "Sin nombre",
+                }))}
+                placeholder="Seleccionar autoridad"
+                isSearchable
+                isClearable
+                isCreatable
+                onCreateOption={crearAutoridadEditModalDesdeNombre}
               />
-              <Input
-                label="Deducible"
-                name="deducible"
-                type="number"
-                value={editForm.deducible}
-                onChange={handleEditFormChange}
-                step="0.01"
+              <CustomSelect
+                label="Proveniente"
+                name="proveniente_id"
+                value={editForm.proveniente_id}
+                onChange={(v) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    proveniente_id: (v as string) || "",
+                  }))
+                }
+                options={editModalProvenientes.map((proveniente: any) => ({
+                  value: proveniente.id,
+                  label: proveniente.nombre || "Sin nombre",
+                }))}
+                placeholder="Seleccionar proveniente"
+                isSearchable
+                isClearable
               />
-              <Input
-                label="Reserva"
-                name="reserva"
-                type="number"
-                value={editForm.reserva}
-                onChange={handleEditFormChange}
-                step="0.01"
+              <CustomSelect
+                label="Estado del siniestro"
+                name="estado_id"
+                value={editForm.estado_id}
+                onChange={(v) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    estado_id: (v as string) || "",
+                  }))
+                }
+                options={editModalEstados.map((estado: any) => ({
+                  value: estado.id,
+                  label: estado.nombre || "Sin nombre",
+                }))}
+                placeholder="Seleccionar estado"
+                isSearchable
+                isClearable
               />
-              <Input
-                label="Coaseguro"
-                name="coaseguro"
-                type="number"
-                value={editForm.coaseguro}
-                onChange={handleEditFormChange}
-                step="0.01"
+              <CustomSelect
+                label="Calificación del siniestro"
+                name="calificacion_id"
+                value={editForm.calificacion_id}
+                onChange={(v) =>
+                  setEditForm((prev) => ({
+                    ...prev,
+                    calificacion_id: (v as string) || "",
+                  }))
+                }
+                options={editModalCalificaciones.map((calificacion: any) => ({
+                  value: calificacion.id,
+                  label: calificacion.nombre || "Sin nombre",
+                }))}
+                placeholder="Seleccionar calificación"
+                isSearchable
+                isClearable
               />
             </div>
           </div>

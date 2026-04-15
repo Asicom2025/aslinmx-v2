@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
+import { decodeHtmlForEditor } from "@/lib/decodeHtmlForEditor";
 
 // Importar Jodit dinámicamente para evitar problemas de SSR
 const JoditEditor = dynamic(() => import("jodit-react"), {
@@ -31,8 +32,9 @@ export default function JoditEditorComponent({
   height = 500,
 }: JoditEditorProps) {
   const [mounted, setMounted] = useState(false);
+  const normalizedValue = useMemo(() => decodeHtmlForEditor(value), [value]);
   // Mantener el contenido actual sin provocar re-renders en cada tecla
-  const contentRef = useRef<string>(value);
+  const contentRef = useRef<string>(normalizedValue);
 
   useEffect(() => {
     setMounted(true);
@@ -41,8 +43,8 @@ export default function JoditEditorComponent({
   // Cuando cambia el valor externo (por ejemplo, al abrir una plantilla nueva),
   // actualizar el ref sin re-renderizar el editor.
   useEffect(() => {
-    contentRef.current = value;
-  }, [value]);
+    contentRef.current = normalizedValue;
+  }, [normalizedValue]);
 
   // Configuración completa de Jodit con todas las opciones disponibles
   const config = useMemo(() => ({
@@ -688,12 +690,12 @@ export default function JoditEditorComponent({
         {label && <label className="text-sm font-medium text-gray-700">{label}</label>}
         <div className="border border-gray-300 rounded-md overflow-hidden">
           <JoditEditor
-            {...({ value } as any)}
+            {...({ value: normalizedValue } as any)}
             config={config}
             onBlur={(newContent: string) => {
               // Al perder el foco, actualizar el valor externo UNA sola vez
               contentRef.current = newContent;
-              if (newContent !== value) {
+              if (newContent !== normalizedValue) {
                 onChange(newContent);
               }
             }}

@@ -77,7 +77,7 @@ export function TruncatedText({
 
 /**
  * Dentro de un `cell` de ColumnDef, indica si el DataTable tiene layout redimensionable
- * (`layoutStorageKey`). Usar clases `break-words min-w-0` en lugar de `truncate max-w-[…]`.
+ * (`layoutStorageKey`). El texto se trunca con elipsis según el ancho de columna (sin wrap).
  */
 export function isDataTableFluidLayout<TData>(table: Table<TData>): boolean {
   return Boolean((table.options.meta as { fluidCells?: boolean } | undefined)?.fluidCells);
@@ -268,8 +268,8 @@ export default function DataTable<TData>({
     },
     defaultColumn: customizeLayout
       ? {
-          minSize: 64,
-          maxSize: 640,
+          minSize: 56,
+          maxSize: 2000,
           size: 160,
         }
       : undefined,
@@ -299,26 +299,26 @@ export default function DataTable<TData>({
   const emptyPadding = isCompact ? "px-3 py-6" : "px-4 py-8";
 
   return (
-    <div className={`overflow-x-auto ${className}`}>
-      <div className="flex flex-wrap justify-between items-center gap-2 mb-4 p-2">
+    <div className={`w-full min-w-0 ${className}`}>
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         {enableSearch && (
-          <div>
+          <div className="w-full min-w-0 sm:max-w-md sm:flex-1">
             <input
               type="text"
               value={globalFilter}
               onChange={(e) => setGlobalFilter(e.target.value)}
               placeholder={searchPlaceholder}
-              className="w-full md:w-72 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
             />
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {layoutActive && visibilityEnabled && (
             <div className="relative" ref={columnPickerRef}>
               <button
                 type="button"
                 onClick={() => setColumnPickerOpen((o) => !o)}
-                className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50"
               >
                 Columnas visibles
               </button>
@@ -369,14 +369,14 @@ export default function DataTable<TData>({
           )}
         </div>
         {enablePagination && totalRows > 0 && (
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <span>
+          <div className="flex w-full flex-wrap items-center gap-2 text-sm text-gray-600 sm:w-auto sm:justify-end">
+            <span className="whitespace-nowrap">
               Mostrando {startRow} - {endRow} de {totalRows} registros
             </span>
             <select
               value={pageSizeValue}
               onChange={(e) => table.setPageSize(Number(e.target.value))}
-              className="border border-gray-300 rounded-md px-2 py-1 text-sm"
+              className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm shadow-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
@@ -387,11 +387,16 @@ export default function DataTable<TData>({
         )}
       </div>
 
-      <div className="overflow-x-auto">
+      <div
+        className="-mx-px overflow-x-auto rounded-xl border border-gray-200/90 bg-white shadow-sm [scrollbar-gutter:stable]"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
         <table
-          className={`min-w-full divide-y divide-gray-200 ${layoutActive ? "table-fixed w-full" : ""}`}
+          className={`min-w-full border-collapse divide-y divide-gray-200 ${
+            layoutActive ? "table-fixed w-full" : "w-full table-auto"
+          }`}
         >
-          <thead className="bg-gray-50">
+          <thead className="sticky top-0 z-10 bg-gray-50/95 shadow-[inset_0_-1px_0_0_rgba(15,23,42,0.06)] backdrop-blur-sm">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
@@ -406,7 +411,7 @@ export default function DataTable<TData>({
                           ? { width: header.getSize(), minWidth: header.getSize(), position: "relative" }
                           : undefined
                       }
-                      className={`${headerPadding} text-left ${textSize} font-medium text-gray-500 uppercase align-middle`}
+                      className={`${headerPadding} text-left ${textSize} font-medium uppercase tracking-wide text-slate-600 align-middle ${layoutActive ? "min-w-0 max-w-0" : ""}`}
                       onDragOver={
                         layoutActive
                           ? (e) => {
@@ -426,7 +431,7 @@ export default function DataTable<TData>({
                           : undefined
                       }
                     >
-                      <div className="flex items-center gap-1 min-w-0">
+                      <div className="flex min-w-0 items-center gap-1">
                         {layoutActive && (
                           <span
                             draggable
@@ -446,8 +451,10 @@ export default function DataTable<TData>({
                           </span>
                         )}
                         <div
-                          className={`flex flex-1 items-center gap-2 min-w-0 ${
-                            canSort ? "cursor-pointer select-none hover:bg-gray-100/80 rounded px-0.5 -mx-0.5" : ""
+                          className={`flex min-w-0 flex-1 items-center gap-2 overflow-hidden ${
+                            layoutActive ? "truncate" : ""
+                          } ${
+                            canSort ? "cursor-pointer select-none rounded px-0.5 -mx-0.5 hover:bg-gray-100/80" : ""
                           }`}
                           onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                         >
@@ -478,8 +485,10 @@ export default function DataTable<TData>({
                             header.getResizeHandler()(e);
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className={`absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize touch-none select-none border-r border-transparent hover:border-gray-300 ${
-                            header.column.getIsResizing() ? "border-primary-500 bg-primary-500/20" : ""
+                          className={`absolute right-0 top-0 z-20 h-full w-2 -translate-x-1/2 cursor-col-resize touch-none select-none border-r border-transparent px-0.5 hover:border-slate-300 ${
+                            header.column.getIsResizing()
+                              ? "border-primary-500 bg-primary-500/15"
+                              : ""
                           }`}
                           title="Arrastrar para cambiar ancho"
                         />
@@ -490,7 +499,7 @@ export default function DataTable<TData>({
               </tr>
             ))}
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="divide-y divide-gray-100 bg-white">
             {rows.length === 0 ? (
               <tr>
                 <td
@@ -502,15 +511,19 @@ export default function DataTable<TData>({
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="hover:bg-gray-50">
+                <tr key={row.id} className="transition-colors hover:bg-slate-50/90">
                   {row.getVisibleCells().map((cell) => {
                     const cellValue = cell.getValue();
                     const isStringValue =
                       typeof cellValue === "string" || typeof cellValue === "number";
                     const textLength = isStringValue ? String(cellValue).length : 0;
-                    /** Con columnas redimensionables el ancho manda: no recortar por caracteres ni max-width fijo. */
+                    /** Sin layout fluido: truncado por número de caracteres (legacy). Con layout: solo elipsis CSS. */
                     const shouldTruncate =
                       !layoutActive && isStringValue && textLength > maxTextLength;
+                    const cellMeta = cell.column.columnDef.meta as
+                      | { allowWrapInFluid?: boolean }
+                      | undefined;
+                    const allowWrapFluid = Boolean(cellMeta?.allowWrapInFluid);
 
                     return (
                       <td
@@ -522,32 +535,37 @@ export default function DataTable<TData>({
                         }
                         className={`${cellPadding} ${textSize} ${
                           layoutActive
-                            ? ""
+                            ? "min-w-0 max-w-0 align-middle"
                             : shouldTruncate
                               ? ""
                               : "whitespace-nowrap"
                         } align-top`}
                         title={
-                          shouldTruncate && isStringValue ? String(cellValue) : undefined
+                          layoutActive && isStringValue
+                            ? String(cellValue)
+                            : shouldTruncate && isStringValue
+                              ? String(cellValue)
+                              : undefined
                         }
                       >
                         <div
                           className={
                             layoutActive
-                              ? "min-w-0 w-full break-words whitespace-normal [word-break:break-word]"
+                              ? allowWrapFluid
+                                ? "min-w-0 max-w-full break-words [word-break:break-word]"
+                                : "min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
                               : shouldTruncate
-                                ? "truncate max-w-md"
+                                ? "max-w-md truncate"
                                 : ""
                           }
                           style={
                             !layoutActive && shouldTruncate
                               ? {
-                                  maxWidth: "400px",
-                                  display: "inline-block",
+                                  maxWidth: "min(100%,24rem)",
+                                  display: "block",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",
                                   whiteSpace: "nowrap",
-                                  verticalAlign: "middle",
                                 }
                               : undefined
                           }
@@ -565,42 +583,46 @@ export default function DataTable<TData>({
       </div>
 
       {enablePagination && totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4 px-4 py-3 bg-gray-50 border-t border-gray-200">
-          <div className="flex items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200/90 bg-slate-50/80 px-3 py-3 sm:px-4">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => table.setPageIndex(0)}
               disabled={!table.getCanPreviousPage()}
-              className="p-2 rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Primera página"
+              type="button"
             >
-              <FiChevronsLeft className="w-4 h-4" />
+              <FiChevronsLeft className="h-4 w-4" />
             </button>
             <button
               onClick={() => table.previousPage()}
               disabled={!table.getCanPreviousPage()}
-              className="p-2 rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Página anterior"
+              type="button"
             >
-              <FiChevronLeft className="w-4 h-4" />
+              <FiChevronLeft className="h-4 w-4" />
             </button>
-            <span className="text-sm text-gray-700">
+            <span className="px-1 text-sm font-medium text-slate-700">
               Página {currentPage + 1} de {totalPages}
             </span>
             <button
               onClick={() => table.nextPage()}
               disabled={!table.getCanNextPage()}
-              className="p-2 rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Página siguiente"
+              type="button"
             >
-              <FiChevronRight className="w-4 h-4" />
+              <FiChevronRight className="h-4 w-4" />
             </button>
             <button
               onClick={() => table.setPageIndex(totalPages - 1)}
               disabled={!table.getCanNextPage()}
-              className="p-2 rounded-md border border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100"
+              className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Última página"
+              type="button"
             >
-              <FiChevronsRight className="w-4 h-4" />
+              <FiChevronsRight className="h-4 w-4" />
             </button>
           </div>
         </div>
