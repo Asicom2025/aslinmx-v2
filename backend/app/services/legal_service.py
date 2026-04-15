@@ -1018,6 +1018,32 @@ class SiniestroService:
             setattr(siniestro, "id_formato", None)
 
     @staticmethod
+    def _nombre_asegurado_display(aseg: Optional[Asegurado]) -> Optional[str]:
+        if not aseg:
+            return None
+        nombre = (getattr(aseg, "nombre", None) or "").strip()
+        ap_pat = (getattr(aseg, "apellido_paterno", None) or "").strip()
+        ap_mat = (getattr(aseg, "apellido_materno", None) or "").strip()
+        full = " ".join(part for part in (nombre, ap_pat, ap_mat) if part)
+        return full or None
+
+    @staticmethod
+    def _attach_asegurado_nombres(db: Session, siniestros: List[Siniestro]) -> None:
+        """Adjunta `asegurado_nombre` en memoria para serializar en `SiniestroResponse`."""
+        if not siniestros:
+            return
+        ids = list({s.asegurado_id for s in siniestros if getattr(s, "asegurado_id", None)})
+        if not ids:
+            for s in siniestros:
+                setattr(s, "asegurado_nombre", None)
+            return
+        rows = db.query(Asegurado).filter(Asegurado.id.in_(ids)).all()
+        by_id = {a.id: SiniestroService._nombre_asegurado_display(a) for a in rows}
+        for s in siniestros:
+            aid = getattr(s, "asegurado_id", None)
+            setattr(s, "asegurado_nombre", by_id.get(aid) if aid else None)
+
+    @staticmethod
     def _sync_polizas(
         db: Session,
         siniestro: Siniestro,
@@ -1262,7 +1288,9 @@ class SiniestroService:
                 setattr(siniestro, "descripcion_hechos", None)
             SiniestroService._ensure_polizas_ordered(siniestro)
             SiniestroService._attach_id_formato(db, siniestro, provenientes_map)
-        
+
+        SiniestroService._attach_asegurado_nombres(db, siniestros)
+
         return siniestros
     
     @staticmethod
@@ -1285,6 +1313,7 @@ class SiniestroService:
                 setattr(siniestro, 'descripcion_hechos', None)
             SiniestroService._ensure_polizas_ordered(siniestro)
             SiniestroService._attach_id_formato(db, siniestro, None)
+            SiniestroService._attach_asegurado_nombres(db, [siniestro])
 
         return siniestro
     

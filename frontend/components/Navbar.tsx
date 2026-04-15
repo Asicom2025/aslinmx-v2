@@ -268,6 +268,9 @@ export default function Navbar() {
                                 {s.numero_siniestro ? `Núm. siniestro: ${s.numero_siniestro}` : s.numero_reporte}
                               </span>
                             )}
+                            {s.asegurado_nombre ? (
+                              <span className="text-xs text-gray-600">Asegurado: {s.asegurado_nombre}</span>
+                            ) : null}
                           </button>
                         </li>
                       ))}

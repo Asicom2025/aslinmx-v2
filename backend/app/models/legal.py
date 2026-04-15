@@ -524,7 +524,7 @@ class VersionesDescripcionHechos(Base):
     descripcion_html = Column(Text, nullable=False)
     version = Column(Integer, nullable=False, default=1)
     es_actual = Column(Boolean, nullable=False, default=True)
-    creado_por = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
+    creado_por = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="RESTRICT"), nullable=False)
     observaciones = Column(Text, nullable=True)  # Notas sobre los cambios en esta versión
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

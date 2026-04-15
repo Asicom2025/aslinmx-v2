@@ -5,8 +5,9 @@
 
 "use client";
 
-import React from "react";
+import React, { useState, useCallback } from "react";
 import Select, { StylesConfig, GroupBase } from "react-select";
+import CreatableSelect from "react-select/creatable";
 
 export interface SelectOption {
   value: string;
@@ -44,6 +45,12 @@ interface SelectProps {
   isSearchable?: boolean;
   /** Cuando está dentro de un modal, pasa false para deshabilitar el portal y evitar problemas de posicionamiento. Por defecto true. */
   usePortal?: boolean;
+  /** Modo single: permite crear opción nueva (p. ej. Enter sobre «Crear …»). Requiere `onCreateOption`. */
+  isCreatable?: boolean;
+  /** Debe devolver el `value` (id) del nuevo ítem; el padre debe añadir la opción a `options` en el mismo ciclo o antes de resolver. */
+  onCreateOption?: (trimmedLabel: string) => Promise<string | null>;
+  /** Texto de la fila «crear» en el menú. Por defecto: Crear "…" */
+  formatCreateLabelText?: (inputValue: string) => string;
 }
 
 export default function CustomSelect({
@@ -60,7 +67,15 @@ export default function CustomSelect({
   isClearable = true,
   isSearchable = true,
   usePortal = true,
+  isCreatable = false,
+  onCreateOption,
+  formatCreateLabelText,
 }: SelectProps) {
+  const [creating, setCreating] = useState(false);
+
+  const effectiveCreatable =
+    Boolean(isCreatable && !isMulti && typeof onCreateOption === "function");
+
   const handleChange = (selected: any) => {
     if (isMulti) {
       const values = selected ? selected.map((opt: SelectOption) => opt.value) : [];
@@ -79,6 +94,42 @@ export default function CustomSelect({
       return flat.find((opt) => opt.value === value) || null;
     }
   };
+
+  const handleCreateOption = async (inputValue: string) => {
+    if (!onCreateOption || isMulti) return;
+    const trimmed = inputValue.trim();
+    if (!trimmed) return;
+    setCreating(true);
+    try {
+      const newId = await onCreateOption(trimmed);
+      if (newId) onChange(newId);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const isValidNewOption = useCallback(
+    (inputValue: string) => {
+      if (!effectiveCreatable) return false;
+      const t = inputValue.trim();
+      if (!t) return false;
+      const flat = flattenOptions(options);
+      return !flat.some(
+        (o) =>
+          String(o.label).trim().toLowerCase() === t.toLowerCase() ||
+          String(o.value).trim().toLowerCase() === t.toLowerCase(),
+      );
+    },
+    [effectiveCreatable, options],
+  );
+
+  const formatCreateLabel = useCallback(
+    (inputValue: string) =>
+      formatCreateLabelText
+        ? formatCreateLabelText(inputValue)
+        : `Crear "${inputValue.trim()}"`,
+    [formatCreateLabelText],
+  );
 
   const customStyles: StylesConfig<SelectOption, boolean, GroupBase<SelectOption>> = {
     control: (provided, state) => ({
@@ -162,6 +213,25 @@ export default function CustomSelect({
     }),
   };
 
+  const selectShared = {
+    name,
+    value: getValue(),
+    onChange: handleChange,
+    options: options as any,
+    placeholder,
+    isDisabled: disabled || creating,
+    isMulti,
+    isClearable,
+    isSearchable,
+    styles: customStyles,
+    classNamePrefix: "react-select",
+    noOptionsMessage: () => "No hay opciones disponibles",
+    menuPortalTarget:
+      usePortal && typeof document !== "undefined" ? document.body : undefined,
+    menuPosition: usePortal ? ("fixed" as const) : ("absolute" as const),
+    isLoading: creating,
+  };
+
   return (
     <div className="w-full">
       {label && (
@@ -170,22 +240,19 @@ export default function CustomSelect({
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
       )}
-      <Select<SelectOption, boolean, GroupBase<SelectOption>>
-        name={name}
-        value={getValue()}
-        onChange={handleChange}
-        options={options as any}
-        placeholder={placeholder}
-        isDisabled={disabled}
-        isMulti={isMulti}
-        isClearable={isClearable}
-        isSearchable={isSearchable}
-        styles={customStyles}
-        classNamePrefix="react-select"
-        noOptionsMessage={() => "No hay opciones disponibles"}
-        menuPortalTarget={usePortal && typeof document !== "undefined" ? document.body : undefined}
-        menuPosition={usePortal ? "fixed" : "absolute"}
-      />
+      {effectiveCreatable ? (
+        <CreatableSelect<SelectOption, false, GroupBase<SelectOption>>
+          {...selectShared}
+          isMulti={false}
+          onCreateOption={handleCreateOption}
+          isValidNewOption={isValidNewOption}
+          formatCreateLabel={formatCreateLabel}
+        />
+      ) : (
+        <Select<SelectOption, boolean, GroupBase<SelectOption>>
+          {...selectShared}
+        />
+      )}
       {error && <p className="mt-1 text-sm text-red-500">{error}</p>}
     </div>
   );

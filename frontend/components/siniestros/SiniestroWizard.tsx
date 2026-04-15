@@ -1,4 +1,12 @@
-import { FormEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FiPlus, FiSearch, FiTrash2, FiUser } from "react-icons/fi";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -6,6 +14,7 @@ import Switch from "@/components/ui/Switch";
 import JoditEditor from "@/components/ui/JoditEditor";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import apiService from "@/lib/apiService";
+import { swalError } from "@/lib/swal";
 import { buildPersonFullName } from "@/lib/userName";
 import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 
@@ -167,6 +176,9 @@ type SiniestroWizardProps = {
   abogados: PersonaLigera[];
   calificaciones: string[];
   calificacionesCatalogo?: any[]; // Catálogo completo con IDs
+  /** Si se define, sustituye la creación por API interna del wizard (p. ej. para refrescar catálogo en el padre). */
+  onCreateInstitucion?: (nombre: string) => Promise<string | null>;
+  onCreateAutoridad?: (nombre: string) => Promise<string | null>;
 };
 
 const contactoPreferencia = [
@@ -224,25 +236,22 @@ export default function SiniestroWizard({
   abogados,
   calificaciones,
   calificacionesCatalogo = [],
+  onCreateInstitucion,
+  onCreateAutoridad,
 }: SiniestroWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [institucionesLocales, setInstitucionesLocales] = useState<CatalogOption[]>([]);
+  const [autoridadesLocales, setAutoridadesLocales] = useState<CatalogOption[]>([]);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const isTransitioningRef = useRef(false); // Rastrear si estamos en transición de paso
-
-  // Debug: Ver qué datos están llegando
-  useEffect(() => {
-    if (open) {
-      console.log("Wizard - Instituciones recibidas:", instituciones);
-      console.log("Wizard - Autoridades recibidas:", autoridades);
-      console.log("Wizard - Provenientes recibidos:", provenientes);
-    }
-  }, [open, instituciones, autoridades, provenientes]);
 
   useEffect(() => {
     if (open) {
       setCurrentStep(0);
       setValidationError(null);
+      setInstitucionesLocales([]);
+      setAutoridadesLocales([]);
     }
   }, [open]);
 
@@ -353,6 +362,62 @@ export default function SiniestroWizard({
       nombre: p.nombre || p.email || p.id,
     }));
   }, [provenientes]);
+
+  const institucionesEfectivas = useMemo(
+    () => [
+      ...(instituciones && Array.isArray(instituciones) ? instituciones : []),
+      ...institucionesLocales,
+    ],
+    [instituciones, institucionesLocales],
+  );
+
+  const autoridadesEfectivas = useMemo(
+    () => [
+      ...(autoridades && Array.isArray(autoridades) ? autoridades : []),
+      ...autoridadesLocales,
+    ],
+    [autoridades, autoridadesLocales],
+  );
+
+  const crearInstitucionDesdeNombre = useCallback(
+    async (nombre: string) => {
+      if (onCreateInstitucion) return onCreateInstitucion(nombre);
+      try {
+        const created = await apiService.createInstitucion({ nombre, activo: true });
+        if (!created?.id) return null;
+        const idStr = String(created.id);
+        setInstitucionesLocales((prev) => [
+          ...prev.filter((x) => x.id !== idStr),
+          { id: idStr, nombre: created.nombre || nombre },
+        ]);
+        return idStr;
+      } catch (e: any) {
+        swalError(e.response?.data?.detail || "No se pudo crear la institución");
+        return null;
+      }
+    },
+    [onCreateInstitucion],
+  );
+
+  const crearAutoridadDesdeNombre = useCallback(
+    async (nombre: string) => {
+      if (onCreateAutoridad) return onCreateAutoridad(nombre);
+      try {
+        const created = await apiService.createAutoridad({ nombre, activo: true });
+        if (!created?.id) return null;
+        const idStr = String(created.id);
+        setAutoridadesLocales((prev) => [
+          ...prev.filter((x) => x.id !== idStr),
+          { id: idStr, nombre: created.nombre || nombre },
+        ]);
+        return idStr;
+      } catch (e: any) {
+        swalError(e.response?.data?.detail || "No se pudo crear la autoridad");
+        return null;
+      }
+    },
+    [onCreateAutoridad],
+  );
 
   const abogadosFiltrados = useMemo(
     () =>
@@ -1047,11 +1112,13 @@ export default function SiniestroWizard({
                     }}
                     options={[
                       { value: "", label: "Seleccionar institución" },
-                      ...(instituciones && Array.isArray(instituciones) ? instituciones.map((option) => ({
+                      ...institucionesEfectivas.map((option) => ({
                         value: String(option.id || ""),
                         label: option.nombre || String(option.id) || "Sin nombre",
-                      })) : []),
+                      })),
                     ]}
+                    isCreatable
+                    onCreateOption={crearInstitucionDesdeNombre}
                   />
                   <CustomSelect
                     label="Autoridad"
@@ -1064,19 +1131,15 @@ export default function SiniestroWizard({
                       onChange(fakeEvent);
                       setGeneralesValue("autoridad_id", value as string);
                     }}
-                    options={(() => {
-                      const autoridadOptions = autoridades && Array.isArray(autoridades) 
-                        ? autoridades.map((option) => ({
-                            value: String(option.id || ""),
-                            label: option.nombre || String(option.id) || "Sin nombre",
-                          }))
-                        : [];
-                      console.log("Opciones de autoridades para el select:", autoridadOptions);
-                      return [
-                        { value: "", label: "Seleccionar autoridad" },
-                        ...autoridadOptions,
-                      ];
-                    })()}
+                    options={[
+                      { value: "", label: "Seleccionar autoridad" },
+                      ...autoridadesEfectivas.map((option) => ({
+                        value: String(option.id || ""),
+                        label: option.nombre || String(option.id) || "Sin nombre",
+                      })),
+                    ]}
+                    isCreatable
+                    onCreateOption={crearAutoridadDesdeNombre}
                   />
                 </div>
 

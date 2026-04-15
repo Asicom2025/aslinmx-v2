@@ -748,6 +748,8 @@ class SiniestroResponse(SiniestroBase):
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
     id_formato: Optional[str] = None  # ID legible: proveniente-consecutivo-año (ej. 102-001-26)
+    # Rellenado en servicio (no es columna en `siniestros`): nombre completo del asegurado
+    asegurado_nombre: Optional[str] = Field(None, max_length=600)
 
     class Config:
         from_attributes = True
@@ -1058,9 +1060,13 @@ class VersionesDescripcionHechosBase(BaseModel):
 
 
 class VersionesDescripcionHechosCreate(VersionesDescripcionHechosBase):
-    """Schema para crear versión de descripción de hechos"""
-    siniestro_id: UUID
-    observaciones: Optional[str] = None  # Notas sobre los cambios
+    """Schema para crear versión de descripción de hechos.
+
+    `siniestro_id` es opcional en el cuerpo JSON: en
+    `POST /siniestros/{siniestro_id}/versiones-descripcion` la ruta lo asigna desde el path.
+    """
+
+    siniestro_id: Optional[UUID] = None
 
 
 class VersionesDescripcionHechosUpdate(BaseModel):
@@ -1074,7 +1080,7 @@ class VersionesDescripcionHechosResponse(VersionesDescripcionHechosBase):
     siniestro_id: UUID
     version: int
     es_actual: bool
-    creado_por: Optional[UUID] = None
+    creado_por: UUID
     creado_en: datetime
     actualizado_en: datetime
 
