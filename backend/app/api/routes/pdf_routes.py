@@ -45,8 +45,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Altura reservada para el header repetido por página (running header).
-PDF_HEADER_MARGIN_TOP = "2cm"
+# Espacio reservado en @page para el running header (logo hasta 120px + texto/tablas).
+# Menos de ~4cm suele solapar el cuerpo con el encabezado en WeasyPrint.
+PDF_HEADER_MARGIN_TOP = "4.8cm"
 
 _PDF_IMAGE_VAR_KEYS = {"firma", "firma_digital", "foto_de_perfil"}
 _PDF_MIME_BY_EXT = {
@@ -679,13 +680,22 @@ def _wrap_header_for_all_pages(header_html: str, body_html: str) -> str:
         "<style>"
         "@page withRunningHeader {"
         f"  margin-top: {PDF_HEADER_MARGIN_TOP};"
-        "  @top-left { content: element(pdfHeader); }"
+        "  @top-center {"
+        "    content: element(pdfHeader);"
+        "    width: 100%;"
+        "    vertical-align: top;"
+        "    padding: 3mm 6mm 0 6mm;"
+        "    box-sizing: border-box;"
+        "  }"
         "}"
         ".pdf-page-header-running {"
         "  position: running(pdfHeader);"
         "  width: 100%;"
+        "  max-width: 100%;"
+        "  box-sizing: border-box;"
         "  text-align: left;"
         "  line-height: 1.2;"
+        "  padding: 2mm 0 1mm 0;"
         "}"
         ".pdf-page-header-running p { margin: 0; }"
         ".pdf-page-header-running table { margin: 0; }"
@@ -694,7 +704,7 @@ def _wrap_header_for_all_pages(header_html: str, body_html: str) -> str:
     )
     header_block = (
         '<div class="pdf-page-header-running" '
-        'style="background: white; width: 100%; text-align: left;">'
+        'style="background: white; width: 100%; text-align: left; box-sizing: border-box;">'
         f"{header_html.strip()}</div>"
     )
     body_block = f'<div class="pdf-with-running-header">{body_html}</div>'
