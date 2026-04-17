@@ -188,6 +188,8 @@ class PDFService:
         .pdf-page-header-running {{
             position: running(pdfHeader);
             line-height: 1.2;
+            box-sizing: border-box;
+            padding: 2mm 0 1mm 0;
         }}
 
         .pdf-page-header-running p {{
