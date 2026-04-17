@@ -240,6 +240,13 @@ class OperationResult(BaseModel):
     detail: Optional[str] = None
 
 
+class GeneratedPasswordResponse(BaseModel):
+    """Solo nivel 0: contraseña nueva en claro (mostrar una vez al operador)."""
+    success: bool = True
+    detail: str = "Contraseña generada y guardada"
+    password_plain: str
+
+
 class ImpersonationAcceptRequest(BaseModel):
     """Canje del token de impersonación por sesión del usuario objetivo."""
     token: str = Field(..., min_length=20)

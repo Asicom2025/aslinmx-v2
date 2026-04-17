@@ -31,6 +31,7 @@ from app.schemas.user_schema import (
     UserEmpresaSwitch,
     ImpersonationAcceptRequest,
     ImpersonationTokenResponse,
+    GeneratedPasswordResponse,
 )
 from app.services.user_service import UserService
 from app.services.recaptcha_service import RecaptchaService
@@ -55,6 +56,7 @@ from app.models.user import UsuarioPerfil
 from app.models.permiso import Modulo, Accion
 from app.core.config import settings
 from app.services.auditoria_service import AuditoriaService
+from app.services.export_service import ExportService
 from app.services.storage_service import (
     get_storage_service,
 )
@@ -531,6 +533,128 @@ def export_invitaciones_credenciales_csv(
     )
 
 
+@router.get("/credenciales-definitivas/export.csv")
+def export_credenciales_definitivas_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "exportar_invitaciones")),
+):
+    """
+    CSV con usuarios de la empresa activa: correo, nombre y password_hash (bcrypt).
+    Mismo permiso y nivel que export de invitaciones.
+    """
+    _require_nivel_1_administrador(db, current_user)
+
+    users = UserService.list_users_by_active_empresa_for_credenciales(db, current_user)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["correo", "nombre_completo", "password_hash_bcrypt"])
+    for u in users:
+        w.writerow(UserService.user_credenciales_export_row(u))
+
+    data = "\ufeff" + buf.getvalue()
+    return StreamingResponse(
+        iter([data]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="usuarios_credenciales_definitivas.csv"',
+        },
+    )
+
+
+@router.get("/credenciales-definitivas/export.xlsx")
+def export_credenciales_definitivas_xlsx(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "exportar_invitaciones")),
+):
+    """
+    Excel (.xlsx) con usuarios de la empresa activa: correo, nombre y password_hash (bcrypt).
+    Mismos permisos que el export CSV de usuarios.
+    """
+    _require_nivel_1_administrador(db, current_user)
+
+    users = UserService.list_users_by_active_empresa_for_credenciales(db, current_user)
+    columnas = ["correo", "nombre_completo", "password_hash_bcrypt"]
+    datos = []
+    for u in users:
+        correo, nombre, ph = UserService.user_credenciales_export_row(u)
+        datos.append(
+            {
+                "correo": correo,
+                "nombre_completo": nombre,
+                "password_hash_bcrypt": ph,
+            }
+        )
+    try:
+        xlsx_bytes = ExportService.export_to_excel(
+            datos,
+            nombre_hoja="Usuarios",
+            titulo="Usuarios — hash bcrypt (empresa activa)",
+            columnas=columnas,
+            columnas_formato_texto=["password_hash_bcrypt"],
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="usuarios_credenciales_definitivas.xlsx"',
+        },
+    )
+
+
+@router.post("/{user_id}/generar-password", response_model=GeneratedPasswordResponse)
+def generate_user_password_superadmin(
+    user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Solo rol nivel 0: genera contraseña nueva, actualiza password_hash, registra auditoría cifrada, no envía correo.
+    Devuelve la contraseña en claro (mostrar una vez).
+    """
+    if not solo_superadmin_por_nivel(db, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el rol nivel 0 puede generar contraseña sin enviar correo",
+        )
+    plain = UserService.generate_random_password_superadmin_no_email(
+        db,
+        actor=current_user,
+        target_user_id=user_id,
+        ip_address=request.client.host if request.client else None,
+    )
+    try:
+        rid = None
+        try:
+            rid = uuid_lib.UUID(str(user_id))
+        except Exception:
+            rid = None
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=current_user.id,
+            empresa_id=current_user.empresa_id,
+            accion="generate_password_no_email",
+            modulo="usuarios",
+            tabla="usuarios",
+            registro_id=rid,
+            descripcion="Contraseña generada (sin correo) por nivel 0",
+            ip_address=request.client.host if request.client else None,
+        )
+    except Exception:
+        pass
+    return GeneratedPasswordResponse(
+        success=True,
+        detail="Contraseña generada y guardada. Copie el valor; no se volverá a mostrar.",
+        password_plain=plain,
+    )
+
+
 @router.post("/{user_id}/invitar-credencial", response_model=OperationResult)
 def invite_user_credential(
     user_id: str,
@@ -539,8 +663,8 @@ def invite_user_credential(
     current_user: User = Depends(require_permiso("usuarios", "invitar")),
 ):
     """
-    Genera contraseña, envía correo y registra auditoría cifrada.
-    Solo nivel 1 y permiso invitar.
+    Genera contraseña nueva, envía correo y registra auditoría cifrada.
+    Solo nivel 0/1 y permiso invitar.
     """
     _require_nivel_1_administrador(db, current_user)
     UserService.invite_user_reset_password_and_email(

@@ -6,9 +6,10 @@ L?gica de negocio para gesti?n de usuarios
 from typing import Optional, List, Tuple
 from uuid import UUID
 from datetime import datetime
-import secrets
 import base64
 import re
+import secrets
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, selectinload, joinedload
 from fastapi import HTTPException, status
 
@@ -568,6 +569,86 @@ class UserService:
         return row is not None
 
     @staticmethod
+    def list_users_by_active_empresa_for_credenciales(
+        db: Session,
+        actor: User,
+    ) -> List[User]:
+        """Usuarios que pertenecen a la empresa activa del actor (misma regla que invitación)."""
+        empresa_id = getattr(actor, "empresa_id", None)
+        if not empresa_id:
+            return []
+        subq = (
+            db.query(UsuarioEmpresa.usuario_id)
+            .filter(UsuarioEmpresa.empresa_id == empresa_id)
+        )
+        return (
+            db.query(User)
+            .options(selectinload(User.perfil))
+            .filter(
+                or_(
+                    User.empresa_id == empresa_id,
+                    User.id.in_(subq),
+                )
+            )
+            .order_by(User.correo.asc())
+            .all()
+        )
+
+    @staticmethod
+    def user_credenciales_export_row(user: User) -> Tuple[str, str, str]:
+        """Fila export CSV/Excel: correo, nombre completo, password_hash (bcrypt)."""
+        name = UserService._build_user_full_name({}, user)
+        correo = user.correo or ""
+        ph = getattr(user, "password_hash", None) or getattr(user, "hashed_password", None)
+        return (correo, name, ph or "")
+
+    @staticmethod
+    def generate_random_password_superadmin_no_email(
+        db: Session,
+        *,
+        actor: User,
+        target_user_id: str,
+        ip_address: Optional[str] = None,
+    ) -> str:
+        """
+        Solo superadmin (nivel 0): genera contraseña nueva, actualiza hash, registra auditoría cifrada, no envía correo.
+        Devuelve la contraseña en claro (mostrar una vez al operador).
+        """
+        if str(target_user_id) == str(actor.id):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No puede generarse una contraseña nueva sobre su propio usuario",
+            )
+        target = UserService.get_user_by_id(db, target_user_id)
+        if not target:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Usuario no encontrado",
+            )
+        if not target.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El usuario destino está inactivo",
+            )
+
+        plain = secrets.token_urlsafe(14)
+        target.hashed_password = get_password_hash(plain)
+        empresa_audit = actor.empresa_id or target.empresa_id
+        audit = InvitacionCredencialAuditoria(
+            usuario_id=target.id,
+            empresa_id=empresa_audit,
+            invitado_por_id=actor.id,
+            correo_destino=target.correo,
+            password_cifrado=encrypt_password_for_audit(plain),
+            ip_invitador=(ip_address[:64] if ip_address else None),
+        )
+        db.add(target)
+        db.add(audit)
+        db.commit()
+        db.refresh(target)
+        return plain
+
+    @staticmethod
     def invite_user_reset_password_and_email(
         db: Session,
         *,
@@ -576,7 +657,7 @@ class UserService:
         ip_address: Optional[str] = None,
     ) -> None:
         """
-        Genera contraseña, envía correo (SMTP empresa del actor), actualiza hash y registra auditoría cifrada.
+        Genera contraseña nueva, envía correo (SMTP empresa del actor), actualiza hash y registra auditoría cifrada.
         """
         if not getattr(actor, "empresa_id", None):
             raise HTTPException(

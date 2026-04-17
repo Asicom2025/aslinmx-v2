@@ -286,6 +286,14 @@ const userService = {
     const response = await api.post(`/users/${userId}/invitar-credencial`);
     return response.data;
   },
+  generateUserPasswordSuperadmin: async (userId: string) => {
+    const response = await api.post<{
+      success: boolean;
+      detail: string;
+      password_plain: string;
+    }>(`/users/${userId}/generar-password`);
+    return response.data;
+  },
   exportInvitacionesCredenciales: async (params?: { desde?: string; hasta?: string }) => {
     const qs = new URLSearchParams();
     if (params?.desde) qs.set("desde", params.desde);
@@ -299,6 +307,22 @@ const userService = {
     const a = document.createElement("a");
     a.href = url;
     a.download = "invitaciones_credenciales.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  },
+  exportCredencialesDefinitivasUsuarios: async () => {
+    const response = await api.get("/users/credenciales-definitivas/export.xlsx", {
+      responseType: "blob",
+    });
+    const blob = new Blob([response.data], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "usuarios_credenciales_definitivas.xlsx";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
