@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.security import get_current_active_user
 from app.core.permisos import require_permiso
+from app.core.nivel_acceso import usuario_bypass_permisos
 from app.models.user import User
+from app.models.permiso import Modulo, Accion
 from app.services.permiso_service import (
     ModuloService, AccionService, RolPermisoService
 )
@@ -38,6 +40,18 @@ def get_mis_permisos(
     Retorna lista de { modulo, accion } (nombres técnicos).
     Si no tiene rol, retorna lista vacía.
     """
+    if usuario_bypass_permisos(db, current_user):
+        rows = (
+            db.query(Modulo.nombre_tecnico, Accion.nombre_tecnico)
+            .join(Accion, Accion.modulo_id == Modulo.id)
+            .filter(
+                Modulo.activo == True,
+                Modulo.eliminado_en.is_(None),
+                Accion.activo == True,
+            )
+            .all()
+        )
+        return [{"modulo": r[0], "accion": r[1]} for r in rows]
     if not current_user.rol_id:
         return []
     return RolPermisoService.get_permisos_por_rol_nombres(db, str(current_user.rol_id))

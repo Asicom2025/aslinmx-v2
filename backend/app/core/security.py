@@ -118,6 +118,26 @@ def decode_access_token(token: str) -> Optional[dict]:
         return None
 
 
+def create_impersonation_exchange_token(actor_id: str, target_user_id: str) -> str:
+    """
+    Token de corta duración para canjear por sesión del usuario objetivo.
+    Solo debe emitirse a usuarios con roles.nivel == 0.
+    """
+    return create_access_token(
+        {
+            "sub": target_user_id,
+            "act": actor_id,
+            "purpose": "impersonate_exchange",
+        },
+        expires_delta=timedelta(minutes=settings.IMPERSONATION_TOKEN_EXPIRE_MINUTES),
+    )
+
+
+def is_impersonation_exchange_token(token: str) -> bool:
+    payload = decode_access_token(token)
+    return bool(payload and payload.get("purpose") == "impersonate_exchange")
+
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
@@ -145,6 +165,10 @@ async def get_current_user(
     
     if payload is None:
         raise credentials_exception
+
+    # No usar el token de canje de impersonación como Bearer de API
+    if payload.get("purpose") == "impersonate_exchange":
+        raise credentials_exception
     
     user_id: str = payload.get("sub")
     
@@ -160,6 +184,14 @@ async def get_current_user(
     
     if user is None:
         raise credentials_exception
+
+    # Sesión como otro usuario: claim opcional "imp" = UUID del actor (desarrollador)
+    imp = payload.get("imp")
+    if imp:
+        try:
+            setattr(user, "impersonated_by", uuid.UUID(str(imp)))
+        except Exception:
+            setattr(user, "impersonated_by", None)
     
     return user
 

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int
+    # Token de un solo paso para iniciar sesión como otro usuario (solo nivel 0)
+    IMPERSONATION_TOKEN_EXPIRE_MINUTES: int = 120
     # Refresh token (JWT) para renovar sesión sin re-login
     # Default: 7 días
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7

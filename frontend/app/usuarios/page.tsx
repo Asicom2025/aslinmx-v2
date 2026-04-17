@@ -18,7 +18,7 @@ import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { getUserDisplayName } from "@/lib/userName";
 import { ColumnDef } from "@tanstack/react-table";
-import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings } from "react-icons/fi";
+import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 
@@ -34,7 +34,7 @@ interface User {
   created_at: string;
   empresa?: { id: string; nombre: string } | null;
   empresas?: { id: string; nombre: string }[] | null;
-  rol?: { id: string; nombre: string } | null;
+  rol?: { id: string; nombre: string; nivel?: number } | null;
   perfil?: {
     nombre?: string;
     apellido_paterno?: string;
@@ -44,7 +44,7 @@ interface User {
 
 export default function UsuariosPage() {
   const router = useRouter();
-  const { user, loading } = useUser();
+  const { user, loading, refresh } = useUser();
   useTour("tour-usuarios", { autoStart: true });
   const [activeTab, setActiveTab] = useState<"usuarios" | "roles">("usuarios");
   const [usuarios, setUsuarios] = useState<User[]>([]);
@@ -172,6 +172,27 @@ export default function UsuariosPage() {
     }
   };
 
+  const impersonarUsuario = async (u: User) => {
+    if (!user || user.rol?.nivel !== 0) return;
+    if (u.id === user.id) {
+      swalError("No puede iniciar sesión como usted mismo");
+      return;
+    }
+    try {
+      const prev = localStorage.getItem("token") || "";
+      sessionStorage.setItem("preImpersonateToken", prev);
+      const { impersonation_token } = await apiService.requestImpersonationToken(u.id);
+      const { access_token } = await apiService.acceptImpersonation(impersonation_token);
+      localStorage.setItem("token", access_token);
+      await refresh();
+      await swalSuccess("Sesión iniciada como el usuario seleccionado");
+      router.push("/dashboard");
+    } catch (e: any) {
+      sessionStorage.removeItem("preImpersonateToken");
+      swalError(e.response?.data?.detail || "No se pudo iniciar sesión como el usuario");
+    }
+  };
+
   const deleteUsuario = async (id: string) => {
     const confirmed = await swalConfirmDelete("¿Está seguro de eliminar este usuario?");
     if (!confirmed) return;
@@ -246,6 +267,19 @@ export default function UsuariosPage() {
       header: "Acciones",
       cell: ({ row }) => (
         <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+          {user?.rol?.nivel === 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                impersonarUsuario(row.original);
+              }}
+              className="text-amber-700 hover:text-amber-900 transition-colors"
+              title="Entrar como este usuario (solo nivel 0)"
+            >
+              <FiLogIn className="w-5 h-5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => {

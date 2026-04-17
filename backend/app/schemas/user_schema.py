@@ -104,6 +104,12 @@ class AreaSummary(BaseModel):
         from_attributes = True
 
 
+class ImpersonatedByBrief(BaseModel):
+    """Usuario real (desarrollador) cuando la sesión es por impersonación."""
+    id: UUID
+    email: Optional[str] = None
+
+
 class UserResponse(UserBase):
     """Schema de respuesta de usuario"""
     id: UUID
@@ -123,6 +129,8 @@ class UserResponse(UserBase):
     # Info de seguridad
     two_factor_enabled: Optional[bool] = None
     two_factor_verified_at: Optional[datetime] = None
+    # Sesión iniciada como otro usuario (solo JWT con claim imp)
+    impersonated_by: Optional[ImpersonatedByBrief] = None
 
     class Config:
         from_attributes = True
@@ -229,3 +237,14 @@ class TwoFAToggleRequest(BaseModel):
 class OperationResult(BaseModel):
     success: bool
     detail: Optional[str] = None
+
+
+class ImpersonationAcceptRequest(BaseModel):
+    """Canje del token de impersonación por sesión del usuario objetivo."""
+    token: str = Field(..., min_length=20)
+
+
+class ImpersonationTokenResponse(BaseModel):
+    """Token de un paso para canjear en /users/impersonate/accept"""
+    impersonation_token: str
+    expires_in_minutes: int

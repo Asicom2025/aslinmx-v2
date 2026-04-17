@@ -11,9 +11,10 @@ from app.db.session import get_db
 from app.core.security import get_current_active_user
 from app.models.user import User
 from app.models.permiso import Modulo, Accion, RolPermiso
+from app.core.nivel_acceso import usuario_bypass_permisos
 
-# Rol Super Admin: tiene todos los permisos sin validar en BD
-ROL_SUPER_ADMIN_ID = UUID("1a87598e-f122-4519-971b-99ed3a96481f")
+# Re-export para compatibilidad con imports existentes
+from app.core.nivel_acceso import ROL_SUPER_ADMIN_ID  # noqa: F401
 
 
 def _tiene_permiso(db: Session, rol_id: UUID, modulo_tecnico: str, accion_tecnico: str) -> bool:
@@ -39,7 +40,7 @@ def _tiene_permiso(db: Session, rol_id: UUID, modulo_tecnico: str, accion_tecnic
 def require_permiso(modulo_tecnico: str, accion_tecnico: str):
     """
     Dependencia que exige que el usuario actual tenga el permiso (módulo, acción).
-    El rol Super Admin (1a87598e-f122-4519-971b-99ed3a96481f) siempre tiene acceso.
+    Bypass: roles.nivel == 0 (SuperAdmin desarrollador) o UUID SuperAdmin legacy.
     """
 
     def _check(
@@ -51,7 +52,7 @@ def require_permiso(modulo_tecnico: str, accion_tecnico: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No tiene un rol asignado",
             )
-        if current_user.rol_id == ROL_SUPER_ADMIN_ID:
+        if usuario_bypass_permisos(db, current_user):
             return current_user
         if not _tiene_permiso(db, current_user.rol_id, modulo_tecnico, accion_tecnico):
             raise HTTPException(

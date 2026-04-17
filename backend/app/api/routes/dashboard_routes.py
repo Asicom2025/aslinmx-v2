@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.core.security import get_current_active_user
 from app.core.permisos import require_permiso
 from app.models.user import User
+from app.services.siniestro_acceso_service import subquery_siniestros_visibles
 from app.models.legal import (
     Siniestro,
     EstadoSiniestro,
@@ -46,23 +47,31 @@ def get_dashboard_stats(
                 detail="Usuario no tiene empresa asignada"
             )
 
+        alcance = subquery_siniestros_visibles(db, current_user, empresa_id)
+
         # Total de siniestros
         try:
-            total_siniestros = db.query(func.count(Siniestro.id)).filter(
+            q_tot = db.query(func.count(Siniestro.id)).filter(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False
-            ).scalar() or 0
+            )
+            if alcance is not None:
+                q_tot = q_tot.filter(Siniestro.id.in_(alcance))
+            total_siniestros = q_tot.scalar() or 0
         except Exception as e:
             logger.warning(f"Error al obtener total de siniestros: {str(e)}")
             total_siniestros = 0
 
         # Siniestros activos
         try:
-            siniestros_activos = db.query(func.count(Siniestro.id)).filter(
+            q_act = db.query(func.count(Siniestro.id)).filter(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False,
                 Siniestro.activo == True
-            ).scalar() or 0
+            )
+            if alcance is not None:
+                q_act = q_act.filter(Siniestro.id.in_(alcance))
+            siniestros_activos = q_act.scalar() or 0
         except Exception as e:
             logger.warning(f"Error al obtener siniestros activos: {str(e)}")
             siniestros_activos = 0
@@ -71,7 +80,7 @@ def get_dashboard_stats(
         # Se agrupa por la columna Asegurado.estado (ej. "Puebla", "Jalisco", etc.)
         # Se normalizan los nombres inconsistentes antes de agrupar
         try:
-            siniestros_por_estado_raw = (
+            q_geo = (
                 db.query(
                     Asegurado.estado.label("estado"),
                     func.count(Siniestro.id).label("count"),
@@ -83,9 +92,10 @@ def get_dashboard_stats(
                     Asegurado.estado.isnot(None),
                     Asegurado.estado != "",
                 )
-                .group_by(Asegurado.estado)
-                .all()
             )
+            if alcance is not None:
+                q_geo = q_geo.filter(Siniestro.id.in_(alcance))
+            siniestros_por_estado_raw = q_geo.group_by(Asegurado.estado).all()
             
             # Normalizar y consolidar estados
             estados_consolidados: Dict[str, int] = {}
@@ -107,20 +117,23 @@ def get_dashboard_stats(
 
         # Siniestros por prioridad
         try:
-            siniestros_por_prioridad = db.query(
+            q_pri = db.query(
                 Siniestro.prioridad,
                 func.count(Siniestro.id).label('count')
             ).filter(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False
-            ).group_by(Siniestro.prioridad).all()
+            )
+            if alcance is not None:
+                q_pri = q_pri.filter(Siniestro.id.in_(alcance))
+            siniestros_por_prioridad = q_pri.group_by(Siniestro.prioridad).all()
         except Exception as e:
             logger.warning(f"Error al obtener siniestros por prioridad: {str(e)}")
             siniestros_por_prioridad = []
 
         # Siniestros por área (usando la relación siniestro_areas)
         try:
-            siniestros_por_area = db.query(
+            q_area = db.query(
                 Area.nombre,
                 func.count(func.distinct(Siniestro.id)).label('count')
             ).join(
@@ -131,18 +144,24 @@ def get_dashboard_stats(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False,
                 SiniestroArea.activo == True
-            ).group_by(Area.nombre).limit(10).all()
+            )
+            if alcance is not None:
+                q_area = q_area.filter(Siniestro.id.in_(alcance))
+            siniestros_por_area = q_area.group_by(Area.nombre).limit(10).all()
         except Exception as e:
             logger.warning(f"Error al obtener siniestros por área: {str(e)}")
             siniestros_por_area = []
 
         # Siniestros críticos (prioridad crítica)
         try:
-            siniestros_criticos = db.query(func.count(Siniestro.id)).filter(
+            q_crit = db.query(func.count(Siniestro.id)).filter(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False,
                 Siniestro.prioridad == 'critica'
-            ).scalar() or 0
+            )
+            if alcance is not None:
+                q_crit = q_crit.filter(Siniestro.id.in_(alcance))
+            siniestros_criticos = q_crit.scalar() or 0
         except Exception as e:
             logger.warning(f"Error al obtener siniestros críticos: {str(e)}")
             siniestros_criticos = 0
@@ -222,10 +241,14 @@ def get_recent_siniestros(
             )
         
         # Obtener siniestros recientes
-        siniestros = db.query(Siniestro).filter(
+        q_rec = db.query(Siniestro).filter(
             Siniestro.empresa_id == empresa_id,
             Siniestro.eliminado == False
-        ).order_by(nullslast(Siniestro.fecha_registro.desc())).limit(limit).all()
+        )
+        alcance = subquery_siniestros_visibles(db, current_user, empresa_id)
+        if alcance is not None:
+            q_rec = q_rec.filter(Siniestro.id.in_(alcance))
+        siniestros = q_rec.order_by(nullslast(Siniestro.fecha_registro.desc())).limit(limit).all()
 
         # Obtener IDs de siniestros para buscar áreas
         siniestro_ids = [s.id for s in siniestros]
@@ -285,8 +308,9 @@ def get_siniestros_by_month(
     
     empresa_id = current_user.empresa_id
     fecha_limite = datetime.utcnow() - timedelta(days=30 * months)
-    
-    siniestros = db.query(
+
+    alcance = subquery_siniestros_visibles(db, current_user, empresa_id)
+    q_mes = db.query(
         extract('year', Siniestro.fecha_registro).label('year'),
         extract('month', Siniestro.fecha_registro).label('month'),
         func.count(Siniestro.id).label('count')
@@ -295,7 +319,10 @@ def get_siniestros_by_month(
         Siniestro.eliminado == False,
         Siniestro.fecha_registro.isnot(None),
         Siniestro.fecha_registro >= fecha_limite
-    ).group_by(
+    )
+    if alcance is not None:
+        q_mes = q_mes.filter(Siniestro.id.in_(alcance))
+    siniestros = q_mes.group_by(
         extract('year', Siniestro.fecha_registro),
         extract('month', Siniestro.fecha_registro)
     ).order_by(

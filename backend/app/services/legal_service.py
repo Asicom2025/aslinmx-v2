@@ -1122,7 +1122,8 @@ class SiniestroService:
         numero_siniestro_q: Optional[str] = None,
         asegurado_nombre: Optional[str] = None,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        current_user=None,
     ) -> List[Siniestro]:
         """
         Lista siniestros con filtros opcionales.
@@ -1134,6 +1135,13 @@ class SiniestroService:
             Siniestro.empresa_id == empresa_id,
             Siniestro.eliminado == False
         )
+
+        if current_user is not None:
+            from app.services.siniestro_acceso_service import subquery_siniestros_visibles
+
+            sub = subquery_siniestros_visibles(db, current_user, empresa_id)
+            if sub is not None:
+                q = q.filter(Siniestro.id.in_(sub))
         
         if activo is not None:
             q = q.filter(Siniestro.activo == activo)

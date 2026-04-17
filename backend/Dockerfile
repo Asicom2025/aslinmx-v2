@@ -1,13 +1,16 @@
-FROM python:3.12-slim
+# slim sobre Debian 12 (tag oficial: slim-bookworm, no bookworm-slim)
+FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
 
 # WeasyPrint requiere GLib/GObject, Pango, Cairo, HarfBuzz, etc.
-RUN apt-get update \
+RUN apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=120 \
     && apt-get install -y --no-install-recommends \
+       ca-certificates \
        build-essential \
        libpq-dev \
        libcairo2 \
@@ -28,7 +31,10 @@ RUN apt-get update \
 ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# pip antiguo o red inestable → "from versions: none"; actualizar pip y reintentar
+ENV PIP_DEFAULT_TIMEOUT=120
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir --retries 8 -r requirements.txt
 
 COPY . .
 

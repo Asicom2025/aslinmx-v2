@@ -19,6 +19,8 @@ from app.services.storage_ops_service import StorageOpsService
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+# Peticiones HTTP (sin query string, body ni cabeceras sensibles)
+access_logger = logging.getLogger("uvicorn.error")
 
 # Crear instancia de FastAPI
 # redirect_slashes=False evita 307 al llamar /api/v1/users en lugar de /api/v1/users/
@@ -41,6 +43,26 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_request_client_info(request: Request, call_next):
+    """
+    Registro mínimo por petición: IP de cliente / proxy y ruta.
+    No se registra query string, cuerpo, cookies ni Authorization.
+    """
+    client_host = request.client.host if request.client else None
+    x_forwarded_for = request.headers.get("x-forwarded-for")
+    x_real_ip = request.headers.get("x-real-ip")
+    access_logger.info(
+        "request client_host=%s x_forwarded_for=%s x_real_ip=%s method=%s path=%s",
+        client_host,
+        x_forwarded_for,
+        x_real_ip,
+        request.method,
+        request.url.path,
+    )
+    return await call_next(request)
 
 
 # Manejador de excepciones global para asegurar headers CORS en errores

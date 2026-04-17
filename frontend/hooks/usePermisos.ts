@@ -48,6 +48,8 @@ export function usePermisos(): UsePermisosReturn {
   const can = useMemo(
     () => (modulo: string, accion: string) => {
       if (!user) return false;
+      // Nivel 0 (SuperAdmin desarrollador): todos los permisos
+      if (user.rol?.nivel === 0) return true;
       return setPermisos.has(`${modulo}:${accion}`);
     },
     [user, setPermisos]
@@ -58,12 +60,13 @@ export function usePermisos(): UsePermisosReturn {
       // Mientras se cargan los datos del usuario, evitamos mostrar enlaces
       // que luego puedan desaparecer por permisos, devolviendo false.
       if (userLoading) return false;
+      if (user?.rol?.nivel === 0) return true;
       const path = pathname.split("?")[0].replace(/\/$/, "") || "/";
       const modulo = RUTA_A_MODULO[path];
       if (!modulo) return true;
       return can(modulo, "read");
     },
-    [can, userLoading]
+    [can, userLoading, user?.rol?.nivel]
   );
 
   return {
