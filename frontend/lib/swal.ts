@@ -37,7 +37,7 @@ export const swalSuccess = (message: string, title: string = 'Éxito') => {
 export const swalError = (message: string, title: string = 'Error') => {
   if (isPermissionDeniedApiMessage(message)) {
     console.warn('[permisos API]', message);
-    return Promise.resolve() as ReturnType<typeof Swal.fire>;
+    return Promise.resolve() as unknown as ReturnType<typeof Swal.fire>;
   }
   return Swal.fire({
     icon: 'error',
@@ -67,7 +67,7 @@ export const swalInfo = (message: string, title: string = 'Información') => {
 export const swalWarning = (message: string, title: string = 'Advertencia') => {
   if (isPermissionDeniedApiMessage(message)) {
     console.warn('[permisos API]', message);
-    return Promise.resolve() as ReturnType<typeof Swal.fire>;
+    return Promise.resolve() as unknown as ReturnType<typeof Swal.fire>;
   }
   return Swal.fire({
     icon: 'warning',
