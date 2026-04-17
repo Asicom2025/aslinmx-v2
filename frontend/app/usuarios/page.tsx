@@ -15,10 +15,12 @@ import Modal from "@/components/ui/Modal";
 import DataTable from "@/components/ui/DataTable";
 import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
-import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import { swalSuccess, swalError, swalConfirmDelete, swalConfirm } from "@/lib/swal";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
 import { ColumnDef } from "@tanstack/react-table";
-import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn } from "react-icons/fi";
+import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn, FiMail, FiDownload } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 
@@ -45,6 +47,7 @@ interface User {
 export default function UsuariosPage() {
   const router = useRouter();
   const { user, loading, refresh } = useUser();
+  const { can } = usePermisos();
   useTour("tour-usuarios", { autoStart: true });
   const [activeTab, setActiveTab] = useState<"usuarios" | "roles">("usuarios");
   const [usuarios, setUsuarios] = useState<User[]>([]);
@@ -209,6 +212,39 @@ export default function UsuariosPage() {
     }
   };
 
+  const inviteUsuarioPorCorreo = async (u: User) => {
+    const confirmed = await swalConfirm(
+      "Se generará una nueva contraseña y se enviará por correo al usuario. La credencial quedará registrada para exportación.",
+      "Invitar por correo",
+      "Enviar invitación",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+    try {
+      await apiService.inviteUserCredential(u.id);
+      await swalSuccess("Invitación enviada por correo");
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al enviar invitación");
+    }
+  };
+
+  const exportInvitacionesCredenciales = async () => {
+    try {
+      await apiService.exportInvitacionesCredenciales();
+      await swalSuccess("Archivo descargado");
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al exportar invitaciones");
+    }
+  };
+
   const usuariosColumns: ColumnDef<User>[] = [
     {
       accessorKey: "email",
@@ -291,6 +327,19 @@ export default function UsuariosPage() {
           >
             <FiEdit2 className="w-5 h-5" />
           </button>
+          {(user?.rol?.nivel === 0 || user?.rol?.nivel === 1) && can(MODULO.usuarios, ACCION.invitar) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                inviteUsuarioPorCorreo(row.original);
+              }}
+              className="text-emerald-700 hover:text-emerald-900 transition-colors"
+              title="Invitar por correo (nueva contraseña)"
+            >
+              <FiMail className="w-5 h-5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => {
@@ -492,12 +541,20 @@ export default function UsuariosPage() {
       {/* Contenido de pestañas */}
       {activeTab === "usuarios" && (
         <div data-tour="usuarios-tabla" className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex justify-between items-center mb-6 flex-wrap gap-2">
             <h2 className="text-xl font-semibold">Gestión de Usuarios</h2>
-            <Button data-tour="usuarios-nuevo" onClick={openCreateUsuario}>
-              <FiPlus className="w-4 h-4 mr-2" />
-              Nuevo Usuario
-            </Button>
+            <div className="flex gap-2">
+              {user?.rol?.nivel === 1 && can(MODULO.usuarios, ACCION.exportar_invitaciones) && (
+                <Button variant="secondary" type="button" onClick={exportInvitacionesCredenciales}>
+                  <FiDownload className="w-4 h-4 mr-2" />
+                  Exportar invitaciones
+                </Button>
+              )}
+              <Button data-tour="usuarios-nuevo" onClick={openCreateUsuario}>
+                <FiPlus className="w-4 h-4 mr-2" />
+                Nuevo Usuario
+              </Button>
+            </div>
           </div>
 
           {usuariosLoading ? (

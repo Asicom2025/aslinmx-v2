@@ -11,6 +11,7 @@ from app.db.session import get_db
 from app.schemas.empresa_schema import EmpresaCreate, EmpresaUpdate, EmpresaResponse
 from app.services.empresa_service import EmpresaService
 from app.core.security import get_current_active_user
+from app.core.permisos import require_permiso
 from app.models.user import User
 
 router = APIRouter()
@@ -80,7 +81,7 @@ def update_empresa(
     empresa_id: str,
     empresa_update: EmpresaUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(require_permiso("configuracion", "update")),
 ):
     """
     Actualizar empresa (requiere autenticación)

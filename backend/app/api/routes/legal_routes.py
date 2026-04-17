@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
+from app.core.permisos import require_any_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
     AreaCreate,
@@ -72,6 +73,29 @@ from app.services.legal_service import (
 
 router = APIRouter(prefix="/catalogos", tags=["Catálogos"])
 
+_dep_area_create = Depends(require_any_permiso(("configuracion", "create"), ("parametros", "create")))
+_dep_area_update = Depends(require_any_permiso(("configuracion", "update"), ("parametros", "update")))
+_dep_area_delete = Depends(require_any_permiso(("configuracion", "delete"), ("parametros", "delete")))
+
+_dep_catdoc_create = Depends(
+    require_any_permiso(
+        ("configuracion", "create"),
+        ("parametros", "create"),
+        ("siniestros", "create"),
+        ("siniestros", "subir_archivo"),
+    )
+)
+_dep_catdoc_update = Depends(
+    require_any_permiso(
+        ("configuracion", "update"),
+        ("parametros", "update"),
+        ("siniestros", "update"),
+    )
+)
+_dep_catdoc_delete = Depends(
+    require_any_permiso(("configuracion", "delete"), ("parametros", "delete"))
+)
+
 
 def _area_to_response(area) -> AreaResponse:
     """Construye AreaResponse incluyendo jefe_nombre si el área tiene jefe."""
@@ -109,7 +133,7 @@ def list_areas(
 def create_area(
     payload: AreaCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_area_create,
 ):
     area = AreaService.create(db, current_user.empresa_id, payload)
     return _area_to_response(area)
@@ -120,7 +144,7 @@ def update_area(
     area_id: UUID,
     payload: AreaUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_area_update,
 ):
     area = AreaService.update(db, area_id, payload)
     if not area:
@@ -132,7 +156,7 @@ def update_area(
 def delete_area(
     area_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_area_delete,
 ):
     ok = AreaService.delete(db, area_id)
     if not ok:
@@ -822,7 +846,7 @@ def list_tipos_documento(
 def create_tipo_documento(
     payload: TiposDocumentoCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_create,
 ):
     return TiposDocumentoService.create(db, payload)
 
@@ -832,7 +856,7 @@ def update_tipo_documento(
     tipo_id: UUID,
     payload: TiposDocumentoUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_update,
 ):
     td = TiposDocumentoService.update(db, tipo_id, payload)
     if not td:
@@ -844,7 +868,7 @@ def update_tipo_documento(
 def delete_tipo_documento(
     tipo_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_delete,
 ):
     ok = TiposDocumentoService.delete(db, tipo_id)
     if not ok:
@@ -867,7 +891,7 @@ def list_categorias_documento(
 def create_categoria_documento(
     payload: CategoriaDocumentoCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_create,
 ):
     return CategoriaDocumentoService.create(db, payload)
 
@@ -877,7 +901,7 @@ def update_categoria_documento(
     categoria_id: UUID,
     payload: CategoriaDocumentoUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_update,
 ):
     categoria = CategoriaDocumentoService.update(db, categoria_id, payload)
     if not categoria:
@@ -889,7 +913,7 @@ def update_categoria_documento(
 def delete_categoria_documento(
     categoria_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_delete,
 ):
     ok = CategoriaDocumentoService.delete(db, categoria_id)
     if not ok:
@@ -925,7 +949,7 @@ def get_plantilla_documento(
 def create_plantilla_documento(
     payload: PlantillaDocumentoCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_create,
 ):
     return PlantillaDocumentoService.create(db, payload)
 
@@ -935,7 +959,7 @@ def update_plantilla_documento(
     plantilla_id: UUID,
     payload: PlantillaDocumentoUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_update,
 ):
     plantilla = PlantillaDocumentoService.update(db, plantilla_id, payload)
     if not plantilla:
@@ -947,7 +971,7 @@ def update_plantilla_documento(
 def delete_plantilla_documento(
     plantilla_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_delete,
 ):
     ok = PlantillaDocumentoService.delete(db, plantilla_id)
     if not ok:
@@ -963,11 +987,12 @@ def delete_plantilla_documento(
 def get_respuesta_formulario(
     plantilla_id: UUID,
     siniestro_id: UUID,
+    area_id: Optional[UUID] = Query(None, description="Área del siniestro para segmentar la respuesta"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Obtiene la respuesta de formulario para una plantilla+siniestro. Devuelve null si no existe."""
-    return RespuestaFormularioService.get_or_none(db, plantilla_id, siniestro_id)
+    return RespuestaFormularioService.get_or_none(db, plantilla_id, siniestro_id, area_id)
 
 
 @router.put(
@@ -978,14 +1003,17 @@ def upsert_respuesta_formulario(
     plantilla_id: UUID,
     siniestro_id: UUID,
     payload: RespuestaFormularioUpdate,
+    area_id: Optional[UUID] = Query(None, description="Área del siniestro para separar respuestas por área"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Crea o actualiza la respuesta de formulario para una plantilla+siniestro."""
+    """Crea o actualiza la respuesta de formulario para una plantilla+siniestro+área."""
+    resolved_area_id = payload.area_id if payload.area_id is not None else area_id
     respuesta = RespuestaFormularioService.upsert(
         db,
         plantilla_id=plantilla_id,
         siniestro_id=siniestro_id,
+        area_id=resolved_area_id,
         valores=payload.valores,
         usuario_id=current_user.id,
     )
@@ -1012,10 +1040,11 @@ def upsert_respuesta_formulario(
 )
 def list_respuestas_by_siniestro(
     siniestro_id: UUID,
+    area_id: Optional[UUID] = Query(None, description="Filtrar respuestas por área"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Lista todas las respuestas de formulario de un siniestro."""
-    return RespuestaFormularioService.list_by_siniestro(db, siniestro_id)
+    return RespuestaFormularioService.list_by_siniestro(db, siniestro_id, area_id)
 
 

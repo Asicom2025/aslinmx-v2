@@ -19,6 +19,7 @@ from app.services.generated_file_service import (
     build_generated_file_access_payload,
 )
 from app.services.storage_service import normalize_siniestro_consecutivo
+from app.services.storage_service import get_storage_service
 from app.services.pdf_service import PDFService
 from app.services.legal_service import (
     PlantillaDocumentoService,
@@ -47,6 +48,14 @@ router = APIRouter()
 # Altura reservada para el header repetido por página (running header).
 PDF_HEADER_MARGIN_TOP = "2cm"
 
+_PDF_IMAGE_VAR_KEYS = {"firma", "firma_digital", "foto_de_perfil"}
+_PDF_MIME_BY_EXT = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "webp": "image/webp",
+}
+
 
 def _pdf_debug_html_enabled() -> bool:
     """Activa trazas del HTML enviado a WeasyPrint: export PDF_DEBUG_HTML=1 (o true/yes/on)."""
@@ -67,6 +76,32 @@ def _pdf_debug_log_html(tag: str, html: Optional[str], max_chars: int = 12000) -
         s[:max_chars],
         tail,
     )
+
+
+def _maybe_storage_path_to_data_url(raw_value: str) -> Optional[str]:
+    raw = (raw_value or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("data:") or raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if not (raw.startswith("r2://") or "/" in raw):
+        return raw
+    try:
+        content = get_storage_service().get_bytes(raw)
+    except Exception:
+        return raw
+    ext = raw.rsplit(".", 1)[-1].lower() if "." in raw else ""
+    mime = _PDF_MIME_BY_EXT.get(ext, "image/png")
+    return f"data:{mime};base64,{base64.b64encode(content).decode('utf-8')}"
+
+
+def _normalize_pdf_image_variables(variables: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(variables or {})
+    for key in _PDF_IMAGE_VAR_KEYS:
+        value = out.get(key)
+        if isinstance(value, str) and value.strip():
+            out[key] = _maybe_storage_path_to_data_url(value)
+    return out
 
 
 def _get_poliza_principal(siniestro: Any) -> Optional[Any]:
@@ -860,6 +895,7 @@ async def generate_pdf(
                     merged_variables = {**respuesta.valores, **merged_variables}
             merged_variables = _expand_datetime_variables(merged_variables)
             merged_variables = _format_currency_variables(merged_variables, plantilla)
+            merged_variables = _normalize_pdf_image_variables(merged_variables)
             pdf_opts = dict(
                 page_size=request.page_size,
                 orientation=request.orientation,
@@ -910,6 +946,7 @@ async def generate_pdf(
         plantilla = PlantillaDocumentoService.get_by_id(db, plantilla_id=request.plantilla_id)
         if plantilla:
             merged_variables = _format_currency_variables(merged_variables, plantilla)
+    merged_variables = _normalize_pdf_image_variables(merged_variables)
     _pdf_debug_log_html("generate_pdf_html_final_antes_weasyprint", html_content)
     try:
         pdf_base64 = PDFService.generate_pdf_base64(
@@ -1081,6 +1118,7 @@ async def download_pdf(
                     merged_variables = {**respuesta.valores, **merged_variables}
             merged_variables = _expand_datetime_variables(merged_variables)
             merged_variables = _format_currency_variables(merged_variables, plantilla)
+            merged_variables = _normalize_pdf_image_variables(merged_variables)
             pdf_opts = dict(
                 page_size=request.page_size,
                 orientation=request.orientation,
@@ -1133,6 +1171,7 @@ async def download_pdf(
         plantilla = PlantillaDocumentoService.get_by_id(db, plantilla_id=request.plantilla_id)
         if plantilla:
             merged_variables = _format_currency_variables(merged_variables, plantilla)
+    merged_variables = _normalize_pdf_image_variables(merged_variables)
     try:
         pdf_bytes = PDFService.generate_pdf(
             html_content=html_content,
@@ -1218,6 +1257,7 @@ async def download_pdf_from_template(
                 merged_variables = {**respuesta.valores, **merged_variables}
         merged_variables = _expand_datetime_variables(merged_variables)
         merged_variables = _format_currency_variables(merged_variables, plantilla)
+        merged_variables = _normalize_pdf_image_variables(merged_variables)
 
         pdf_opts = dict(
             page_size=request.page_size,
@@ -1313,6 +1353,7 @@ def generar_pdf_bytes_para_documento(
         merged_variables = {**merged_variables, **respuesta.valores}
     merged_variables = _expand_datetime_variables(merged_variables)
     merged_variables = _format_currency_variables(merged_variables, plantilla)
+    merged_variables = _normalize_pdf_image_variables(merged_variables)
     # Tras expandir fechas y moneda: mismas claves que getVariablesForPdf (frontend) para {{variable}}
     merged_variables = {
         **merged_variables,

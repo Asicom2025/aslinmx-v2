@@ -77,7 +77,7 @@ def is_refresh_token(token: str) -> bool:
 
 def create_temp_token(data: dict = None, expires_minutes: int = 5) -> str:
     """
-    Crea un token temporal previo a la verificación 2FA.
+    Crea un token previo a la verificación 2FA.
     """
     base = data.copy() if isinstance(data, dict) else {}
     base.update({"purpose": "pre_2fa"})

@@ -202,6 +202,7 @@ class UserUpdate(BaseModel):
     apellido_materno: Optional[str] = None
     password: Optional[str] = Field(None, min_length=6, max_length=100)
     is_active: Optional[bool] = None
+    two_factor_enabled: Optional[bool] = None
     empresa_id: Optional[UUID] = None
     empresa_ids: Optional[List[UUID]] = None
     rol_id: Optional[UUID] = None

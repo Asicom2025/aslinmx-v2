@@ -597,6 +597,18 @@ def build_generated_storage_key(
     return "/".join(parts)
 
 
+def build_user_asset_storage_key(
+    *,
+    full_name: str,
+    asset_type: str,
+    extension: str,
+) -> str:
+    safe_full_name = _sanitize_path_component(full_name)
+    safe_asset_type = _sanitize_user_asset_type(asset_type)
+    safe_extension = _sanitize_extension(extension)
+    return f"assets/usuarios/{safe_full_name}/{safe_asset_type}.{safe_extension}"
+
+
 def _normalize_storage_key(key: str) -> str:
     normalized = PurePosixPath(str(key).replace("\\", "/")).as_posix().strip("/")
     if not normalized or normalized.startswith("../") or "/../" in f"/{normalized}/" or normalized == "..":
@@ -607,6 +619,21 @@ def _normalize_storage_key(key: str) -> str:
 def _sanitize_path_component(value: str) -> str:
     normalized = sanitize_filename(value).strip().lower().replace(" ", "-")
     return normalized or "general"
+
+
+def _sanitize_user_asset_type(value: str) -> str:
+    normalized = _sanitize_path_component(value)
+    allowed = {"foto", "firma", "firma_digital"}
+    if normalized not in allowed:
+        raise StorageConfigurationError(f"Tipo de asset de usuario no soportado: {value}")
+    return normalized
+
+
+def _sanitize_extension(value: str) -> str:
+    cleaned = "".join(char for char in str(value or "").lower() if char.isalnum())
+    if not cleaned:
+        raise StorageConfigurationError("La extensión de archivo de asset de usuario es inválida.")
+    return cleaned
 
 
 def _normalize_document_storage_ref(value: Optional[str]) -> Optional[str]:

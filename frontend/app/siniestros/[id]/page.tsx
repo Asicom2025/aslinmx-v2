@@ -2195,6 +2195,7 @@ export default function SiniestroDetailPage() {
           const respuesta = await apiService.getRespuestaFormulario(
             plantillaId,
             siniestroId,
+            (docExistente?.area_id as string | undefined) || activeAreaTab || undefined,
           );
           if (respuesta?.valores && typeof respuesta.valores === "object") {
             variables = { ...variables, ...respuesta.valores };
@@ -2284,6 +2285,7 @@ export default function SiniestroDetailPage() {
             const respuesta = await apiService.getRespuestaFormulario(
               plantillaIdDoc,
               siniestroId,
+              (documento?.area_id as string | undefined) || activeAreaTab || undefined,
             );
             if (respuesta?.valores && typeof respuesta.valores === "object") {
               variables = { ...variables, ...respuesta.valores };
@@ -2715,6 +2717,7 @@ export default function SiniestroDetailPage() {
           const respuesta = await apiService.getRespuestaFormulario(
             plantillaIdDoc,
             siniestroId,
+            (documento?.area_id as string | undefined) || activeAreaTab || undefined,
           );
           if (respuesta?.valores && typeof respuesta.valores === "object") {
             variables = { ...variables, ...respuesta.valores };
@@ -5215,6 +5218,7 @@ export default function SiniestroDetailPage() {
         plantillaId={formularioContinuacionPlantillaId}
         plantillaNombre={formularioContinuacionPlantillaNombre}
         siniestroId={siniestroId}
+        areaId={activeAreaTab || undefined}
         onSaved={async () => {
           await loadDocumentosSiniestro();
           await loadLogsAuditoria();

@@ -790,22 +790,38 @@ class RespuestaFormularioService:
     """CRUD para respuestas del formulario personalizado de plantillas"""
 
     @staticmethod
-    def get_or_none(db: Session, plantilla_id: UUID, siniestro_id: UUID) -> Optional[RespuestaFormularioPlantilla]:
-        return db.query(RespuestaFormularioPlantilla).filter(
+    def get_or_none(
+        db: Session,
+        plantilla_id: UUID,
+        siniestro_id: UUID,
+        area_id: Optional[UUID] = None,
+    ) -> Optional[RespuestaFormularioPlantilla]:
+        q = db.query(RespuestaFormularioPlantilla).filter(
             RespuestaFormularioPlantilla.plantilla_id == plantilla_id,
             RespuestaFormularioPlantilla.siniestro_id == siniestro_id,
-        ).first()
+        )
+        if area_id is None:
+            q = q.filter(RespuestaFormularioPlantilla.area_id.is_(None))
+        else:
+            q = q.filter(RespuestaFormularioPlantilla.area_id == area_id)
+        return q.first()
 
     @staticmethod
     def upsert(
         db: Session,
         plantilla_id: UUID,
         siniestro_id: UUID,
+        area_id: Optional[UUID],
         valores: dict,
         usuario_id: Optional[UUID] = None,
     ) -> RespuestaFormularioPlantilla:
-        """Crea o actualiza la respuesta de formulario para una plantilla+siniestro."""
-        respuesta = RespuestaFormularioService.get_or_none(db, plantilla_id, siniestro_id)
+        """Crea o actualiza la respuesta de formulario para una plantilla+siniestro+área."""
+        respuesta = RespuestaFormularioService.get_or_none(
+            db,
+            plantilla_id,
+            siniestro_id,
+            area_id,
+        )
         if respuesta:
             respuesta.valores = {**respuesta.valores, **valores}
             if usuario_id:
@@ -814,6 +830,7 @@ class RespuestaFormularioService:
             respuesta = RespuestaFormularioPlantilla(
                 plantilla_id=plantilla_id,
                 siniestro_id=siniestro_id,
+                area_id=area_id,
                 usuario_id=usuario_id,
                 valores=valores,
             )
@@ -823,10 +840,17 @@ class RespuestaFormularioService:
         return respuesta
 
     @staticmethod
-    def list_by_siniestro(db: Session, siniestro_id: UUID) -> List[RespuestaFormularioPlantilla]:
-        return db.query(RespuestaFormularioPlantilla).filter(
+    def list_by_siniestro(
+        db: Session,
+        siniestro_id: UUID,
+        area_id: Optional[UUID] = None,
+    ) -> List[RespuestaFormularioPlantilla]:
+        q = db.query(RespuestaFormularioPlantilla).filter(
             RespuestaFormularioPlantilla.siniestro_id == siniestro_id,
-        ).all()
+        )
+        if area_id is not None:
+            q = q.filter(RespuestaFormularioPlantilla.area_id == area_id)
+        return q.all()
 
     @staticmethod
     def delete(db: Session, respuesta_id: UUID) -> bool:

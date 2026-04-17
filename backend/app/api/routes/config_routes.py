@@ -10,8 +10,8 @@ from typing import List
 from uuid import UUID
 
 from app.db.session import get_db
-from app.core.security import get_current_user
 from app.models.user import User
+from app.core.permisos import require_any_permiso, require_permiso
 from app.models.config import ConfiguracionSMTP, PlantillaCorreo, HistorialCorreo
 from app.schemas.config_schema import (
     ConfiguracionSMTPCreate,
@@ -39,11 +39,19 @@ from app.services.storage_service import StorageError, get_storage_service
 
 router = APIRouter()
 
+_cfg_read = Depends(require_permiso("configuracion", "read"))
+_cfg_create = Depends(require_permiso("configuracion", "create"))
+_cfg_update = Depends(require_permiso("configuracion", "update"))
+_cfg_delete = Depends(require_permiso("configuracion", "delete"))
+_cfg_or_sin_update = Depends(
+    require_any_permiso(("configuracion", "update"), ("siniestros", "update"))
+)
+
 
 @router.get("/storage/estado", response_model=StorageSummaryResponse)
 async def obtener_estado_storage(
     verify_objects: bool = False,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_read,
     db: Session = Depends(get_db),
 ):
     """Resumen operativo del storage para la empresa activa."""
@@ -63,7 +71,7 @@ async def obtener_estado_storage(
 async def reconciliar_storage(
     request: Request,
     verify_objects: bool = True,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_update,
     db: Session = Depends(get_db),
 ):
     """Marca metadata huérfana como inactiva/eliminada sin borrar el objeto físico."""
@@ -98,7 +106,7 @@ async def reconciliar_storage(
 @router.get("/smtp", response_model=List[ConfiguracionSMTPResponse])
 async def listar_configuraciones_smtp(
     activo: bool = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_read,
     db: Session = Depends(get_db)
 ):
     """Lista todas las configuraciones SMTP de la empresa"""
@@ -114,7 +122,7 @@ async def listar_configuraciones_smtp(
 async def crear_configuracion_smtp(
     config: ConfiguracionSMTPCreate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_create,
     db: Session = Depends(get_db)
 ):
     """Crea una nueva configuración SMTP"""
@@ -148,7 +156,7 @@ async def crear_configuracion_smtp(
 @router.get("/smtp/{config_id}", response_model=ConfiguracionSMTPResponse)
 async def obtener_configuracion_smtp(
     config_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_read,
     db: Session = Depends(get_db)
 ):
     """Obtiene una configuración SMTP específica"""
@@ -166,7 +174,7 @@ async def actualizar_configuracion_smtp(
     config_id: UUID,
     config_update: ConfiguracionSMTPUpdate,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_update,
     db: Session = Depends(get_db)
 ):
     """Actualiza una configuración SMTP"""
@@ -215,7 +223,7 @@ async def actualizar_configuracion_smtp(
 async def eliminar_configuracion_smtp(
     config_id: UUID,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_delete,
     db: Session = Depends(get_db)
 ):
     """Elimina una configuración SMTP"""
@@ -249,7 +257,7 @@ async def eliminar_configuracion_smtp(
 async def probar_configuracion_smtp(
     config_id: UUID,
     test_request: TestSMTPRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_update,
     db: Session = Depends(get_db)
 ):
     """Prueba una configuración SMTP enviando un correo de prueba"""
@@ -302,7 +310,7 @@ async def probar_configuracion_smtp(
 @router.get("/plantillas-correo", response_model=List[PlantillaCorreoResponse])
 async def listar_plantillas_correo(
     activo: bool = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_read,
     db: Session = Depends(get_db)
 ):
     """Lista todas las plantillas de correo"""
@@ -317,7 +325,7 @@ async def listar_plantillas_correo(
 @router.post("/plantillas-correo", response_model=PlantillaCorreoResponse, status_code=201)
 async def crear_plantilla_correo(
     plantilla: PlantillaCorreoCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_create,
     db: Session = Depends(get_db)
 ):
     """Crea una nueva plantilla de correo"""
@@ -334,7 +342,7 @@ async def crear_plantilla_correo(
 @router.get("/plantillas-correo/{plantilla_id}", response_model=PlantillaCorreoResponse)
 async def obtener_plantilla_correo(
     plantilla_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_read,
     db: Session = Depends(get_db)
 ):
     """Obtiene una plantilla de correo específica"""
@@ -351,7 +359,7 @@ async def obtener_plantilla_correo(
 async def actualizar_plantilla_correo(
     plantilla_id: UUID,
     plantilla_update: PlantillaCorreoUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_update,
     db: Session = Depends(get_db)
 ):
     """Actualiza una plantilla de correo"""
@@ -374,7 +382,7 @@ async def actualizar_plantilla_correo(
 @router.delete("/plantillas-correo/{plantilla_id}", status_code=204)
 async def eliminar_plantilla_correo(
     plantilla_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_delete,
     db: Session = Depends(get_db)
 ):
     """Elimina una plantilla de correo"""
@@ -392,7 +400,7 @@ async def eliminar_plantilla_correo(
 @router.post("/enviar-correo")
 async def enviar_correo(
     request_data: EnviarCorreoRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_or_sin_update,
     db: Session = Depends(get_db)
 ):
     """Envía un correo electrónico usando una configuración SMTP y opcionalmente una plantilla"""
@@ -510,7 +518,7 @@ async def enviar_correo(
 @router.post("/enviar-archivo-correo")
 async def enviar_archivo_correo(
     request_data: EnviarArchivoCorreoRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_or_sin_update,
     db: Session = Depends(get_db),
 ):
     """
@@ -717,7 +725,7 @@ async def enviar_archivo_correo(
 @router.get("/historial-correos", response_model=List[HistorialCorreoResponse])
 async def listar_historial_correos(
     filtros: HistorialCorreoFiltros = Depends(),
-    current_user: User = Depends(get_current_user),
+    current_user: User = _cfg_read,
     db: Session = Depends(get_db)
 ):
     """Lista el historial de correos enviados"""

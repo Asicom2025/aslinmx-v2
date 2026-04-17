@@ -4,6 +4,7 @@ Importa todos los modelos para que SQLAlchemy los detecte
 """
 
 # Importar todos los modelos aquí para que Base.metadata los detecte
+from app.models.invitacion_credencial import InvitacionCredencialAuditoria
 from app.models.user import (
     User,
     Empresa,
@@ -55,6 +56,7 @@ from app.models.storage import StorageObject, ArchivoGenerado
 from app.models.legacy_temp import TmpSiniestroFile
 
 __all__ = [
+    "InvitacionCredencialAuditoria",
     "User",
     "Empresa",
     "Rol",

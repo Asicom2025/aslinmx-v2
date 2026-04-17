@@ -20,6 +20,8 @@ import Modal from "@/components/ui/Modal";
 import Switch from "@/components/ui/Switch";
 import CustomSelect from "@/components/ui/Select";
 import { FiArrowLeft, FiPlus, FiFolder, FiFileText } from "react-icons/fi";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 
 interface TipoDocumento {
   id: string;
@@ -47,6 +49,9 @@ export default function FlujoDetallePage() {
   const router = useRouter();
   const params = useParams();
   const flujoId = params.id as string;
+  const { can } = usePermisos();
+  const canFlujoUpdate =
+    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
 
   const [flujo, setFlujo] = useState<FlujoCompleto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -440,18 +445,20 @@ export default function FlujoDetallePage() {
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-semibold">Etapas del Flujo</h2>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                resetForm();
-                setEtapaEditando(null);
-                setShowEtapaForm(true);
-              }}
-            >
-              <FiPlus className="w-4 h-4 mr-1" />
-              Agregar Etapa
-            </Button>
+            {canFlujoUpdate && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  resetForm();
+                  setEtapaEditando(null);
+                  setShowEtapaForm(true);
+                }}
+              >
+                <FiPlus className="w-4 h-4 mr-1" />
+                Agregar Etapa
+              </Button>
+            )}
           </div>
 
           {flujo.etapas && flujo.etapas.length > 0 ? (
@@ -460,6 +467,8 @@ export default function FlujoDetallePage() {
               flujoId={flujoId}
               onEdit={handleEditarEtapa}
               onDelete={handleEliminarEtapa}
+              canEdit={canFlujoUpdate}
+              canDeleteEtapa={canFlujoUpdate}
             />
           ) : (
             <p className="text-gray-500 text-center py-8">
@@ -666,7 +675,7 @@ export default function FlujoDetallePage() {
             >
               Cancelar
             </Button>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" disabled={!canFlujoUpdate}>
               {etapaEditando ? "Guardar cambios" : "Crear etapa"}
             </Button>
           </div>
@@ -685,11 +694,15 @@ function EtapasTable({
   flujoId,
   onEdit,
   onDelete,
+  canEdit,
+  canDeleteEtapa,
 }: {
   data: EtapaFlujo[];
   flujoId: string;
   onEdit: (row: EtapaFlujo) => void;
   onDelete: (id: string) => void;
+  canEdit: boolean;
+  canDeleteEtapa: boolean;
 }) {
   // Carga la cantidad de requisitos por etapa para mostrarla en la tabla
   const [countMap, setCountMap] = useState<Record<string, number>>({});
@@ -782,12 +795,16 @@ function EtapasTable({
       header: "",
       cell: ({ row }) => (
         <div className="flex gap-2 justify-end">
-          <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>
-            Editar
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>
-            Eliminar
-          </Button>
+          {canEdit && (
+            <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>
+              Editar
+            </Button>
+          )}
+          {canDeleteEtapa && (
+            <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>
+              Eliminar
+            </Button>
+          )}
         </div>
       ),
     },

@@ -273,6 +273,7 @@ class RespuestaFormularioPlantilla(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     plantilla_id = Column(UUID(as_uuid=True), ForeignKey("plantillas_documento.id", ondelete="CASCADE"), nullable=False)
     siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)
+    area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="SET NULL"), nullable=True)
     usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
     valores = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))  # {clave: valor, ...}
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -281,6 +282,7 @@ class RespuestaFormularioPlantilla(Base):
     # Relaciones
     plantilla = relationship("PlantillaDocumento", back_populates="respuestas")
     siniestro = relationship("Siniestro", foreign_keys=[siniestro_id])
+    area = relationship("Area", foreign_keys=[area_id])
     usuario = relationship("Usuario", foreign_keys=[usuario_id])
 
 
