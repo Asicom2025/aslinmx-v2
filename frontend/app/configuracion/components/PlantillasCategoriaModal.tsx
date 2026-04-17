@@ -11,6 +11,8 @@ import FormularioDesigner, { CampoFormulario } from "@/components/plantillas/For
 import { ColumnDef } from "@tanstack/react-table";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 import { FiEye, FiList } from "react-icons/fi";
 
 interface PlantillasCategoriaModalProps {
@@ -34,6 +36,12 @@ export default function PlantillasCategoriaModal({
   tipoDocumento,
   onSuccess,
 }: PlantillasCategoriaModalProps) {
+  const { can } = usePermisos();
+  const canCat = (accion: string) =>
+    can(MODULO.configuracion, accion) || can(MODULO.parametros, accion);
+  const canCreate = canCat(ACCION.create);
+  const canUpdate = canCat(ACCION.update);
+  const canDelete = canCat(ACCION.delete);
   const [plantillas, setPlantillas] = useState<any[]>([]);
   const [headersDisponibles, setHeadersDisponibles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -309,9 +317,11 @@ export default function PlantillasCategoriaModal({
             <p className="text-sm text-gray-600">
               Gestiona las plantillas de la categoría "{categoria.nombre}"
             </p>
-            <Button variant="primary" onClick={openCreate}>
-              Nueva plantilla
-            </Button>
+            {canCreate && (
+              <Button variant="primary" onClick={openCreate}>
+                Nueva plantilla
+              </Button>
+            )}
           </div>
 
           {loading ? (
@@ -419,7 +429,11 @@ export default function PlantillasCategoriaModal({
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" variant="primary">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={editing ? !canUpdate : !canCreate}
+            >
               {editing ? "Guardar" : "Crear"}
             </Button>
           </div>
@@ -467,7 +481,7 @@ export default function PlantillasCategoriaModal({
               <Button variant="secondary" onClick={() => setFormularioModalOpen(false)}>
                 Cancelar
               </Button>
-              <Button variant="primary" onClick={saveFormulario}>
+              <Button variant="primary" onClick={saveFormulario} disabled={!canUpdate}>
                 Guardar formulario
               </Button>
             </div>

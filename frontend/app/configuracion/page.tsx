@@ -25,6 +25,8 @@ import { swalSuccess, swalError, swalConfirm, swalConfirmDelete } from "@/lib/sw
 import { ColumnDef } from "@tanstack/react-table";
 import { FiFolder, FiFileText, FiEye } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 import TourButton from "@/components/ui/TourButton";
 
 type ConfigTab = "general" | "flujos" | "areas" | "documentos" | "tipos_documento";
@@ -177,6 +179,8 @@ export default function ConfiguracionPage() {
 
 function GeneralTab() {
   const { activeEmpresa, user, refresh } = useUser();
+  const { can } = usePermisos();
+  const canCfgUpdate = can(MODULO.configuracion, ACCION.update);
   const [form, setForm] = useState({
     nombre: "",
     alias: "",
@@ -322,6 +326,12 @@ function GeneralTab() {
         <p className="text-gray-500">Cargando empresa...</p>
       ) : activeEmpresa ? (
         <form onSubmit={onSubmit} className="space-y-6">
+          {!canCfgUpdate && (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              Solo lectura: tu rol no incluye permiso para editar la configuración de la empresa.
+            </p>
+          )}
+          <fieldset disabled={!canCfgUpdate} className="min-w-0 border-0 p-0 m-0 space-y-6 disabled:opacity-60">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input label="Nombre" name="nombre" value={form.nombre} onChange={onChange} required />
             <Input label="Alias" name="alias" value={form.alias || ""} onChange={onChange} />
@@ -437,10 +447,11 @@ function GeneralTab() {
           />
 
           <div className="flex justify-end gap-3">
-            <Button type="submit" variant="primary" disabled={saving}>
+            <Button type="submit" variant="primary" disabled={saving || !canCfgUpdate}>
               {saving ? "Guardando..." : "Guardar cambios"}
             </Button>
           </div>
+          </fieldset>
         </form>
       ) : (
         <p className="text-gray-500">No tienes una empresa activa asociada.</p>
@@ -464,6 +475,8 @@ function GeneralTab() {
 
 function StorageSection() {
   const { activeEmpresa } = useUser();
+  const { can } = usePermisos();
+  const canCfgUpdate = can(MODULO.configuracion, ACCION.update);
   const [status, setStatus] = useState<StorageStatusData | null>(null);
   const [loading, setLoading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
@@ -524,11 +537,12 @@ function StorageSection() {
             label="Verificar objetos físicos"
             checked={verifyObjects}
             onChange={(checked) => setVerifyObjects(checked)}
+            disabled={!canCfgUpdate}
           />
           <Button variant="secondary" onClick={() => loadStatus()} disabled={loading || reconciling}>
             {loading ? "Actualizando..." : "Actualizar estado"}
           </Button>
-          <Button variant="primary" onClick={handleReconcile} disabled={loading || reconciling}>
+          <Button variant="primary" onClick={handleReconcile} disabled={loading || reconciling || !canCfgUpdate}>
             {reconciling ? "Reconciliando..." : "Reconciliar huérfanos"}
           </Button>
         </div>
@@ -650,6 +664,10 @@ const plantillaCorreoFormInitial = {
 
 function PlantillasCorreoSection() {
   const { activeEmpresa } = useUser();
+  const { can } = usePermisos();
+  const canCreate = can(MODULO.configuracion, ACCION.create);
+  const canUpdate = can(MODULO.configuracion, ACCION.update);
+  const canDelete = can(MODULO.configuracion, ACCION.delete);
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -747,7 +765,9 @@ function PlantillasCorreoSection() {
             Crea plantillas reutilizables para notificaciones y envíos. Usa variables como {"{{nombre_destinatario}}"}, {"{{numero_siniestro}}"} en asunto y cuerpo.
           </p>
         </div>
-        <Button variant="primary" onClick={openCreate}>Nueva plantilla de correo</Button>
+        {canCreate && (
+          <Button variant="primary" onClick={openCreate}>Nueva plantilla de correo</Button>
+        )}
       </div>
 
       {loading ? (
@@ -773,8 +793,12 @@ function PlantillasCorreoSection() {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>Editar</Button>
-                <Button variant="danger" size="sm" onClick={() => deletePlantilla(item.id)}>Eliminar</Button>
+                {canUpdate && (
+                  <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>Editar</Button>
+                )}
+                {canDelete && (
+                  <Button variant="danger" size="sm" onClick={() => deletePlantilla(item.id)}>Eliminar</Button>
+                )}
               </div>
             </div>
           ))}
@@ -814,7 +838,13 @@ function PlantillasCorreoSection() {
           <Switch label="Activa" checked={form.activo} onChange={(c) => setForm((p) => ({ ...p, activo: c }))} />
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button type="submit" variant="primary" disabled={saving}>{saving ? "Guardando..." : "Guardar"}</Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || (editing ? !canUpdate : !canCreate)}
+            >
+              {saving ? "Guardando..." : "Guardar"}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -837,6 +867,10 @@ const smtpFormInitial = {
 
 function SmtpSection() {
   const { activeEmpresa } = useUser();
+  const { can } = usePermisos();
+  const canCreate = can(MODULO.configuracion, ACCION.create);
+  const canUpdate = can(MODULO.configuracion, ACCION.update);
+  const canDelete = can(MODULO.configuracion, ACCION.delete);
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -971,7 +1005,9 @@ function SmtpSection() {
             Configura uno o más servidores SMTP para enviar correos desde la plataforma.
           </p>
         </div>
-        <Button variant="primary" onClick={openCreate}>Nueva configuración SMTP</Button>
+        {canCreate && (
+          <Button variant="primary" onClick={openCreate}>Nueva configuración SMTP</Button>
+        )}
       </div>
 
       {loading ? (
@@ -1003,17 +1039,22 @@ function SmtpSection() {
                   value={testEmail}
                   onChange={(e) => setTestEmail(e.target.value)}
                   className="rounded-md border border-gray-300 px-2 py-1 text-sm w-40"
+                  disabled={!canUpdate}
                 />
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => testSmtp(item.id)}
-                  disabled={!!testing}
+                  disabled={!!testing || !canUpdate}
                 >
                   {testing === item.id ? "Enviando..." : "Probar"}
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>Editar</Button>
-                <Button variant="danger" size="sm" onClick={() => deleteSmtp(item.id)}>Eliminar</Button>
+                {canUpdate && (
+                  <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>Editar</Button>
+                )}
+                {canDelete && (
+                  <Button variant="danger" size="sm" onClick={() => deleteSmtp(item.id)}>Eliminar</Button>
+                )}
               </div>
             </div>
           ))}
@@ -1036,7 +1077,13 @@ function SmtpSection() {
           <Switch label="Activo" checked={form.activo} onChange={(c) => changeSmtpForm("activo", c)} />
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button type="submit" variant="primary" disabled={saving}>{saving ? "Guardando..." : "Guardar"}</Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || (editing ? !canUpdate : !canCreate)}
+            >
+              {saving ? "Guardando..." : "Guardar"}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -1046,6 +1093,13 @@ function SmtpSection() {
 
 function AreasTab() {
   const { user } = useUser();
+  const { can } = usePermisos();
+  const canAreaCreate =
+    can(MODULO.configuracion, ACCION.create) || can(MODULO.parametros, ACCION.create);
+  const canAreaUpdate =
+    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
+  const canAreaDelete =
+    can(MODULO.configuracion, ACCION.delete) || can(MODULO.parametros, ACCION.delete);
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [usuarios, setUsuarios] = useState<any[]>([]);
@@ -1154,16 +1208,28 @@ function AreasTab() {
           <h2 className="text-xl font-semibold">Áreas</h2>
           <p className="text-sm text-gray-500">Gestiona las áreas responsables dentro de la empresa.</p>
         </div>
-        <Button variant="primary" onClick={openCreate}>Nueva área</Button>
+        {canAreaCreate && (
+          <Button variant="primary" onClick={openCreate}>Nueva área</Button>
+        )}
       </div>
       {loading ? (
         <p className="text-gray-500">Cargando...</p>
       ) : (
-        <AreasTable data={items} onEdit={openEdit} onDelete={deleteItem} />
+        <AreasTable
+          data={items}
+          onEdit={openEdit}
+          onDelete={deleteItem}
+          canEdit={canAreaUpdate}
+          canDelete={canAreaDelete}
+        />
       )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Editar área" : "Nueva área"}>
         <form onSubmit={submit} className="space-y-4">
+          <fieldset
+            disabled={editing ? !canAreaUpdate : !canAreaCreate}
+            className="min-w-0 border-0 p-0 m-0 space-y-4 disabled:opacity-60"
+          >
           <Input label="Nombre" name="nombre" value={form.nombre} onChange={changeForm} required />
           <Input label="Código" name="codigo" value={form.codigo || ""} onChange={changeForm} />
           <div>
@@ -1197,6 +1263,7 @@ function AreasTab() {
             checked={!!form.activo}
             onChange={(checked) => setForm((prev) => ({ ...prev, activo: checked }))}
           />
+          </fieldset>
           <div className="pt-2 flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
             <Button type="submit" variant="primary">{editing ? "Guardar" : "Crear"}</Button>
@@ -1207,7 +1274,19 @@ function AreasTab() {
   );
 }
 
-function AreasTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: any) => void; onDelete: (id: string) => void }) {
+function AreasTable({
+  data,
+  onEdit,
+  onDelete,
+  canEdit,
+  canDelete,
+}: {
+  data: any[];
+  onEdit: (row: any) => void;
+  onDelete: (id: string) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+}) {
   const columns: ColumnDef<any>[] = [
     {
       header: "Nombre",
@@ -1234,8 +1313,12 @@ function AreasTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: any
       header: "",
       cell: ({ row }) => (
         <div className="flex gap-2 justify-end">
-          <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>Editar</Button>
-          <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>Eliminar</Button>
+          {canEdit && (
+            <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>Editar</Button>
+          )}
+          {canDelete && (
+            <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>Eliminar</Button>
+          )}
         </div>
       ),
     },
@@ -1252,6 +1335,10 @@ function AreasTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: any
 }
 
 function DocumentosTab() {
+  const { can } = usePermisos();
+  const canCfgCreate = can(MODULO.configuracion, ACCION.create);
+  const canCfgUpdate = can(MODULO.configuracion, ACCION.update);
+  const canCfgDelete = can(MODULO.configuracion, ACCION.delete);
   const router = useRouter();
   const [siniestroId, setSiniestroId] = useState("");
   const [documentos, setDocumentos] = useState<any[]>([]);
@@ -1409,16 +1496,24 @@ function DocumentosTab() {
           <p className="text-sm text-gray-500">
             {documentos.length} documento(s) encontrados.
           </p>
-          <Button variant="primary" onClick={openCreate}>
-            Nuevo documento
-          </Button>
+          {canCfgCreate && (
+            <Button variant="primary" onClick={openCreate}>
+              Nuevo documento
+            </Button>
+          )}
         </div>
       )}
 
       {loading ? (
         <p className="text-gray-500">Cargando documentos...</p>
       ) : documentos.length > 0 ? (
-        <DocumentosTable data={documentos} onEdit={openEdit} onDelete={deleteDocumento} />
+        <DocumentosTable
+          data={documentos}
+          onEdit={openEdit}
+          onDelete={deleteDocumento}
+          canEdit={canCfgUpdate}
+          canDelete={canCfgDelete}
+        />
       ) : siniestroId ? (
         <p className="text-gray-500">No hay documentos para el siniestro indicado.</p>
       ) : (
@@ -1480,7 +1575,13 @@ function DocumentosTab() {
           </div>
           <div className="pt-2 flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button type="submit" variant="primary">{editing ? "Guardar" : "Crear"}</Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={editing ? !canCfgUpdate : !canCfgCreate}
+            >
+              {editing ? "Guardar" : "Crear"}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -1488,7 +1589,19 @@ function DocumentosTab() {
   );
 }
 
-function DocumentosTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row: any) => void; onDelete: (id: string) => void }) {
+function DocumentosTable({
+  data,
+  onEdit,
+  onDelete,
+  canEdit,
+  canDelete,
+}: {
+  data: any[];
+  onEdit: (row: any) => void;
+  onDelete: (id: string) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+}) {
   const columns: ColumnDef<any>[] = [
     {
       header: "Nombre",
@@ -1527,8 +1640,12 @@ function DocumentosTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row
       header: "",
       cell: ({ row }) => (
         <div className="flex gap-2 justify-end">
-          <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>Editar</Button>
-          <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>Eliminar</Button>
+          {canEdit && (
+            <Button variant="secondary" size="sm" onClick={() => onEdit(row.original)}>Editar</Button>
+          )}
+          {canDelete && (
+            <Button variant="danger" size="sm" onClick={() => onDelete(row.original.id)}>Eliminar</Button>
+          )}
         </div>
       ),
     },
@@ -1546,6 +1663,13 @@ function DocumentosTable({ data, onEdit, onDelete }: { data: any[]; onEdit: (row
 
 function PlantillasTab() {
   const { user } = useUser();
+  const { can } = usePermisos();
+  const canCatCreate =
+    can(MODULO.configuracion, ACCION.create) || can(MODULO.parametros, ACCION.create);
+  const canCatUpdate =
+    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
+  const canCatDelete =
+    can(MODULO.configuracion, ACCION.delete) || can(MODULO.parametros, ACCION.delete);
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1668,7 +1792,9 @@ function PlantillasTab() {
           <h2 className="text-xl font-semibold text-gray-900">Tipos de documento</h2>
           <p className="text-sm text-gray-500">Define los tipos de documentos disponibles para generar documentos de siniestros.</p>
         </div>
-        <Button variant="primary" onClick={openCreate}>Nuevo tipo de documento</Button>
+        {canCatCreate && (
+          <Button variant="primary" onClick={openCreate}>Nuevo tipo de documento</Button>
+        )}
       </div>
 
       {loading ? (
@@ -1679,6 +1805,11 @@ function PlantillasTab() {
           onEdit={openEdit} 
           onDelete={deletePlantilla} 
           onPreview={openPreview}
+          canEdit={canCatUpdate}
+          canDelete={canCatDelete}
+          canOpenSubcatalogos={
+            can(MODULO.configuracion, ACCION.read) || can(MODULO.parametros, ACCION.read)
+          }
           onVerCategorias={(tipo) => {
             setTipoDocumentoSeleccionado(tipo);
             setCategoriasModalOpen(true);
@@ -1741,7 +1872,13 @@ function PlantillasTab() {
           />
           <div className="pt-2 flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button type="submit" variant="primary">{editing ? "Guardar" : "Crear"}</Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={editing ? !canCatUpdate : !canCatCreate}
+            >
+              {editing ? "Guardar" : "Crear"}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -1803,7 +1940,10 @@ function PlantillasTable({
   onDelete, 
   onPreview,
   onVerCategorias,
-  onVerPlantillasSinCategoria
+  onVerPlantillasSinCategoria,
+  canEdit,
+  canDelete,
+  canOpenSubcatalogos,
 }: { 
   data: any[]; 
   onEdit: (row: any) => void; 
@@ -1811,6 +1951,9 @@ function PlantillasTable({
   onPreview: (row: any) => void;
   onVerCategorias: (row: any) => void;
   onVerPlantillasSinCategoria: (row: any) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+  canOpenSubcatalogos: boolean;
 }) {
   const columns: ColumnDef<any>[] = [
     {
@@ -1858,24 +2001,28 @@ function PlantillasTable({
         
         return (
           <div className="flex gap-2 justify-end">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => onVerCategorias(tipo)}
-              title="Ver categorías de este tipo de documento"
-            >
-              <FiFolder className="w-4 h-4 mr-1" />
-              Categorías
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => onVerPlantillasSinCategoria(tipo)}
-              title="Ver plantillas sin categoría"
-            >
-              <FiFileText className="w-4 h-4 mr-1" />
-              Plantillas
-            </Button>
+            {canOpenSubcatalogos && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onVerCategorias(tipo)}
+                title="Ver categorías de este tipo de documento"
+              >
+                <FiFolder className="w-4 h-4 mr-1" />
+                Categorías
+              </Button>
+            )}
+            {canOpenSubcatalogos && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onVerPlantillasSinCategoria(tipo)}
+                title="Ver plantillas sin categoría"
+              >
+                <FiFileText className="w-4 h-4 mr-1" />
+                Plantillas
+              </Button>
+            )}
             {canPreview && (
               <Button 
                 variant="secondary" 
@@ -1887,8 +2034,12 @@ function PlantillasTable({
                 Vista Previa
               </Button>
             )}
-            <Button variant="secondary" size="sm" onClick={() => onEdit(tipo)}>Editar</Button>
-            <Button variant="danger" size="sm" onClick={() => onDelete(tipo.id)}>Eliminar</Button>
+            {canEdit && (
+              <Button variant="secondary" size="sm" onClick={() => onEdit(tipo)}>Editar</Button>
+            )}
+            {canDelete && (
+              <Button variant="danger" size="sm" onClick={() => onDelete(tipo.id)}>Eliminar</Button>
+            )}
           </div>
         );
       },

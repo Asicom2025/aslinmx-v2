@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     # Seguridad JWT
     # SECRET_KEY y tiempos de expiración deben configurarse en .env
     SECRET_KEY: str
+    # Opcional: clave Fernet (salida de Fernet.generate_key()) para cifrar contraseñas en invitacion_credencial_auditoria.
+    # Si no se define, se deriva de SECRET_KEY (cambiar SECRET_KEY invalida descifrado histórico del export).
+    INVITE_AUDIT_FERNET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     # Token de un solo paso para iniciar sesión como otro usuario (solo nivel 0)

@@ -38,7 +38,8 @@ class ExportService:
         datos: List[Dict[str, Any]],
         nombre_hoja: str = "Datos",
         titulo: Optional[str] = None,
-        columnas: Optional[List[str]] = None
+        columnas: Optional[List[str]] = None,
+        columnas_formato_texto: Optional[List[str]] = None,
     ) -> bytes:
         """
         Exporta datos a formato Excel (.xlsx)
@@ -48,6 +49,7 @@ class ExportService:
             nombre_hoja: Nombre de la hoja de cálculo
             titulo: Título opcional para el reporte
             columnas: Lista de columnas a incluir (si None, incluye todas)
+            columnas_formato_texto: Claves de columnas a forzar como texto en Excel (evita que Excel oculte o malinterprete valores)
         """
         if not OPENPYXL_AVAILABLE:
             raise ImportError("openpyxl no está instalado. Instálelo con: pip install openpyxl")
@@ -67,13 +69,18 @@ class ExportService:
         )
 
         if not datos:
-            return wb.save(io.BytesIO()).getvalue()
+            output = io.BytesIO()
+            wb.save(output)
+            output.seek(0)
+            return output.getvalue()
 
         # Determinar columnas
         if columnas:
             headers = columnas
         else:
             headers = list(datos[0].keys())
+
+        texto_cols = set(columnas_formato_texto or [])
 
         # Agregar título si existe
         row_num = 1
@@ -108,6 +115,8 @@ class ExportService:
                     cell.value = ""
                 else:
                     cell.value = str(value)
+                if header in texto_cols:
+                    cell.number_format = "@"
                 cell.border = border
                 cell.alignment = Alignment(vertical='top', wrap_text=True)
 

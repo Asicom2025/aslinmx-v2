@@ -16,10 +16,23 @@ import Input from "@/components/ui/Input";
 import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { FiPlus } from "react-icons/fi";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 
 export default function FlujosTrabajoPage() {
   const router = useRouter();
   const { user, loading: userLoading } = useUser();
+  const { can } = usePermisos();
+  const canFlujoCreate =
+    can(MODULO.configuracion, ACCION.create) || can(MODULO.parametros, ACCION.create);
+  const canFlujoUpdate =
+    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
+  const canFlujoDelete =
+    can(MODULO.configuracion, ACCION.delete) || can(MODULO.parametros, ACCION.delete);
+  const canVerDetalleFlujo =
+    can(MODULO.configuracion, ACCION.read) ||
+    can(MODULO.parametros, ACCION.read) ||
+    can(MODULO.siniestros, ACCION.read);
   const [flujos, setFlujos] = useState<FlujoTrabajo[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterArea, setFilterArea] = useState<string | null>(null);
@@ -168,10 +181,12 @@ export default function FlujosTrabajoPage() {
       <div className="w-full">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-900">Flujos de Trabajo</h1>
-          <Button onClick={openCreate} variant="primary">
-            <FiPlus className="w-4 h-4 mr-1" />
-            Nuevo Flujo
-          </Button>
+          {canFlujoCreate && (
+            <Button onClick={openCreate} variant="primary">
+              <FiPlus className="w-4 h-4 mr-1" />
+              Nuevo Flujo
+            </Button>
+          )}
         </div>
 
         {/* Filtros */}
@@ -231,19 +246,25 @@ export default function FlujosTrabajoPage() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => openEdit(flujo)}>
-                    Editar
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => router.push(`/flujos-trabajo/${flujo.id}`)}
-                  >
-                    Gestionar Etapas
-                  </Button>
-                  <Button variant="danger" size="sm" onClick={() => handleEliminar(flujo.id)}>
-                    Eliminar
-                  </Button>
+                  {canFlujoUpdate && (
+                    <Button variant="secondary" size="sm" onClick={() => openEdit(flujo)}>
+                      Editar
+                    </Button>
+                  )}
+                  {canVerDetalleFlujo && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => router.push(`/flujos-trabajo/${flujo.id}`)}
+                    >
+                      Gestionar Etapas
+                    </Button>
+                  )}
+                  {canFlujoDelete && (
+                    <Button variant="danger" size="sm" onClick={() => handleEliminar(flujo.id)}>
+                      Eliminar
+                    </Button>
+                  )}
                 </div>
               </div>
             ))}
@@ -305,7 +326,11 @@ export default function FlujosTrabajoPage() {
             <Button type="button" variant="secondary" onClick={() => setOpenModal(false)}>
               Cancelar
             </Button>
-            <Button type="submit" variant="primary">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={editing ? !canFlujoUpdate : !canFlujoCreate}
+            >
               {editing ? "Guardar cambios" : "Crear flujo"}
             </Button>
           </div>

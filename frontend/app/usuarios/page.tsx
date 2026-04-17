@@ -15,10 +15,13 @@ import Modal from "@/components/ui/Modal";
 import DataTable from "@/components/ui/DataTable";
 import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
-import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import Swal from "sweetalert2";
+import { swalSuccess, swalError, swalConfirmDelete, swalConfirm } from "@/lib/swal";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
 import { ColumnDef } from "@tanstack/react-table";
-import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn } from "react-icons/fi";
+import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn, FiMail, FiDownload, FiKey } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 
@@ -45,6 +48,7 @@ interface User {
 export default function UsuariosPage() {
   const router = useRouter();
   const { user, loading, refresh } = useUser();
+  const { can } = usePermisos();
   useTour("tour-usuarios", { autoStart: true });
   const [activeTab, setActiveTab] = useState<"usuarios" | "roles">("usuarios");
   const [usuarios, setUsuarios] = useState<User[]>([]);
@@ -209,6 +213,80 @@ export default function UsuariosPage() {
     }
   };
 
+  const generarPasswordSinCorreo = async (u: User) => {
+    const confirmed = await swalConfirm(
+      "Se generará una contraseña nueva, se guardará en el sistema y se mostrará aquí (no se enviará correo). Debe comunicarla al usuario por un canal seguro.",
+      "Generar contraseña",
+      "Generar",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+    try {
+      const data = await apiService.generateUserPasswordSuperadmin(u.id);
+      const esc = (s: string) =>
+        (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      await Swal.fire({
+        icon: "success",
+        title: "Contraseña generada",
+        html: `<p class="text-sm text-gray-600 mb-2">${esc(data.detail || "")}</p><p class="text-xs text-gray-500 mb-1">Copie y guarde; no se volverá a mostrar desde la app.</p><pre class="text-left bg-gray-100 p-3 rounded text-sm select-all break-all">${esc(data.password_plain)}</pre>`,
+        confirmButtonText: "Cerrar",
+        confirmButtonColor: "#2563eb",
+      });
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al generar contraseña");
+    }
+  };
+
+  const inviteUsuarioPorCorreo = async (u: User) => {
+    const confirmed = await swalConfirm(
+      "Se generará una contraseña nueva, se enviará por correo al usuario y quedará registrada para exportación de invitaciones.",
+      "Invitar por correo",
+      "Enviar invitación",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+    try {
+      await apiService.inviteUserCredential(u.id);
+      await swalSuccess("Invitación enviada por correo");
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al enviar invitación");
+    }
+  };
+
+  const exportInvitacionesCredenciales = async () => {
+    try {
+      await apiService.exportInvitacionesCredenciales();
+      await swalSuccess("Archivo descargado");
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al exportar invitaciones");
+    }
+  };
+
+  const exportCredencialesDefinitivasUsuarios = async () => {
+    try {
+      await apiService.exportCredencialesDefinitivasUsuarios();
+      await swalSuccess("Archivo descargado");
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al exportar usuarios (hash)");
+    }
+  };
+
   const usuariosColumns: ColumnDef<User>[] = [
     {
       accessorKey: "email",
@@ -268,17 +346,30 @@ export default function UsuariosPage() {
       cell: ({ row }) => (
         <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
           {user?.rol?.nivel === 0 && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                impersonarUsuario(row.original);
-              }}
-              className="text-amber-700 hover:text-amber-900 transition-colors"
-              title="Entrar como este usuario (solo nivel 0)"
-            >
-              <FiLogIn className="w-5 h-5" />
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  impersonarUsuario(row.original);
+                }}
+                className="text-amber-700 hover:text-amber-900 transition-colors"
+                title="Entrar como este usuario (solo nivel 0)"
+              >
+                <FiLogIn className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  generarPasswordSinCorreo(row.original);
+                }}
+                className="text-violet-700 hover:text-violet-900 transition-colors"
+                title="Generar contraseña nueva sin enviar correo (solo nivel 0)"
+              >
+                <FiKey className="w-5 h-5" />
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -291,6 +382,19 @@ export default function UsuariosPage() {
           >
             <FiEdit2 className="w-5 h-5" />
           </button>
+          {(user?.rol?.nivel === 0 || user?.rol?.nivel === 1) && can(MODULO.usuarios, ACCION.invitar) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                inviteUsuarioPorCorreo(row.original);
+              }}
+              className="text-emerald-700 hover:text-emerald-900 transition-colors"
+              title="Generar contraseña nueva y enviar por correo"
+            >
+              <FiMail className="w-5 h-5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => {
@@ -492,12 +596,26 @@ export default function UsuariosPage() {
       {/* Contenido de pestañas */}
       {activeTab === "usuarios" && (
         <div data-tour="usuarios-tabla" className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-6">
+          <div className="flex justify-between items-center mb-6 flex-wrap gap-2">
             <h2 className="text-xl font-semibold">Gestión de Usuarios</h2>
-            <Button data-tour="usuarios-nuevo" onClick={openCreateUsuario}>
-              <FiPlus className="w-4 h-4 mr-2" />
-              Nuevo Usuario
-            </Button>
+            <div className="flex gap-2">
+              {user?.rol?.nivel === 0 && can(MODULO.usuarios, ACCION.exportar_invitaciones) && (
+                <>
+                  <Button variant="secondary" type="button" onClick={exportInvitacionesCredenciales}>
+                    <FiDownload className="w-4 h-4 mr-2" />
+                    Exportar invitaciones
+                  </Button>
+                  <Button variant="secondary" type="button" onClick={exportCredencialesDefinitivasUsuarios}>
+                    <FiDownload className="w-4 h-4 mr-2" />
+                    Exportar usuarios (Excel, hash bcrypt)
+                  </Button>
+                </>
+              )}
+              <Button data-tour="usuarios-nuevo" onClick={openCreateUsuario}>
+                <FiPlus className="w-4 h-4 mr-2" />
+                Nuevo Usuario
+              </Button>
+            </div>
           </div>
 
           {usuariosLoading ? (

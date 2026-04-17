@@ -3,6 +3,8 @@ Dependencia para validar permisos por módulo y acción.
 Si el usuario no tiene el permiso, se lanza HTTP 403.
 """
 
+from typing import Tuple
+
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -60,5 +62,37 @@ def require_permiso(modulo_tecnico: str, accion_tecnico: str):
                 detail=f"No tiene permiso: {modulo_tecnico}.{accion_tecnico}",
             )
         return current_user
+
+    return _check
+
+
+def require_any_permiso(*reqs: Tuple[str, str]):
+    """
+    Exige que el usuario tenga al menos uno de los permisos listados (modulo, accion).
+    Misma regla de bypass que require_permiso.
+    """
+
+    if not reqs:
+        raise ValueError("require_any_permiso requiere al menos un par (modulo, accion)")
+
+    def _check(
+        current_user: User = Depends(get_current_active_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if not current_user.rol_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tiene un rol asignado",
+            )
+        if usuario_bypass_permisos(db, current_user):
+            return current_user
+        for modulo_tecnico, accion_tecnico in reqs:
+            if _tiene_permiso(db, current_user.rol_id, modulo_tecnico, accion_tecnico):
+                return current_user
+        opciones = ", ".join(f"{m}.{a}" for m, a in reqs)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No tiene permiso. Se requiere uno de: {opciones}",
+        )
 
     return _check

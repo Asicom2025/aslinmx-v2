@@ -8,6 +8,8 @@ import DataTable from "@/components/ui/DataTable";
 import { ColumnDef } from "@tanstack/react-table";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 import PlantillasCategoriaModal from "./PlantillasCategoriaModal";
 import { FiFileText } from "react-icons/fi";
 
@@ -21,6 +23,12 @@ interface CategoriasModalProps {
 }
 
 export default function CategoriasModal({ open, onClose, tipoDocumento }: CategoriasModalProps) {
+  const { can } = usePermisos();
+  const canCat = (accion: string) =>
+    can(MODULO.configuracion, accion) || can(MODULO.parametros, accion);
+  const canCreate = canCat(ACCION.create);
+  const canUpdate = canCat(ACCION.update);
+  const canDelete = canCat(ACCION.delete);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -140,21 +148,27 @@ export default function CategoriasModal({ open, onClose, tipoDocumento }: Catego
       header: "",
       cell: ({ row }) => (
         <div className="flex gap-2 justify-end">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => openPlantillas(row.original)}
-            title="Ver plantillas de esta categoría"
-          >
-            <FiFileText className="w-4 h-4 mr-1" />
-            Plantillas
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => openEdit(row.original)}>
-            Editar
-          </Button>
-          <Button variant="danger" size="sm" onClick={() => deleteCategoria(row.original.id)}>
-            Eliminar
-          </Button>
+          {(canUpdate || canCreate) && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => openPlantillas(row.original)}
+              title="Ver plantillas de esta categoría"
+            >
+              <FiFileText className="w-4 h-4 mr-1" />
+              Plantillas
+            </Button>
+          )}
+          {canUpdate && (
+            <Button variant="secondary" size="sm" onClick={() => openEdit(row.original)}>
+              Editar
+            </Button>
+          )}
+          {canDelete && (
+            <Button variant="danger" size="sm" onClick={() => deleteCategoria(row.original.id)}>
+              Eliminar
+            </Button>
+          )}
         </div>
       ),
     },
@@ -174,9 +188,11 @@ export default function CategoriasModal({ open, onClose, tipoDocumento }: Catego
             <p className="text-sm text-gray-600">
               Gestiona las categorías del tipo de documento "{tipoDocumento.nombre}"
             </p>
-            <Button variant="primary" onClick={openCreate}>
-              Nueva categoría
-            </Button>
+            {canCreate && (
+              <Button variant="primary" onClick={openCreate}>
+                Nueva categoría
+              </Button>
+            )}
           </div>
 
           {loading ? (
@@ -220,7 +236,11 @@ export default function CategoriasModal({ open, onClose, tipoDocumento }: Catego
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" variant="primary">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={editing ? !canUpdate : !canCreate}
+            >
               {editing ? "Guardar" : "Crear"}
             </Button>
           </div>

@@ -3,10 +3,15 @@ Rutas de Usuarios
 Endpoints para operaciones CRUD de usuarios y autenticación
 """
 
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+import csv
+import io
+import base64
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from sqlalchemy.orm import Session
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import uuid as uuid_lib
 
 from app.db.session import get_db
@@ -26,6 +31,7 @@ from app.schemas.user_schema import (
     UserEmpresaSwitch,
     ImpersonationAcceptRequest,
     ImpersonationTokenResponse,
+    GeneratedPasswordResponse,
 )
 from app.services.user_service import UserService
 from app.services.recaptcha_service import RecaptchaService
@@ -38,13 +44,55 @@ from app.core.security import (
     create_impersonation_exchange_token,
 )
 from app.core.permisos import require_permiso
-from app.core.nivel_acceso import solo_superadmin_por_nivel, usuario_bypass_permisos
+from app.core.nivel_acceso import (
+    solo_superadmin_por_nivel,
+    usuario_bypass_permisos,
+    get_nivel_rol,
+    NIVEL_ADMIN,
+    NIVEL_SUPERADMIN,
+)
 from app.models.user import User
+from app.models.user import UsuarioPerfil
 from app.models.permiso import Modulo, Accion
 from app.core.config import settings
 from app.services.auditoria_service import AuditoriaService
+from app.services.export_service import ExportService
+from app.services.storage_service import (
+    get_storage_service,
+)
 
 router = APIRouter()
+
+
+def _require_nivel_1_administrador(db: Session, current_user: User) -> None:
+    if get_nivel_rol(db, current_user) not in (NIVEL_SUPERADMIN, NIVEL_ADMIN):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los roles nivel 0 o 1 pueden usar esta función",
+        )
+
+
+def _build_profile_asset_inline_data_url(asset_value: Optional[str]) -> Optional[str]:
+    raw = (asset_value or "").strip()
+    if not raw:
+        return raw
+    if raw.startswith("data:") or raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    if not (raw.startswith("r2://") or "/" in raw):
+        return raw
+    try:
+        content = get_storage_service().get_bytes(raw)
+    except Exception:
+        return raw
+    mime = "image/png"
+    if "." in raw:
+        ext = raw.rsplit(".", 1)[-1].lower()
+        if ext in {"jpg", "jpeg"}:
+            mime = "image/jpeg"
+        elif ext == "webp":
+            mime = "image/webp"
+    encoded = base64.b64encode(content).decode("utf-8")
+    return f"data:{mime};base64,{encoded}"
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -238,6 +286,7 @@ def logout_session(
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -277,6 +326,11 @@ def get_current_user_info(
         actor = db.query(User).filter(User.id == imp_id).first()
         if actor:
             data["impersonated_by"] = {"id": actor.id, "email": actor.correo}
+    perfil_data = data.get("perfil") or {}
+    for field in ("foto_de_perfil", "firma", "firma_digital"):
+        if field in perfil_data:
+            perfil_data[field] = _build_profile_asset_inline_data_url(perfil_data.get(field))
+    data["perfil"] = perfil_data
     return data
 
 
@@ -289,6 +343,28 @@ def update_current_user_info(
     """
     Actualiza información del usuario actual (perfil, contactos, dirección)
     """
+    nivel = get_nivel_rol(db, current_user)
+    if nivel not in (NIVEL_SUPERADMIN, NIVEL_ADMIN):
+        if payload.nombre is not None or payload.apellido_paterno is not None or payload.apellido_materno is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo los roles nivel 0 o 1 pueden editar el perfil completo. Solo puede cambiar su foto.",
+            )
+        if payload.contactos is not None or payload.direccion is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Solo los roles nivel 0 o 1 pueden editar el perfil completo. Solo puede cambiar su foto.",
+            )
+        if payload.perfil is not None:
+            perfil_changes = payload.perfil.model_dump(exclude_unset=True)
+            disallowed = [k for k in perfil_changes.keys() if k != "foto_de_perfil"]
+            if disallowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Solo los roles nivel 0 o 1 pueden editar el perfil completo. Solo puede cambiar su foto.",
+                )
+            payload = UserMeUpdate(perfil={"foto_de_perfil": perfil_changes.get("foto_de_perfil")})
+
     updated = UserService.update_current_user(db, current_user, payload)
     return updated
 
@@ -410,6 +486,213 @@ def accept_impersonation(
         path="/",
     )
     return response
+
+
+@router.get("/invitaciones-credenciales/export.csv")
+def export_invitaciones_credenciales_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "exportar_invitaciones")),
+    desde: Optional[str] = Query(None, description="ISO 8601 (inclusive)"),
+    hasta: Optional[str] = Query(None, description="ISO 8601 (inclusive)"),
+):
+    """
+    CSV con invitaciones de la empresa activa del usuario (contraseña desde auditoría cifrada).
+    Solo nivel 1 y permiso exportar_invitaciones.
+    """
+    _require_nivel_1_administrador(db, current_user)
+
+    def _parse_dt(value: Optional[str]) -> Optional[datetime]:
+        if not value or not str(value).strip():
+            return None
+        s = str(value).strip().replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(s)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Parámetro de fecha inválido (use ISO 8601)",
+            )
+
+    d1 = _parse_dt(desde)
+    d2 = _parse_dt(hasta)
+
+    rows = UserService.list_invitaciones_credenciales_for_export(db, current_user, d1, d2)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["correo_destino", "creado_en", "invitado_por_correo", "contraseña_temporal"])
+    for r in rows:
+        w.writerow(UserService.invitacion_row_to_export_tuple(r))
+
+    data = "\ufeff" + buf.getvalue()
+    return StreamingResponse(
+        iter([data]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="invitaciones_credenciales.csv"',
+        },
+    )
+
+
+@router.get("/credenciales-definitivas/export.csv")
+def export_credenciales_definitivas_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "exportar_invitaciones")),
+):
+    """
+    CSV con usuarios de la empresa activa: correo, nombre y password_hash (bcrypt).
+    Mismo permiso y nivel que export de invitaciones.
+    """
+    _require_nivel_1_administrador(db, current_user)
+
+    users = UserService.list_users_by_active_empresa_for_credenciales(db, current_user)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["correo", "nombre_completo", "password_hash_bcrypt"])
+    for u in users:
+        w.writerow(UserService.user_credenciales_export_row(u))
+
+    data = "\ufeff" + buf.getvalue()
+    return StreamingResponse(
+        iter([data]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="usuarios_credenciales_definitivas.csv"',
+        },
+    )
+
+
+@router.get("/credenciales-definitivas/export.xlsx")
+def export_credenciales_definitivas_xlsx(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "exportar_invitaciones")),
+):
+    """
+    Excel (.xlsx) con usuarios de la empresa activa: correo, nombre y password_hash (bcrypt).
+    Mismos permisos que el export CSV de usuarios.
+    """
+    _require_nivel_1_administrador(db, current_user)
+
+    users = UserService.list_users_by_active_empresa_for_credenciales(db, current_user)
+    columnas = ["correo", "nombre_completo", "password_hash_bcrypt"]
+    datos = []
+    for u in users:
+        correo, nombre, ph = UserService.user_credenciales_export_row(u)
+        datos.append(
+            {
+                "correo": correo,
+                "nombre_completo": nombre,
+                "password_hash_bcrypt": ph,
+            }
+        )
+    try:
+        xlsx_bytes = ExportService.export_to_excel(
+            datos,
+            nombre_hoja="Usuarios",
+            titulo="Usuarios — hash bcrypt (empresa activa)",
+            columnas=columnas,
+            columnas_formato_texto=["password_hash_bcrypt"],
+        )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+        ) from exc
+
+    return StreamingResponse(
+        iter([xlsx_bytes]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="usuarios_credenciales_definitivas.xlsx"',
+        },
+    )
+
+
+@router.post("/{user_id}/generar-password", response_model=GeneratedPasswordResponse)
+def generate_user_password_superadmin(
+    user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Solo rol nivel 0: genera contraseña nueva, actualiza password_hash, registra auditoría cifrada, no envía correo.
+    Devuelve la contraseña en claro (mostrar una vez).
+    """
+    if not solo_superadmin_por_nivel(db, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el rol nivel 0 puede generar contraseña sin enviar correo",
+        )
+    plain = UserService.generate_random_password_superadmin_no_email(
+        db,
+        actor=current_user,
+        target_user_id=user_id,
+        ip_address=request.client.host if request.client else None,
+    )
+    try:
+        rid = None
+        try:
+            rid = uuid_lib.UUID(str(user_id))
+        except Exception:
+            rid = None
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=current_user.id,
+            empresa_id=current_user.empresa_id,
+            accion="generate_password_no_email",
+            modulo="usuarios",
+            tabla="usuarios",
+            registro_id=rid,
+            descripcion="Contraseña generada (sin correo) por nivel 0",
+            ip_address=request.client.host if request.client else None,
+        )
+    except Exception:
+        pass
+    return GeneratedPasswordResponse(
+        success=True,
+        detail="Contraseña generada y guardada. Copie el valor; no se volverá a mostrar.",
+        password_plain=plain,
+    )
+
+
+@router.post("/{user_id}/invitar-credencial", response_model=OperationResult)
+def invite_user_credential(
+    user_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "invitar")),
+):
+    """
+    Genera contraseña nueva, envía correo y registra auditoría cifrada.
+    Solo nivel 0/1 y permiso invitar.
+    """
+    _require_nivel_1_administrador(db, current_user)
+    UserService.invite_user_reset_password_and_email(
+        db,
+        actor=current_user,
+        target_user_id=user_id,
+        ip_address=request.client.host if request.client else None,
+    )
+    try:
+        rid = None
+        try:
+            rid = uuid_lib.UUID(str(user_id))
+        except Exception:
+            rid = None
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=current_user.id,
+            empresa_id=current_user.empresa_id,
+            accion="invite_credential_email",
+            modulo="usuarios",
+            tabla="usuarios",
+            registro_id=rid,
+            descripcion="Invitación por correo con credencial",
+            ip_address=request.client.host if request.client else None,
+        )
+    except Exception:
+        pass
+    return {"success": True, "detail": "Invitación enviada por correo"}
 
 
 @router.post("/{user_id}/impersonate", response_model=ImpersonationTokenResponse)

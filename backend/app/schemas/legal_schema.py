@@ -500,11 +500,13 @@ class RespuestaFormularioCreate(BaseModel):
     """Schema para crear/actualizar respuesta de formulario de plantilla"""
     plantilla_id: UUID
     siniestro_id: UUID
+    area_id: Optional[UUID] = None
     valores: Dict[str, Any] = Field(default_factory=dict, description="Mapa clave→valor de los campos del formulario")
 
 
 class RespuestaFormularioUpdate(BaseModel):
     """Schema para actualizar parcialmente los valores de una respuesta"""
+    area_id: Optional[UUID] = None
     valores: Dict[str, Any]
 
 
@@ -513,6 +515,7 @@ class RespuestaFormularioResponse(BaseModel):
     id: UUID
     plantilla_id: UUID
     siniestro_id: UUID
+    area_id: Optional[UUID] = None
     usuario_id: Optional[UUID] = None
     valores: Dict[str, Any]
     creado_en: datetime

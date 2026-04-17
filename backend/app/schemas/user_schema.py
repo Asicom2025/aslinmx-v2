@@ -202,6 +202,7 @@ class UserUpdate(BaseModel):
     apellido_materno: Optional[str] = None
     password: Optional[str] = Field(None, min_length=6, max_length=100)
     is_active: Optional[bool] = None
+    two_factor_enabled: Optional[bool] = None
     empresa_id: Optional[UUID] = None
     empresa_ids: Optional[List[UUID]] = None
     rol_id: Optional[UUID] = None
@@ -237,6 +238,13 @@ class TwoFAToggleRequest(BaseModel):
 class OperationResult(BaseModel):
     success: bool
     detail: Optional[str] = None
+
+
+class GeneratedPasswordResponse(BaseModel):
+    """Solo nivel 0: contraseña nueva en claro (mostrar una vez al operador)."""
+    success: bool = True
+    detail: str = "Contraseña generada y guardada"
+    password_plain: str
 
 
 class ImpersonationAcceptRequest(BaseModel):

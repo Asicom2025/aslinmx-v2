@@ -254,6 +254,7 @@ const userService = {
     rol_id?: string;
     area_ids?: string[];
     is_active?: boolean;
+    two_factor_enabled?: boolean;
     password?: string;
     perfil?: {
       nombre?: string;
@@ -280,6 +281,52 @@ const userService = {
   deleteUser: async (userId: string) => {
     const response = await api.delete(`/users/${userId}`);
     return response.data;
+  },
+  inviteUserCredential: async (userId: string) => {
+    const response = await api.post(`/users/${userId}/invitar-credencial`);
+    return response.data;
+  },
+  generateUserPasswordSuperadmin: async (userId: string) => {
+    const response = await api.post<{
+      success: boolean;
+      detail: string;
+      password_plain: string;
+    }>(`/users/${userId}/generar-password`);
+    return response.data;
+  },
+  exportInvitacionesCredenciales: async (params?: { desde?: string; hasta?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.desde) qs.set("desde", params.desde);
+    if (params?.hasta) qs.set("hasta", params.hasta);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    const response = await api.get(`/users/invitaciones-credenciales/export.csv${suffix}`, {
+      responseType: "blob",
+    });
+    const blob = new Blob([response.data], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "invitaciones_credenciales.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  },
+  exportCredencialesDefinitivasUsuarios: async () => {
+    const response = await api.get("/users/credenciales-definitivas/export.xlsx", {
+      responseType: "blob",
+    });
+    const blob = new Blob([response.data], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "usuarios_credenciales_definitivas.xlsx";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
   },
 };
 
@@ -906,9 +953,12 @@ const catalogService = {
   },
 
   // ─── Respuestas de formulario personalizado ───────────────────────────────
-  getRespuestaFormulario: async (plantillaId: string, siniestroId: string) => {
+  getRespuestaFormulario: async (plantillaId: string, siniestroId: string, areaId?: string) => {
+    const params = new URLSearchParams();
+    if (areaId) params.set("area_id", areaId);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
     const res = await api.get(
-      `/catalogos/plantillas-documento/${plantillaId}/respuesta/${siniestroId}`
+      `/catalogos/plantillas-documento/${plantillaId}/respuesta/${siniestroId}${suffix}`
     );
     return res.data;
   },
@@ -916,17 +966,24 @@ const catalogService = {
   upsertRespuestaFormulario: async (
     plantillaId: string,
     siniestroId: string,
-    valores: Record<string, any>
+    valores: Record<string, any>,
+    areaId?: string,
   ) => {
+    const params = new URLSearchParams();
+    if (areaId) params.set("area_id", areaId);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
     const res = await api.put(
-      `/catalogos/plantillas-documento/${plantillaId}/respuesta/${siniestroId}`,
+      `/catalogos/plantillas-documento/${plantillaId}/respuesta/${siniestroId}${suffix}`,
       { valores }
     );
     return res.data;
   },
 
-  getRespuestasByPosSiniestro: async (siniestroId: string) => {
-    const res = await api.get(`/catalogos/respuestas-formulario/siniestro/${siniestroId}`);
+  getRespuestasByPosSiniestro: async (siniestroId: string, areaId?: string) => {
+    const params = new URLSearchParams();
+    if (areaId) params.set("area_id", areaId);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const res = await api.get(`/catalogos/respuestas-formulario/siniestro/${siniestroId}${suffix}`);
     return res.data;
   },
 };

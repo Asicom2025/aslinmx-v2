@@ -21,6 +21,7 @@ interface User {
   apellido_paterno?: string;
   apellido_materno?: string;
   is_active: boolean;
+  two_factor_enabled?: boolean;
   created_at: string;
   empresa?: { id: string; nombre: string } | null;
   empresas?: { id: string; nombre: string }[] | null;
@@ -64,6 +65,7 @@ export default function EditarUsuarioPage() {
     area_ids: [] as string[],
     rol_id: "",
     is_active: true,
+    two_factor_enabled: false,
     password: "",
     perfil: {
       nombre: "",
@@ -140,6 +142,7 @@ export default function EditarUsuarioPage() {
         area_ids: data.areas?.map((a: { id: string }) => a.id) || [],
         rol_id: data.rol?.id || "",
         is_active: data.is_active ?? true,
+        two_factor_enabled: !!data.two_factor_enabled,
         password: "",
         perfil: {
           nombre: data.perfil?.nombre || data.nombre || "",
@@ -205,6 +208,7 @@ export default function EditarUsuarioPage() {
         area_ids: form.area_ids || [],
         rol_id: form.rol_id || null,
         is_active: form.is_active,
+        two_factor_enabled: form.two_factor_enabled,
         perfil: form.perfil,
         contactos: form.contactos,
         direccion: form.direccion,
@@ -365,6 +369,20 @@ export default function EditarUsuarioPage() {
                 label="Usuario activo"
                 checked={form.is_active}
                 onChange={(checked) => onChange("main", "is_active", checked)}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Seguridad */}
+        <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-6">
+          <h2 className="font-semibold text-lg mb-4">Seguridad</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Switch
+                label="2FA habilitado"
+                checked={form.two_factor_enabled}
+                onChange={(checked) => onChange("main", "two_factor_enabled", checked)}
               />
             </div>
             <Input

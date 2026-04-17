@@ -38,4 +38,6 @@ export const ACCION = {
   verificar_bitcora: "verificar_bitcora",
   eliminar_archivos: "eliminar_archivos",
   ver_reportes_de_autoridades: "ver_reportes_de_autoridades",
+  invitar: "invitar",
+  exportar_invitaciones: "exportar_invitaciones",
 } as const;

@@ -10,6 +10,8 @@ import PDFPreviewModal from "./PDFPreviewModal";
 import { ColumnDef } from "@tanstack/react-table";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 import { FiEye, FiList } from "react-icons/fi";
 import FormularioDesigner, { CampoFormulario } from "@/components/plantillas/FormularioDesigner";
 
@@ -29,6 +31,12 @@ export default function PlantillasSinCategoriaModal({
   tipoDocumento,
   onSuccess,
 }: PlantillasSinCategoriaModalProps) {
+  const { can } = usePermisos();
+  const canCat = (accion: string) =>
+    can(MODULO.configuracion, accion) || can(MODULO.parametros, accion);
+  const canCreate = canCat(ACCION.create);
+  const canUpdate = canCat(ACCION.update);
+  const canDelete = canCat(ACCION.delete);
   const [plantillas, setPlantillas] = useState<any[]>([]);
   const [headersDisponibles, setHeadersDisponibles] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -264,7 +272,7 @@ export default function PlantillasSinCategoriaModal({
                 Vista Previa
               </Button>
             )}
-            {tieneMultiplesPartes(plantilla) && (
+            {tieneMultiplesPartes(plantilla) && canUpdate && (
               <Button
                 variant="secondary"
                 size="sm"
@@ -280,12 +288,16 @@ export default function PlantillasSinCategoriaModal({
                 )}
               </Button>
             )}
-            <Button variant="secondary" size="sm" onClick={() => openEdit(plantilla)}>
-              Editar
-            </Button>
-            <Button variant="danger" size="sm" onClick={() => deletePlantilla(plantilla.id)}>
-              Eliminar
-            </Button>
+            {canUpdate && (
+              <Button variant="secondary" size="sm" onClick={() => openEdit(plantilla)}>
+                Editar
+              </Button>
+            )}
+            {canDelete && (
+              <Button variant="danger" size="sm" onClick={() => deletePlantilla(plantilla.id)}>
+                Eliminar
+              </Button>
+            )}
           </div>
         );
       },
@@ -306,9 +318,11 @@ export default function PlantillasSinCategoriaModal({
             <p className="text-sm text-gray-600">
               Gestiona las plantillas del tipo de documento "{tipoDocumento.nombre}" que no tienen categoría asignada
             </p>
-            <Button variant="primary" onClick={openCreate}>
-              Nueva plantilla
-            </Button>
+            {canCreate && (
+              <Button variant="primary" onClick={openCreate}>
+                Nueva plantilla
+              </Button>
+            )}
           </div>
 
           {loading ? (
@@ -453,7 +467,11 @@ export default function PlantillasSinCategoriaModal({
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar
             </Button>
-            <Button type="submit" variant="primary">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={editing ? !canUpdate : !canCreate}
+            >
               {editing ? "Guardar" : "Crear"}
             </Button>
           </div>
@@ -501,7 +519,7 @@ export default function PlantillasSinCategoriaModal({
               <Button variant="secondary" onClick={() => setFormularioModalOpen(false)}>
                 Cancelar
               </Button>
-              <Button variant="primary" onClick={saveFormulario}>
+              <Button variant="primary" onClick={saveFormulario} disabled={!canUpdate}>
                 Guardar formulario
               </Button>
             </div>

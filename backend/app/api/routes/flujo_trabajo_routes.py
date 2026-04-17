@@ -9,7 +9,7 @@ from uuid import UUID
 
 from app.db.session import get_db
 from app.models.user import User
-from app.core.security import get_current_active_user
+from app.core.permisos import require_any_permiso, require_permiso
 from app.schemas.flujo_trabajo_schema import (
     FlujoTrabajoCreate,
     FlujoTrabajoUpdate,
@@ -42,13 +42,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_flujo_read_any = Depends(
+    require_any_permiso(("configuracion", "read"), ("parametros", "read"), ("siniestros", "read"))
+)
+_flujo_create_any = Depends(require_any_permiso(("configuracion", "create"), ("parametros", "create")))
+_flujo_update_any = Depends(require_any_permiso(("configuracion", "update"), ("parametros", "update")))
+_flujo_delete_any = Depends(require_any_permiso(("configuracion", "delete"), ("parametros", "delete")))
+_sin_read = Depends(require_permiso("siniestros", "read"))
+_sin_update = Depends(require_permiso("siniestros", "update"))
+
 
 @router.get("", response_model=List[FlujoTrabajoResponse])
 def listar_flujos(
     area_id: Optional[str] = Query(None, description="Filtrar por área (NULL o 'null' para flujos generales)"),
     activo: Optional[bool] = Query(True, description="Filtrar por estado activo"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_read_any,
 ):
     """Lista todos los flujos de trabajo de la empresa del usuario"""
     if not current_user.empresa_id:
@@ -91,7 +100,7 @@ def listar_flujos(
 def obtener_flujo_predeterminado(
     area_id: Optional[UUID] = Query(None, description="ID del área (opcional)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_read_any,
 ):
     """Obtiene el flujo predeterminado para la empresa/área"""
     if not current_user.empresa_id:
@@ -119,7 +128,7 @@ def obtener_flujo_predeterminado(
 def obtener_flujo(
     flujo_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_read_any,
 ):
     """Obtiene un flujo de trabajo con todas sus etapas"""
     if not current_user.empresa_id:
@@ -144,7 +153,7 @@ def obtener_flujo(
 def crear_flujo(
     flujo: FlujoTrabajoCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_create_any,
 ):
     """Crea un nuevo flujo de trabajo"""
     if not current_user.empresa_id:
@@ -167,7 +176,7 @@ def actualizar_flujo(
     flujo_id: UUID,
     flujo_update: FlujoTrabajoUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_update_any,
 ):
     """Actualiza un flujo de trabajo"""
     if not current_user.empresa_id:
@@ -196,7 +205,7 @@ def actualizar_flujo(
 def eliminar_flujo(
     flujo_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_delete_any,
 ):
     """Elimina (soft delete) un flujo de trabajo"""
     if not current_user.empresa_id:
@@ -219,7 +228,7 @@ def listar_etapas(
     flujo_id: UUID,
     activo: Optional[bool] = Query(True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_read_any,
 ):
     """Lista todas las etapas de un flujo"""
     flujo = FlujoTrabajoService.get_flujo_by_id(db, flujo_id)
@@ -239,7 +248,7 @@ def crear_etapa(
     flujo_id: UUID,
     etapa: EtapaFlujoCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_update_any,
 ):
     """Crea una nueva etapa en un flujo"""
     flujo = FlujoTrabajoService.get_flujo_by_id(db, flujo_id)
@@ -260,7 +269,7 @@ def actualizar_etapa(
     etapa_id: UUID,
     etapa_update: EtapaFlujoUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_update_any,
 ):
     """Actualiza una etapa"""
     etapa = EtapaFlujoService.get_etapa_by_id(db, etapa_id)
@@ -293,7 +302,7 @@ def actualizar_etapa(
 def eliminar_etapa(
     etapa_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_update_any,
 ):
     """
     Elimina SOLO visualmente una etapa (sin modificar la base de datos).
@@ -323,7 +332,7 @@ def eliminar_etapa_por_flujo(
     flujo_id: UUID,
     etapa_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _flujo_update_any,
 ):
     """
     Elimina SOLO visualmente una etapa asegurando que pertenece al flujo indicado.
@@ -354,7 +363,7 @@ def reordenar_etapas(
     flujo_id: UUID,
     request: ReordenarEtapasRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _flujo_update_any,
 ):
     """Reordena las etapas de un flujo"""
     flujo = FlujoTrabajoService.get_flujo_by_id(db, flujo_id)
@@ -374,7 +383,7 @@ def inicializar_etapas_siniestro(
     siniestro_id: UUID,
     request: InicializarEtapasRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _sin_update,
 ):
     """Inicializa las etapas de un siniestro usando el flujo predeterminado"""
     success = SiniestroEtapaService.inicializar_etapas_siniestro(
@@ -396,7 +405,7 @@ def inicializar_etapas_siniestro(
 def obtener_etapas_siniestro(
     siniestro_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _sin_read,
 ):
     """Obtiene todas las etapas de un siniestro"""
     etapas = SiniestroEtapaService.get_etapas_by_siniestro(db, siniestro_id)
@@ -409,7 +418,7 @@ def completar_etapa_siniestro(
     etapa_flujo_id: UUID,
     request: CompletarEtapaRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _sin_update,
 ):
     """Completa una etapa de un siniestro"""
     try:
@@ -449,7 +458,7 @@ def avanzar_etapa_siniestro(
     siniestro_id: UUID,
     request: AvanzarEtapaRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = _sin_update,
 ):
     """Avanza a la siguiente etapa del siniestro"""
     try:
@@ -495,7 +504,7 @@ def listar_requisitos_etapa(
     etapa_id: UUID,
     solo_activos: bool = Query(True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _flujo_read_any,
 ):
     """Lista todos los requisitos documentales configurados para una etapa."""
     return RequisitoDocumentoService.list_by_etapa(db, etapa_id, solo_activos=solo_activos)
@@ -511,7 +520,7 @@ def crear_requisito_etapa(
     etapa_id: UUID,
     data: RequisitoDocumentoCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _flujo_update_any,
 ):
     """Crea un nuevo requisito documental para una etapa de flujo."""
     return RequisitoDocumentoService.create(db, flujo_id, etapa_id, data)
@@ -525,7 +534,7 @@ def actualizar_requisito(
     req_id: UUID,
     data: RequisitoDocumentoUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _flujo_update_any,
 ):
     """Actualiza un requisito documental."""
     return RequisitoDocumentoService.update(db, req_id, data)
@@ -538,7 +547,7 @@ def actualizar_requisito(
 def eliminar_requisito(
     req_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _flujo_delete_any,
 ):
     """Elimina (soft-delete) un requisito documental."""
     RequisitoDocumentoService.delete(db, req_id)
@@ -552,7 +561,7 @@ def checklist_documental_etapa(
     siniestro_id: UUID,
     etapa_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _sin_read,
 ):
     """Devuelve el checklist documental (requisitos + estado) de una etapa para un siniestro."""
     return RequisitoDocumentoService.get_checklist_siniestro(db, siniestro_id, etapa_id)

@@ -14,6 +14,7 @@ from typing import List, Optional, Dict, Any, Tuple
 import logging
 from sqlalchemy.orm import Session
 from datetime import datetime
+from uuid import UUID
 
 # Importaciones opcionales para evitar errores si no están instaladas
 try:
@@ -28,6 +29,7 @@ except ImportError:
 
 from app.models.config import ConfiguracionSMTP, PlantillaCorreo, HistorialCorreo
 from app.core.config import settings
+from app.services.storage_service import get_storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -389,6 +391,58 @@ class EmailService:
             return False, str(e)
 
     @staticmethod
+    def enviar_invitacion_acceso(
+        db: Session,
+        *,
+        destinatario_email: str,
+        password_plain: str,
+        empresa_id_smtp: UUID,
+        login_hint: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Envía credencial al correo del usuario usando el SMTP activo de la empresa indicada.
+        No usa plantillas de BD (evita dependencia de catálogo).
+        """
+        config_smtp = (
+            db.query(ConfiguracionSMTP)
+            .filter(
+                ConfiguracionSMTP.empresa_id == empresa_id_smtp,
+                ConfiguracionSMTP.activo == True,
+            )
+            .first()
+        )
+        if not config_smtp:
+            logger.warning("Sin SMTP activo para empresa_id=%s: no se envía invitación", empresa_id_smtp)
+            return False, "Sin configuración SMTP activa para la empresa"
+
+        base = (getattr(settings, "BASE_URL", None) or settings.FRONTEND_URL or "").rstrip("/")
+        login_url = f"{base}/login" if base else "/login"
+        asunto = "Acceso a Aslin — credenciales"
+        cuerpo_texto = (
+            f"Se ha generado una contraseña para su cuenta.\n\n"
+            f"Usuario / correo: {login_hint}\n"
+            f"Contraseña: {password_plain}\n\n"
+            f"Inicie sesión en: {login_url}\n\n"
+            f"Por seguridad, cambie su contraseña después del primer acceso."
+        )
+        cuerpo_html = f"""<!DOCTYPE html><html><body style="font-family:sans-serif">
+<p>Se ha generado una <strong>contraseña</strong> para su cuenta en Aslin.</p>
+<ul>
+<li><strong>Usuario / correo:</strong> {login_hint}</li>
+<li><strong>Contraseña:</strong> {password_plain}</li>
+</ul>
+<p><a href="{login_url}">Ir al inicio de sesión</a></p>
+<p style="color:#555;font-size:0.9em">Por seguridad, cambie su contraseña después del primer acceso.</p>
+</body></html>"""
+        return EmailService.send_email_sync(
+            config_smtp,
+            [destinatario_email.strip()],
+            asunto,
+            cuerpo_html=cuerpo_html,
+            cuerpo_texto=cuerpo_texto,
+        )
+
+    @staticmethod
     def render_template(
         plantilla: PlantillaCorreo,
         variables: Optional[Dict[str, Any]] = None
@@ -444,6 +498,14 @@ class EmailService:
                 return data, "cid:firma"
             except Exception:
                 return None, None
+        # Referencia en storage (r2://... o ruta local relativa guardada por StorageService)
+        if raw.startswith("r2://") or raw.startswith("assets/") or raw.startswith("uploads/"):
+            try:
+                data = get_storage_service().get_bytes(raw)
+                if data:
+                    return data, "cid:firma"
+            except Exception:
+                logger.debug("No se pudo resolver firma_digital desde storage: %s", raw, exc_info=True)
         if os.path.sep in raw or (len(raw) < 300 and (raw.startswith("/") or ":" in raw[:5])):
             # posible ruta
             if os.path.isfile(raw):

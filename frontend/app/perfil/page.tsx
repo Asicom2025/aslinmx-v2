@@ -7,9 +7,11 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { swalSuccess, swalError, swalInfo } from "@/lib/swal";
 import { getUserDisplayName, getUserInitial } from "@/lib/userName";
+import { compressImageFileToDataUrl } from "@/lib/imageDataUrl";
 
 export default function PerfilPage() {
   const { user, refresh, loading } = useUser();
+  const canEditFullProfile = user?.rol?.nivel === 0 || user?.rol?.nivel === 1;
   const [saving, setSaving] = useState(false);
   const [savingSecurity, setSavingSecurity] = useState(false);
   const [form, setForm] = useState({
@@ -50,8 +52,10 @@ export default function PerfilPage() {
       perfil: {
         foto_de_perfil: user.perfil?.foto_de_perfil || "",
         nombre: user.perfil?.nombre || user.nombre || "",
-        apellido_paterno: user.perfil?.apellido_paterno || user.apellido_paterno || "",
-        apellido_materno: user.perfil?.apellido_materno || user.apellido_materno || "",
+        apellido_paterno:
+          user.perfil?.apellido_paterno || user.apellido_paterno || "",
+        apellido_materno:
+          user.perfil?.apellido_materno || user.apellido_materno || "",
         titulo: user.perfil?.titulo || "",
         cedula_profesional: user.perfil?.cedula_profesional || "",
         firma: user.perfil?.firma || "",
@@ -99,8 +103,9 @@ export default function PerfilPage() {
   const onChange = (
     section: "perfil" | "contactos" | "direccion",
     field: string,
-    value: string
+    value: string,
   ) => {
+    if (!canEditFullProfile) return;
     setForm((prev: any) => ({
       ...prev,
       [section]: {
@@ -110,43 +115,68 @@ export default function PerfilPage() {
     }));
   };
 
-  const handleFotoPerfilFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFotoPerfilFile = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) {
       swalError("Selecciona un archivo de imagen (PNG, JPG, etc.)");
+      e.target.value = "";
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result;
-      if (typeof result === "string") setForm((prev: any) => ({
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, {
+        maxEdge: 960,
+        mime: "image/jpeg",
+        quality: 0.82,
+      });
+      setForm((prev: any) => ({
         ...prev,
-        perfil: { ...prev.perfil, foto_de_perfil: result },
+        perfil: { ...prev.perfil, foto_de_perfil: dataUrl },
       }));
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      swalError(
+        "No se pudo procesar la foto. Prueba con otra imagen o un archivo más pequeño.",
+      );
+    }
     e.target.value = "";
   };
 
-  const handleFirmaFile = (field: "firma" | "firma_digital", e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFirmaFile = async (
+    field: "firma" | "firma_digital",
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    if (!canEditFullProfile) {
+      swalError("Solo los roles nivel 0 o 1 pueden editar firmas.");
+      e.target.value = "";
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file || !file.type.startsWith("image/")) {
       swalError("Selecciona un archivo de imagen (PNG, JPG, etc.)");
+      e.target.value = "";
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result;
-      if (typeof result === "string") setForm((prev: any) => ({
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, {
+        maxEdge: 1400,
+        mime: "image/jpeg",
+        quality: 0.88,
+      });
+      setForm((prev: any) => ({
         ...prev,
-        perfil: { ...prev.perfil, [field]: result },
+        perfil: { ...prev.perfil, [field]: dataUrl },
       }));
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      swalError(
+        "No se pudo procesar la imagen de firma. Prueba con otro archivo.",
+      );
+    }
     e.target.value = "";
   };
 
   const clearFirma = (field: "firma" | "firma_digital") => {
+    if (!canEditFullProfile) return;
     setForm((prev: any) => ({
       ...prev,
       perfil: { ...prev.perfil, [field]: "" },
@@ -162,13 +192,53 @@ export default function PerfilPage() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setSaving(true);
     try {
-      await apiService.updateMe(form);
+      const orig = user.perfil;
+      const p = form.perfil;
+      const perfilPayload: Record<string, string> = {
+        nombre: (p.nombre || "").trim(),
+        apellido_paterno: (p.apellido_paterno || "").trim(),
+        apellido_materno: (p.apellido_materno || "").trim(),
+        titulo: (p.titulo || "").trim(),
+        cedula_profesional: (p.cedula_profesional || "").trim(),
+      };
+      if ((p.foto_de_perfil || "") !== (orig?.foto_de_perfil || "")) {
+        perfilPayload.foto_de_perfil = p.foto_de_perfil || "";
+      }
+      if ((p.firma || "") !== (orig?.firma || "")) {
+        perfilPayload.firma = p.firma || "";
+      }
+      if ((p.firma_digital || "") !== (orig?.firma_digital || "")) {
+        perfilPayload.firma_digital = p.firma_digital || "";
+      }
+      const payload = canEditFullProfile
+        ? {
+            perfil: perfilPayload,
+            contactos: form.contactos,
+            direccion: form.direccion,
+          }
+        : {
+            perfil: {
+              foto_de_perfil:
+                perfilPayload.foto_de_perfil ?? (p.foto_de_perfil || ""),
+            },
+          };
+
+      await apiService.updateMe(payload);
       await refresh();
       await swalSuccess("Perfil actualizado");
     } catch (err: any) {
-      swalError(err.response?.data?.detail || "Error al actualizar");
+      const status = err.response?.status;
+      if (status === 413) {
+        swalError(
+          "El servidor rechazó la petición por tamaño (413). Si subiste foto o firmas, usa imágenes más pequeñas. " +
+            "Si el error persiste, el administrador debe aumentar el límite del cuerpo HTTP en Apache (LimitRequestBody) o en el proxy.",
+        );
+      } else {
+        swalError(err.response?.data?.detail || "Error al actualizar");
+      }
     } finally {
       setSaving(false);
     }
@@ -188,7 +258,7 @@ export default function PerfilPage() {
         }
         await apiService.changePassword(
           passwordForm.current_password,
-          passwordForm.new_password
+          passwordForm.new_password,
         );
         setPasswordForm({
           current_password: "",
@@ -234,16 +304,18 @@ export default function PerfilPage() {
               className="w-16 h-16 rounded-full bg-white/25 overflow-hidden grid place-items-center text-2xl font-semibold shrink-0 cursor-pointer hover:ring-2 hover:ring-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 transition-shadow"
               title="Cambiar foto de perfil"
             >
-              {(form.perfil.foto_de_perfil || user.perfil?.foto_de_perfil) ? (
+              {form.perfil.foto_de_perfil || user.perfil?.foto_de_perfil ? (
                 <img
-                  src={form.perfil.foto_de_perfil || user.perfil?.foto_de_perfil || ""}
+                  src={
+                    form.perfil.foto_de_perfil ||
+                    user.perfil?.foto_de_perfil ||
+                    ""
+                  }
                   alt="Foto de perfil"
                   className="w-full h-full object-cover"
                 />
               ) : (
-                <span>
-                  {getUserInitial(profilePreviewUser)}
-                </span>
+                <span>{getUserInitial(profilePreviewUser)}</span>
               )}
             </button>
             <input
@@ -383,7 +455,9 @@ export default function PerfilPage() {
               }
             />
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Foto de perfil</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Foto de perfil
+              </label>
               <p className="text-sm text-gray-500 mb-2">
                 Se mostrará en el menú y en tu perfil. Formatos: PNG, JPG.
               </p>
@@ -510,8 +584,17 @@ export default function PerfilPage() {
                 </p>
                 {form.perfil.firma ? (
                   <div className="flex flex-col gap-2">
-                    <img src={form.perfil.firma} alt="Firma" className="max-h-20 w-auto object-contain border rounded" />
-                    <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma")}>
+                    <img
+                      src={form.perfil.firma}
+                      alt="Firma"
+                      className="max-h-20 w-auto object-contain border rounded"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => clearFirma("firma")}
+                    >
                       Quitar firma física
                     </Button>
                   </div>
@@ -531,12 +614,22 @@ export default function PerfilPage() {
                   Firma digital
                 </label>
                 <p className="text-xs text-gray-500 mb-2">
-                  Se incluye al final de cada correo que envíes desde la plataforma.
+                  Se incluye al final de cada correo que envíes desde la
+                  plataforma.
                 </p>
                 {form.perfil.firma_digital ? (
                   <div className="flex flex-col gap-2">
-                    <img src={form.perfil.firma_digital} alt="Firma digital" className="max-h-20 w-auto object-contain border rounded" />
-                    <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma_digital")}>
+                    <img
+                      src={form.perfil.firma_digital}
+                      alt="Firma digital"
+                      className="max-h-20 w-auto object-contain border rounded"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => clearFirma("firma_digital")}
+                    >
                       Quitar firma digital
                     </Button>
                   </div>
@@ -554,217 +647,231 @@ export default function PerfilPage() {
             </div>
           </div>
 
-          <div className="lg:col-span-2 flex items-center justify-end gap-3 pt-2">
-            <Button type="submit" variant="primary" loading={saving}>
-              Guardar cambios
-            </Button>
-          </div>
+          {canEditFullProfile && (
+            <div className="lg:col-span-2 flex items-center justify-end gap-3 pt-2">
+              <Button type="submit" variant="primary" loading={saving}>
+                Guardar cambios
+              </Button>
+            </div>
+          )}
         </form>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5">
-        <form
-          className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6"
-          onSubmit={onSubmitSecurity}
-        >
-          <div className="space-y-4">
-            <div>
-              <h2 className="font-semibold">Seguridad</h2>
-              <p className="text-sm text-gray-500">
-                Contraseña y autenticación de dos factores
-              </p>
-            </div>
-            <Input
-              label="Contraseña actual"
-              type="password"
-              name="current_password"
-              value={passwordForm.current_password}
-              onChange={(e) =>
-                setPasswordForm({
-                  ...passwordForm,
-                  current_password: e.target.value,
-                })
-              }
-            />
-            <Input
-              label="Nueva contraseña"
-              type="password"
-              name="new_password"
-              value={passwordForm.new_password}
-              onChange={(e) =>
-                setPasswordForm({
-                  ...passwordForm,
-                  new_password: e.target.value,
-                })
-              }
-            />
-            <Input
-              label="Confirmar nueva contraseña"
-              type="password"
-              name="confirm_new_password"
-              value={passwordForm.confirm_new_password}
-              onChange={(e) =>
-                setPasswordForm({
-                  ...passwordForm,
-                  confirm_new_password: e.target.value,
-                })
-              }
-            />
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      {canEditFullProfile && (
+        <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5">
+          <form
+            className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6"
+            onSubmit={onSubmitSecurity}
+          >
+            <div className="space-y-4">
               <div>
-                <h3 className="font-medium">
-                  Autenticación de dos factores (2FA)
-                </h3>
+                <h2 className="font-semibold">Seguridad</h2>
                 <p className="text-sm text-gray-500">
-                  Protege tu cuenta con un código TOTP
+                  Contraseña y autenticación de dos factores
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setTwoFA((s) => ({ ...s, enable: !s.enable }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  twoFA.enable ? "bg-azul" : "bg-gray-300"
-                }`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    twoFA.enable ? "translate-x-6" : "translate-x-1"
-                  }`}
-                />
-              </button>
+              <Input
+                label="Contraseña actual"
+                type="password"
+                name="current_password"
+                value={passwordForm.current_password}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    current_password: e.target.value,
+                  })
+                }
+              />
+              <Input
+                label="Nueva contraseña"
+                type="password"
+                name="new_password"
+                value={passwordForm.new_password}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    new_password: e.target.value,
+                  })
+                }
+              />
+              <Input
+                label="Confirmar nueva contraseña"
+                type="password"
+                name="confirm_new_password"
+                value={passwordForm.confirm_new_password}
+                onChange={(e) =>
+                  setPasswordForm({
+                    ...passwordForm,
+                    confirm_new_password: e.target.value,
+                  })
+                }
+              />
             </div>
-            {twoFA.enable && (
-              <>
-                <div className="grid grid-cols-1 gap-4">
-                  <div className="text-sm text-gray-600">
-                    <p className="mb-2">1) Presiona "Mostrar QR/clave"</p>
-                    <p className="mb-2">
-                      2) Escanéalo con tu app de autenticación
-                    </p>
-                    <p className="mb-2">
-                      3) Guarda seguridad para aplicar cambios
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      Nota: Se te pedirá el código 2FA en tu próximo inicio de
-                      sesión.
-                    </p>
-                  </div>
-                  <div>
-                    <div className="flex items-center flex-wrap gap-3">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const data = await apiService.getOtpAuthUrl();
-                            setTwoFA((s) => ({
-                              ...s,
-                              otpauth: data.otpauth_url,
-                            }));
-                            await swalInfo("Escanea el QR con tu app de autenticación");
-                          } catch (err: any) {
-                            swalError(err.response?.data?.detail || "No se pudo generar el QR");
-                          }
-                        }}
-                        className="text-azul underline"
-                      >
-                        Mostrar QR/clave
-                      </button>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          try {
-                            const data = await apiService.getOtpAuthUrl();
-                            setTwoFA((s) => ({
-                              ...s,
-                              otpauth: data.otpauth_url,
-                            }));
-                            await swalSuccess("QR refrescado");
-                          } catch (err: any) {
-                            swalError(err.response?.data?.detail || "No se pudo refrescar el QR");
-                          }
-                        }}
-                        className="text-azul underline"
-                      >
-                        Refrescar QR
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!qrDataUrl}
-                        onClick={async () => {
-                          try {
-                            if (!qrDataUrl) return;
-                            const link = document.createElement("a");
-                            link.href = qrDataUrl;
-                            link.download = "2fa-qr.png";
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            } catch (_) {
-                            swalError("No se pudo descargar el QR");
-                          }
-                        }}
-                        className="text-azul underline disabled:opacity-50"
-                      >
-                        Descargar QR
-                      </button>
+
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div>
+                  <h3 className="font-medium">
+                    Autenticación de dos factores (2FA)
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    Protege tu cuenta con un código TOTP
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTwoFA((s) => ({ ...s, enable: !s.enable }))}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    twoFA.enable ? "bg-azul" : "bg-gray-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      twoFA.enable ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              {twoFA.enable && (
+                <>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="text-sm text-gray-600">
+                      <p className="mb-2">1) Presiona "Mostrar QR/clave"</p>
+                      <p className="mb-2">
+                        2) Escanéalo con tu app de autenticación
+                      </p>
+                      <p className="mb-2">
+                        3) Guarda seguridad para aplicar cambios
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Nota: Se te pedirá el código 2FA en tu próximo inicio de
+                        sesión.
+                      </p>
                     </div>
-                    {twoFA.otpauth && (
-                      <div className="mt-2 flex flex-col md:flex-row items-start md:items-center gap-4">
-                        {qrDataUrl ? (
-                          <img
-                            src={qrDataUrl}
-                            alt="QR 2FA"
-                            className="rounded border border-gray-200 w-40 h-40 sm:w-48 sm:h-48 md:w-52 md:h-52"
-                          />
-                        ) : (
-                          <div className="w-40 h-40 sm:w-48 sm:h-48 md:w-52 md:h-52 grid place-items-center rounded border border-gray-200 text-xs text-gray-500">
-                            Generando QR...
-                          </div>
-                        )}
-                        <div className="text-xs break-all bg-gray-50 p-2 rounded border border-gray-200 flex-1 max-w-full overflow-auto">
-                          {twoFA.otpauth}
-                          <div className="mt-2">
-                            <button
-                              type="button"
-                              className="text-azul underline"
-                              onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(
-                                    twoFA.otpauth
-                                  );
-                                  await swalSuccess("Clave copiada al portapapeles");
-                                } catch (_) {
-                                  swalError("No se pudo copiar");
-                                }
-                              }}
-                            >
-                              Copiar clave
-                            </button>
+                    <div>
+                      <div className="flex items-center flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const data = await apiService.getOtpAuthUrl();
+                              setTwoFA((s) => ({
+                                ...s,
+                                otpauth: data.otpauth_url,
+                              }));
+                              await swalInfo(
+                                "Escanea el QR con tu app de autenticación",
+                              );
+                            } catch (err: any) {
+                              swalError(
+                                err.response?.data?.detail ||
+                                  "No se pudo generar el QR",
+                              );
+                            }
+                          }}
+                          className="text-azul underline"
+                        >
+                          Mostrar QR/clave
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const data = await apiService.getOtpAuthUrl();
+                              setTwoFA((s) => ({
+                                ...s,
+                                otpauth: data.otpauth_url,
+                              }));
+                              await swalSuccess("QR refrescado");
+                            } catch (err: any) {
+                              swalError(
+                                err.response?.data?.detail ||
+                                  "No se pudo refrescar el QR",
+                              );
+                            }
+                          }}
+                          className="text-azul underline"
+                        >
+                          Refrescar QR
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!qrDataUrl}
+                          onClick={async () => {
+                            try {
+                              if (!qrDataUrl) return;
+                              const link = document.createElement("a");
+                              link.href = qrDataUrl;
+                              link.download = "2fa-qr.png";
+                              document.body.appendChild(link);
+                              link.click();
+                              document.body.removeChild(link);
+                            } catch (_) {
+                              swalError("No se pudo descargar el QR");
+                            }
+                          }}
+                          className="text-azul underline disabled:opacity-50"
+                        >
+                          Descargar QR
+                        </button>
+                      </div>
+                      {twoFA.otpauth && (
+                        <div className="mt-2 flex flex-col md:flex-row items-start md:items-center gap-4">
+                          {qrDataUrl ? (
+                            <img
+                              src={qrDataUrl}
+                              alt="QR 2FA"
+                              className="rounded border border-gray-200 w-40 h-40 sm:w-48 sm:h-48 md:w-52 md:h-52"
+                            />
+                          ) : (
+                            <div className="w-40 h-40 sm:w-48 sm:h-48 md:w-52 md:h-52 grid place-items-center rounded border border-gray-200 text-xs text-gray-500">
+                              Generando QR...
+                            </div>
+                          )}
+                          <div className="text-xs break-all bg-gray-50 p-2 rounded border border-gray-200 flex-1 max-w-full overflow-auto">
+                            {twoFA.otpauth}
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                className="text-azul underline"
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(
+                                      twoFA.otpauth,
+                                    );
+                                    await swalSuccess(
+                                      "Clave copiada al portapapeles",
+                                    );
+                                  } catch (_) {
+                                    swalError("No se pudo copiar");
+                                  }
+                                }}
+                              >
+                                Copiar clave
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-            {!twoFA.enable && user.two_factor_enabled && (
-              <p className="text-sm text-gray-500">
-                Desactivar 2FA no requiere código
-              </p>
-            )}
-          </div>
+                </>
+              )}
+              {!twoFA.enable && user.two_factor_enabled && (
+                <p className="text-sm text-gray-500">
+                  Desactivar 2FA no requiere código
+                </p>
+              )}
+            </div>
 
-          <div className="lg:col-span-2 flex items-center justify-end gap-3 pt-2">
-            <Button type="submit" variant="primary" loading={savingSecurity}>
-              Guardar seguridad
-            </Button>
-          </div>
-        </form>
-      </div>
+            <div className="lg:col-span-2 flex items-center justify-end gap-3 pt-2">
+              <Button type="submit" variant="primary" loading={savingSecurity}>
+                Guardar seguridad
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

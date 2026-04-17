@@ -14,6 +14,7 @@ interface FormularioContinuacionModalProps {
   plantillaId: string;
   plantillaNombre?: string;
   siniestroId: string;
+  areaId?: string;
   onSaved?: () => void;
   empresaColors?: { primary: string; secondary: string };
 }
@@ -30,6 +31,7 @@ export default function FormularioContinuacionModal({
   plantillaId,
   plantillaNombre,
   siniestroId,
+  areaId,
   onSaved,
   empresaColors = { primary: "#4F46E5", secondary: "#7C3AED" },
 }: FormularioContinuacionModalProps) {
@@ -48,7 +50,7 @@ export default function FormularioContinuacionModal({
       try {
         const [plantilla, respuesta] = await Promise.all([
           apiService.getPlantillaDocumentoById(plantillaId),
-          apiService.getRespuestaFormulario(plantillaId, siniestroId).catch(() => null),
+          apiService.getRespuestaFormulario(plantillaId, siniestroId, areaId).catch(() => null),
         ]);
 
         const camposForm = (plantilla?.campos_formulario || []) as CampoFormulario[];
@@ -71,7 +73,7 @@ export default function FormularioContinuacionModal({
     };
 
     load();
-  }, [open, plantillaId, siniestroId]);
+  }, [open, plantillaId, siniestroId, areaId]);
 
   const handleChange = (clave: string, value: string | number) => {
     setValores((prev) => ({ ...prev, [clave]: value }));
@@ -92,7 +94,12 @@ export default function FormularioContinuacionModal({
     setSaving(true);
     setError(null);
     try {
-      await apiService.upsertRespuestaFormulario(plantillaId, siniestroId, valores as Record<string, unknown>);
+      await apiService.upsertRespuestaFormulario(
+        plantillaId,
+        siniestroId,
+        valores as Record<string, unknown>,
+        areaId,
+      );
       onSaved?.();
       onClose();
     } catch (e: any) {
