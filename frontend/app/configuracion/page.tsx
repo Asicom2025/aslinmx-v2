@@ -1263,6 +1263,7 @@ function AreasTab() {
             checked={!!form.activo}
             onChange={(checked) => setForm((prev) => ({ ...prev, activo: checked }))}
           />
+          </fieldset>
           <div className="pt-2 flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
             <Button type="submit" variant="primary">{editing ? "Guardar" : "Crear"}</Button>
