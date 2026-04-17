@@ -17,6 +17,12 @@ from app.schemas.legal_schema import (
 from app.services.legal_service import SiniestroService
 from app.services.email_service import EmailService
 from app.services.auditoria_service import AuditoriaService
+from app.services.siniestro_acceso_service import (
+    usuario_puede_ver_siniestro,
+    usuario_puede_editar_siniestro,
+    usuario_puede_eliminar_siniestro,
+)
+from app.core.nivel_acceso import get_nivel_rol
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +67,8 @@ def list_siniestros(
         numero_siniestro_q=numero_siniestro,
         asegurado_nombre=asegurado_nombre,
         skip=skip,
-        limit=limit
+        limit=limit,
+        current_user=current_user,
     )
 
 
@@ -69,12 +76,14 @@ def list_siniestros(
 def get_siniestro(
     siniestro_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "read")),
 ):
     """
     Obtiene un siniestro por ID.
     Valida que pertenezca a la empresa del usuario.
     """
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
     siniestro = SiniestroService.get_by_id(db, siniestro_id, current_user.empresa_id)
     if not siniestro:
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
@@ -92,6 +101,11 @@ def create_siniestro(
     numero_siniestro y numero_reporte pueden repetirse (p. ej. S/N, N/A).
     El campo creado_por se establece automáticamente con el usuario actual.
     """
+    if get_nivel_rol(db, current_user) >= 4:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Su nivel de rol solo permite consultar siniestros asignados",
+        )
     try:
         siniestro = SiniestroService.create(db, current_user.empresa_id, payload, current_user.id)
     except HTTPException:
@@ -145,6 +159,11 @@ def update_siniestro(
     Valida que pertenezca a la empresa del usuario.
     Si se actualiza descripcion_hechos, crea una nueva versión automáticamente.
     """
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso para editar este siniestro según su nivel o asignación",
+        )
     try:
         siniestro = SiniestroService.update(db, siniestro_id, current_user.empresa_id, payload, current_user.id)
         if not siniestro:
@@ -183,6 +202,11 @@ def delete_siniestro(
     Elimina lógicamente un siniestro (soft delete).
     No elimina físicamente para mantener historial.
     """
+    if not usuario_puede_eliminar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso para eliminar este siniestro según su nivel o asignación",
+        )
     ok = SiniestroService.delete(db, siniestro_id, current_user.empresa_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")

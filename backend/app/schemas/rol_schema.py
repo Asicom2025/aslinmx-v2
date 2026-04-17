@@ -13,7 +13,7 @@ class RolBase(BaseModel):
     """Schema base de rol"""
     nombre: str = Field(..., min_length=1, max_length=100)
     descripcion: Optional[str] = None
-    nivel: Optional[int] = Field(None, ge=1, le=10)
+    nivel: Optional[int] = Field(None, ge=0, le=10)
 
 
 class RolCreate(RolBase):
@@ -25,7 +25,7 @@ class RolUpdate(BaseModel):
     """Schema para actualizar rol"""
     nombre: Optional[str] = Field(None, min_length=1, max_length=100)
     descripcion: Optional[str] = None
-    nivel: Optional[int] = Field(None, ge=1, le=10)
+    nivel: Optional[int] = Field(None, ge=0, le=10)
     activo: Optional[bool] = None
 
 

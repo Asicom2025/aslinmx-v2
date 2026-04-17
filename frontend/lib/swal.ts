@@ -4,6 +4,7 @@
  */
 
 import Swal from 'sweetalert2';
+import { isPermissionDeniedApiMessage } from './parseApiError';
 
 // Configuración por defecto
 const defaultConfig = {
@@ -34,6 +35,10 @@ export const swalSuccess = (message: string, title: string = 'Éxito') => {
  * Muestra una alerta de error
  */
 export const swalError = (message: string, title: string = 'Error') => {
+  if (isPermissionDeniedApiMessage(message)) {
+    console.warn('[permisos API]', message);
+    return Promise.resolve() as ReturnType<typeof Swal.fire>;
+  }
   return Swal.fire({
     icon: 'error',
     title,
@@ -60,6 +65,10 @@ export const swalInfo = (message: string, title: string = 'Información') => {
  * Muestra una alerta de advertencia
  */
 export const swalWarning = (message: string, title: string = 'Advertencia') => {
+  if (isPermissionDeniedApiMessage(message)) {
+    console.warn('[permisos API]', message);
+    return Promise.resolve() as ReturnType<typeof Swal.fire>;
+  }
   return Swal.fire({
     icon: 'warning',
     title,

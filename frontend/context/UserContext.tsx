@@ -61,6 +61,8 @@ export interface CurrentUser {
   permisos?: { modulo: string; accion: string }[] | null;
   /** Áreas asignadas al usuario (multiárea). Viene de /users/me */
   areas?: { id: string; nombre: string }[] | null;
+  /** Sesión como otro usuario (JWT con claim imp) */
+  impersonated_by?: { id: string; email?: string | null } | null;
 }
 
 interface UserContextValue {
@@ -68,6 +70,8 @@ interface UserContextValue {
   loading: boolean;
   refresh: () => Promise<void>;
   logout: () => void;
+  /** Vuelve al token guardado antes de impersonar (sesión del desarrollador nivel 0). */
+  exitImpersonation: () => Promise<void>;
   activeEmpresa: EmpresaSummary | null;
   setActiveEmpresa: (empresaId: string) => Promise<void>;
 }
@@ -109,6 +113,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem("token");
     setUser(null);
     setActiveEmpresaId(null);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("preImpersonateToken");
+    }
+  };
+
+  const exitImpersonation = async () => {
+    if (typeof window === "undefined") return;
+    const prev = sessionStorage.getItem("preImpersonateToken");
+    if (!prev) {
+      return;
+    }
+    localStorage.setItem("token", prev);
+    sessionStorage.removeItem("preImpersonateToken");
+    await refresh();
   };
 
   const activeEmpresa =
@@ -138,7 +156,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <UserContext.Provider value={{ user, loading, refresh, logout, activeEmpresa, setActiveEmpresa }}>
+    <UserContext.Provider
+      value={{ user, loading, refresh, logout, exitImpersonation, activeEmpresa, setActiveEmpresa }}
+    >
       {children}
     </UserContext.Provider>
   );

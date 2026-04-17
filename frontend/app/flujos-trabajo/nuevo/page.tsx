@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import apiService from "@/lib/apiService";
+import { getApiErrorMessage, isPermissionDeniedApiMessage } from "@/lib/parseApiError";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import Switch from "@/components/ui/Switch";
@@ -45,7 +46,12 @@ export default function NuevoFlujoTrabajoPage() {
       toast.success("Flujo creado correctamente");
       router.push("/flujos-trabajo");
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || "Error al crear flujo");
+      const msg = getApiErrorMessage(error.response?.data, "Error al crear flujo");
+      if (isPermissionDeniedApiMessage(msg)) {
+        console.warn("[permisos API]", msg);
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }

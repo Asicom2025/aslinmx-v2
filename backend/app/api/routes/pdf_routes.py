@@ -32,6 +32,7 @@ from app.models.legal import Area, Proveniente, SiniestroArea, Institucion, Auto
 from typing import Optional, Any, Dict, Tuple
 from datetime import datetime as dt
 from uuid import UUID as PyUUID
+import os
 import re
 import io
 import base64
@@ -44,7 +45,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Altura reservada para el header repetido por página (running header).
-PDF_HEADER_MARGIN_TOP = "6cm"
+PDF_HEADER_MARGIN_TOP = "2cm"
+
+
+def _pdf_debug_html_enabled() -> bool:
+    """Activa trazas del HTML enviado a WeasyPrint: export PDF_DEBUG_HTML=1 (o true/yes/on)."""
+    v = (os.environ.get("PDF_DEBUG_HTML") or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def _pdf_debug_log_html(tag: str, html: Optional[str], max_chars: int = 12000) -> None:
+    """Escribe en log (WARNING) un fragmento del HTML; solo si PDF_DEBUG_HTML está activo."""
+    if not _pdf_debug_html_enabled():
+        return
+    s = html if html is not None else ""
+    tail = "..." if len(s) > max_chars else ""
+    logger.warning(
+        "PDF_DEBUG_HTML [%s] length=%s\n%s%s",
+        tag,
+        len(s),
+        s[:max_chars],
+        tail,
+    )
 
 
 def _get_poliza_principal(siniestro: Any) -> Optional[Any]:
@@ -461,34 +483,41 @@ def _build_header_html_with_logo(
     user: User,
     header_plantilla=None,
 ) -> str:
-    """
-    Construye el HTML del header inyectando el logo.
-    Prioridad: logo_url del header (plantilla) > logo de la empresa.
-    Si header_contenido contiene {{logo}}, se reemplaza por la etiqueta img.
-    Si no hay placeholder pero hay logo, se antepone un bloque con el logo.
-    """
     logo_url = _get_logo_for_header(db, user, header_plantilla)
     if not logo_url:
         return header_contenido
-    img_tag = f'<img src="{logo_url}" alt="Logo" style="max-height: 120px; max-width: 320px; object-fit: contain;" />'
+
+    img_tag = (
+        f'<img src="{logo_url}" alt="Logo" '
+        'style="display: block; max-height: 120px; max-width: 360px; '
+        'object-fit: contain; margin: 0;" />'
+    )
+
     if "{{logo}}" in header_contenido:
-        return header_contenido.replace("{{logo}}", img_tag)
-    # Logo y contenido del header en la misma línea (flex: logo izquierda, contenido derecha)
+        logo_block = (
+            '<div style="display: block; width: 100%; text-align: left; '
+            'margin: 0 0 0.5rem 0;">'
+            f"{img_tag}"
+            "</div>"
+        )
+        return header_contenido.replace("{{logo}}", logo_block)
+
     return (
-        '<div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 0.5rem;">'
-        f'<div style="flex-shrink: 0;">{img_tag}</div>'
+        '<div style="display: flex; justify-content: flex-start; '
+        'align-items: flex-start; width: 100%; text-align: left; '
+        'gap: 1rem; margin-bottom: 0.5rem;">'
+        f'<div style="flex: 0 0 auto;">{img_tag}</div>'
         f'<div style="flex: 1; min-width: 0;">{header_contenido}</div>'
         "</div>"
     )
-
 
 def _prepend_logo_if_empresa_has_one(db: Session, html_content: str, user: User) -> str:
     """Si la empresa tiene logo y el contenido no incluye ya el placeholder {{logo}}, antepone el logo."""
     logo_url = _get_empresa_logo_url(db, user)
     if not logo_url:
         return html_content
-    img_tag = f'<img src="{logo_url}" alt="Logo" style="max-height: 120px; max-width: 320px; object-fit: contain;" />'
-    block = f'<div class="header-logo" style="margin-bottom: 0.5rem;">{img_tag}</div>\n'
+    img_tag = f'<img src="{logo_url}" alt="Logo" style="display: block; max-height: 120px; max-width: 320px; object-fit: contain; margin: 0;" />'
+    block = f'<div class="header-logo" style="display: block; width: 100%; text-align: left; margin: 0.35rem 0 0.5rem 0;">{img_tag}</div>\n'
     if block.strip() in html_content or "{{logo}}" in html_content:
         return html_content
     return block + html_content
@@ -611,31 +640,30 @@ def _persist_generated_pdf_response(
 
 
 def _wrap_header_for_all_pages(header_html: str, body_html: str) -> str:
-    """
-    Envuelve el header con running elements de WeasyPrint.
-    Esto evita solapamiento en páginas 2+ porque el motor reserva el top margin
-    en cada página renderizada.
-    """
     header_page_style = (
         "<style>"
         "@page withRunningHeader {"
         f"  margin-top: {PDF_HEADER_MARGIN_TOP};"
-        "  @top-center { content: element(pdfHeader); }"
+        "  @top-left { content: element(pdfHeader); }"
         "}"
-        ".pdf-page-header-running { position: running(pdfHeader); }"
-        ".pdf-page-header-running { line-height: 1.2; }"
+        ".pdf-page-header-running {"
+        "  position: running(pdfHeader);"
+        "  width: 100%;"
+        "  text-align: left;"
+        "  line-height: 1.2;"
+        "}"
         ".pdf-page-header-running p { margin: 0; }"
         ".pdf-page-header-running table { margin: 0; }"
         ".pdf-with-running-header { page: withRunningHeader; }"
         "</style>"
     )
     header_block = (
-        f'<div class="pdf-page-header-running" style="background: white;">'
+        '<div class="pdf-page-header-running" '
+        'style="background: white; width: 100%; text-align: left;">'
         f"{header_html.strip()}</div>"
     )
     body_block = f'<div class="pdf-with-running-header">{body_html}</div>'
     return header_page_style + "\n" + header_block + "\n" + body_block
-
 
 def _get_plantilla_header_and_body(
     db: Session, plantilla, user: User, *, body_override: Optional[str] = None
@@ -850,6 +878,8 @@ async def generate_pdf(
             if segunda:
                 html1 = _build_section_html(db, plantilla, current_user, body_override=html_content)
                 html2 = _build_section_html(db, segunda, current_user)
+                _pdf_debug_log_html("generate_pdf_continuacion_seccion_1", html1)
+                _pdf_debug_log_html("generate_pdf_continuacion_seccion_2", html2)
                 pdf1 = PDFService.generate_pdf(html_content=html1, **pdf_opts)
                 pdf2 = PDFService.generate_pdf(html_content=html2, **pdf_opts)
                 pdf_bytes = _merge_pdfs([pdf1, pdf2])
@@ -880,6 +910,7 @@ async def generate_pdf(
         plantilla = PlantillaDocumentoService.get_by_id(db, plantilla_id=request.plantilla_id)
         if plantilla:
             merged_variables = _format_currency_variables(merged_variables, plantilla)
+    _pdf_debug_log_html("generate_pdf_html_final_antes_weasyprint", html_content)
     try:
         pdf_base64 = PDFService.generate_pdf_base64(
             html_content=html_content,

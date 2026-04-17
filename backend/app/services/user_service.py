@@ -1,6 +1,6 @@
 """
 Servicio de Usuarios
-Lógica de negocio para gestión de usuarios
+L?gica de negocio para gesti?n de usuarios
 """
 
 from typing import Optional, List
@@ -106,7 +106,16 @@ class UserService:
     @staticmethod
     def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
         """Obtiene un usuario por ID"""
-        return db.query(User).filter(User.id == user_id).first()
+        return (
+            db.query(User)
+            .options(
+                selectinload(User.perfil),
+                selectinload(User.rol),
+                selectinload(User.areas),
+            )
+            .filter(User.id == user_id)
+            .first()
+        )
     
     @staticmethod
     def get_user_by_email(db: Session, email: str) -> Optional[User]:
@@ -124,7 +133,7 @@ class UserService:
         skip: int = 0,
         limit: int = 100
     ) -> List[User]:
-        """Obtiene lista de usuarios con paginación"""
+        """Obtiene lista de usuarios con paginaci?n"""
         return (
             db.query(User)
             .options(
@@ -132,6 +141,7 @@ class UserService:
                 selectinload(User.contactos),
                 selectinload(User.direccion),
                 selectinload(User.areas),
+                selectinload(User.rol),
             )
             .offset(skip)
             .limit(limit)
@@ -144,7 +154,7 @@ class UserService:
         Crea un nuevo usuario
         
         Args:
-            db: Sesión de base de datos
+            db: Sesi?n de base de datos
             user: Datos del usuario a crear
         
         Returns:
@@ -157,7 +167,7 @@ class UserService:
         if UserService.get_user_by_email(db, user.email):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El email ya está registrado"
+                detail="El email ya est? registrado"
             )
         
         # Crear usuario (username y full_name se ignoran o se mapean a correo/perfil)
@@ -219,7 +229,7 @@ class UserService:
     @staticmethod
     def start_login(db: Session, username: str, password: str) -> dict:
         """
-        Paso 1 de login: valida credenciales. Si 2FA está habilitado, retorna temp_token.
+        Paso 1 de login: valida credenciales. Si 2FA est? habilitado, retorna temp_token.
         Si no, retorna access_token final.
         """
         user = UserService.get_user_by_username(db, username) or UserService.get_user_by_email(db, username)
@@ -272,7 +282,7 @@ class UserService:
     @staticmethod
     def sync_user_areas(db: Session, db_user: User, area_ids: Optional[List[UUID]]) -> None:
         """
-        Sincroniza las áreas asignadas a un usuario (multiárea).
+        Sincroniza las ?reas asignadas a un usuario (multi?rea).
         """
         if area_ids is None:
             return
@@ -309,7 +319,7 @@ class UserService:
         Actualiza un usuario existente
         
         Args:
-            db: Sesión de base de datos
+            db: Sesi?n de base de datos
             user_id: ID del usuario a actualizar
             user_update: Datos a actualizar
         
@@ -321,7 +331,7 @@ class UserService:
         if not db_user:
             return None
         
-        # Actualizar campos básicos (full_name es propiedad de solo lectura, se actualiza vía perfil)
+        # Actualizar campos b?sicos (full_name es propiedad de solo lectura, se actualiza v?a perfil)
         update_data = user_update.model_dump(
             exclude_unset=True,
             exclude={
@@ -357,11 +367,11 @@ class UserService:
         if empresa_ids is not None:
             UserService.sync_user_empresas(db, db_user, empresa_ids)
 
-        # Sincronizar áreas (multiárea)
+        # Sincronizar ?reas (multi?rea)
         if user_update.area_ids is not None:
             UserService.sync_user_areas(db, db_user, user_update.area_ids)
         
-        # Actualizar campos básicos
+        # Actualizar campos b?sicos
         for field, value in update_data.items():
             if hasattr(db_user, field):
                 setattr(db_user, field, value)
@@ -389,7 +399,7 @@ class UserService:
                 for k, v in user_update.contactos.model_dump(exclude_unset=True).items():
                     setattr(contactos, k, v)
         
-        # Dirección
+        # Direcci?n
         if user_update.direccion is not None:
             direccion = db_user.direccion
             if direccion is None:
@@ -417,11 +427,11 @@ class UserService:
         Elimina un usuario
         
         Args:
-            db: Sesión de base de datos
+            db: Sesi?n de base de datos
             user_id: ID del usuario a eliminar
         
         Returns:
-            True si se eliminó, False si no existe
+            True si se elimin?, False si no existe
         """
         db_user = UserService.get_user_by_id(db, user_id)
         
@@ -435,15 +445,15 @@ class UserService:
 
     @staticmethod
     def get_totp_uri(current_user: User) -> str:
-        """Genera otpauth URI para configurar TOTP en apps de autenticación."""
+        """Genera otpauth URI para configurar TOTP en apps de autenticaci?n."""
         # Asegurar secreto
-        # Nota: no se habilita automáticamente; solo se expone el URI
+        # Nota: no se habilita autom?ticamente; solo se expone el URI
         secret = current_user.two_factor_secret
         if not secret:
             # Generar y almacenar un secreto si no existe
             # Reutilizamos ensure_user_totp_secret, que crea registro y secreto
-            # usando la sesión de base de datos
-            raise RuntimeError("Se requiere sesión de BD para generar secreto")
+            # usando la sesi?n de base de datos
+            raise RuntimeError("Se requiere sesi?n de BD para generar secreto")
         totp = pyotp.TOTP(secret)
         issuer = settings.TOTP_ISSUER
         label = f"{issuer}:{current_user.email}"
@@ -459,9 +469,9 @@ class UserService:
         Autentica un usuario
         
         Args:
-            db: Sesión de base de datos
+            db: Sesi?n de base de datos
             username: Nombre de usuario o email
-            password: Contraseña
+            password: Contrase?a
         
         Returns:
             Usuario si las credenciales son correctas, None en caso contrario
@@ -485,7 +495,7 @@ class UserService:
         current_user: User,
         payload: UserMeUpdate,
     ) -> User:
-        """Actualiza perfil, contactos y dirección del usuario actual.
+        """Actualiza perfil, contactos y direcci?n del usuario actual.
 
         Crea los registros relacionados si no existen."""
         profile_data = UserService._normalize_profile_payload(
@@ -510,7 +520,7 @@ class UserService:
                 for k, v in payload.contactos.model_dump(exclude_unset=True).items():
                     setattr(contactos, k, v)
 
-        # Dirección
+        # Direcci?n
         if payload.direccion is not None:
             direccion = current_user.direccion
             if direccion is None:
@@ -555,13 +565,13 @@ class UserService:
         UserService.ensure_user_totp_secret(db, current_user)
         record = current_user.dosfa
         if payload.enable:
-            # Al habilitar, si se requiere código, validarlo con el secreto actual
+            # Al habilitar, si se requiere c?digo, validarlo con el secreto actual
             if payload.code:
                 if not verify_totp_code(record.secreto, payload.code):
                     return False
             record.habilitado = True
         else:
-            # Deshabilitar sin requerir código (se puede exigir en futuro)
+            # Deshabilitar sin requerir c?digo (se puede exigir en futuro)
             record.habilitado = False
         db.add(record)
         db.commit()

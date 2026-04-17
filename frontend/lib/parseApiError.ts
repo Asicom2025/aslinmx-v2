@@ -112,3 +112,16 @@ export function getApiErrorMessage(
   if (typeof data.message === "string" && data.message.trim()) return data.message.trim();
   return fallback;
 }
+
+/**
+ * Errores 403 (o equivalentes) por matriz de permisos / nivel de rol: no deben mostrarse
+ * como modal al usuario; basta registrar en consola para diagnóstico.
+ */
+export function isPermissionDeniedApiMessage(message: unknown): boolean {
+  if (typeof message !== "string") return false;
+  const t = message.trim();
+  if (t.startsWith("No tiene permiso")) return true;
+  if (t === "No tiene un rol asignado") return true;
+  if (t === "Su nivel de rol solo permite consultar siniestros asignados") return true;
+  return false;
+}

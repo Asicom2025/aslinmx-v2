@@ -65,7 +65,8 @@ api.interceptors.response.use(
       url.includes("/users/register") ||
       url.includes("/users/2fa/verify") ||
       url.includes("/users/refresh") ||
-      url.includes("/users/logout");
+      url.includes("/users/logout") ||
+      url.includes("/users/impersonate/accept");
 
     // Homologar: siempre dejar response.data.detail como string legible para el usuario
     const data = error.response?.data;
@@ -196,6 +197,22 @@ const authService = {
   logout: async () => {
     const response = await api.post("/users/logout", null);
     return response.data;
+  },
+
+  /** Solo nivel 0: obtiene token de un paso para canjear sesión como otro usuario */
+  requestImpersonationToken: async (userId: string) => {
+    const response = await api.post(`/users/${userId}/impersonate`);
+    return response.data as { impersonation_token: string; expires_in_minutes: number };
+  },
+
+  /** Canjea token (sin Authorization; usa cookie refresh al aceptar) */
+  acceptImpersonation: async (impersonationToken: string) => {
+    const response = await axios.post(
+      `${API_URL}/api/v1/users/impersonate/accept`,
+      { token: impersonationToken },
+      { withCredentials: true, headers: { "Content-Type": "application/json" } }
+    );
+    return response.data as { access_token: string; token_type: string };
   },
 };
 
