@@ -450,6 +450,7 @@ class UserService:
             exclude_unset=True,
             exclude={
                 "password",
+                "two_factor_enabled",
                 "empresa_id",
                 "empresa_ids",
                 "rol_id",
@@ -503,8 +504,13 @@ class UserService:
         
         # Actualizar campos b?sicos
         for field, value in update_data.items():
-            if hasattr(db_user, field):
-                setattr(db_user, field, value)
+            if not hasattr(db_user, field):
+                continue
+            descriptor = getattr(type(db_user), field, None)
+            if isinstance(descriptor, property) and descriptor.fset is None:
+                # Evita intentar asignar propiedades de solo lectura.
+                continue
+            setattr(db_user, field, value)
         
         profile_data = UserService._normalize_profile_payload(
             perfil_payload=user_update.perfil,
