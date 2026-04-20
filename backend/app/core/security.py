@@ -185,13 +185,15 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
-    # Sesión como otro usuario: claim opcional "imp" = UUID del actor (desarrollador)
+    # Sesión como otro usuario: claim opcional "imp" = UUID del actor (desarrollador).
+    # No usar el nombre "impersonated_by": coincide con UserResponse y rompe listados
+    # si esta misma instancia ORM aparece en la sesión (p. ej. GET /users).
     imp = payload.get("imp")
     if imp:
         try:
-            setattr(user, "impersonated_by", uuid.UUID(str(imp)))
+            setattr(user, "impersonation_actor_id", uuid.UUID(str(imp)))
         except Exception:
-            setattr(user, "impersonated_by", None)
+            setattr(user, "impersonation_actor_id", None)
     
     return user
 
