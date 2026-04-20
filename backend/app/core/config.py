@@ -68,7 +68,14 @@ class Settings(BaseSettings):
     STORAGE_LOCAL_ROOT: Optional[str] = None
     STORAGE_SIGNED_URL_TTL_SECONDS: int = 900
     STORAGE_VALIDATE_ON_STARTUP: bool = True
-    STORAGE_RECONCILE_SAMPLE_LIMIT: int = 25
+
+    # API envelope JSON + logging estructurado por petición
+    API_ENVELOPE_ENABLED: bool = True
+    HTTP_LOG_SERVICE_NAME: str = "aslin-api"
+    HTTP_LOG_ENVIRONMENT: Optional[str] = None  # Si None: development/production según DEBUG
+    STRUCTURED_LOG_DIR: Optional[str] = None  # ej. /logs — archivo log_DD_MM_YY.log
+    STRUCTURED_LOG_TARGET: str = "stdout"  # stdout | file | both
+    HTTP_LOG_MAX_BODY_BYTES: int = 262144  # 256 KiB para body en logs y lectura request
 
     # Cloudflare R2 (S3-compatible)
     R2_ACCOUNT_ID: Optional[str] = None

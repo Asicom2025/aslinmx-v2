@@ -349,6 +349,7 @@ export default function SiniestroDetailPage() {
   const canVerBitacora = can("siniestros", "ver_bitacora");
   const canGenerarPdf = can("siniestros", "generar_pdf");
   const canActualizarSiniestro = can("siniestros", "update");
+  const canAgregarAbogado = can("siniestros", "asignar_abogado");
   const canCrearSiniestro = can("siniestros", "create");
   const canAsignarAreas = can("siniestros", "asignar_areas");
   const canEliminarSiniestro = can("siniestros", "delete");
@@ -1937,6 +1938,7 @@ export default function SiniestroDetailPage() {
               documento_creado: "Documento creado",
               documento_actualizado: "Documento actualizado",
               documento_subido: "Archivo subido",
+              documento_upload_fallo: "Fallo al subir archivo",
               documento_eliminado: "Documento eliminado",
               bitacora_creada: "Actividad en bitácora",
               bitacora_actualizada: "Actividad actualizada",
@@ -1986,6 +1988,8 @@ export default function SiniestroDetailPage() {
               case "DOCUMENTO_ACTUALIZADO":
               case "DOCUMENTO_SUBIDO":
                 return <FiFileText className="w-4 h-4" />;
+              case "DOCUMENTO_UPLOAD_FALLO":
+                return <FiAlertTriangle className="w-4 h-4" />;
               case "DOCUMENTO_ELIMINADO":
                 return <FiTrash2 className="w-4 h-4" />;
               case "BITACORA_CREADA":
@@ -2000,7 +2004,7 @@ export default function SiniestroDetailPage() {
 
           const getAccionColor = (value: string) => {
             const a = value?.toUpperCase();
-            if (a === "ERROR") {
+            if (a === "ERROR" || a === "DOCUMENTO_UPLOAD_FALLO") {
               return "bg-red-200 text-red-800 border-red-300";
             }
             switch (a) {
@@ -3709,9 +3713,9 @@ export default function SiniestroDetailPage() {
                                           siniestroId={siniestroId as string}
                                           canVerPdf={canGenerarPdf}
                                           canEditarDocumento={
-                                            canActualizarSiniestro
+                                            canGenerarPdf
                                           }
-                                          canCrearDocumento={canCrearSiniestro}
+                                          canCrearDocumento={canGenerarPdf}
                                         />
                                       )}
 
@@ -3872,9 +3876,9 @@ export default function SiniestroDetailPage() {
                                         siniestroId={siniestroId as string}
                                         canVerPdf={canGenerarPdf}
                                         canEditarDocumento={
-                                          canActualizarSiniestro
+                                          canGenerarPdf
                                         }
-                                        canCrearDocumento={canCrearSiniestro}
+                                        canCrearDocumento={canGenerarPdf}
                                       />
                                     )}
 
@@ -4572,12 +4576,12 @@ export default function SiniestroDetailPage() {
                     </div>
 
                     {/* Agregar nuevo involucrado (solo con permiso actualizar) */}
-                    {canActualizarSiniestro && (
+                    {canAgregarAbogado && (
                       <div className="pt-4 border-t border-gray-200 space-y-3">
                         <div className="flex flex-col md:flex-row gap-2 md:items-end">
                           <div className="w-full md:flex-1">
                             <CustomSelect
-                              label="Agregar Involucrado"
+                              label="Agregar abogado"
                               name="agregar_involucrado_siniestro"
                               value={nuevoInvolucradoUsuarioId}
                               onChange={(val) =>

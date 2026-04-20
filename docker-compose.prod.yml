@@ -24,9 +24,14 @@ services:
     volumes:
       - ./db:/app/db:ro
       - /opt/app/backend/uploads:/app/uploads:ro
+      # Logs JSON diarios (log_DD_MM_YY.log). Con varios workers puede haber líneas intercaladas.
+      - ./logs/backend:/logs
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      STRUCTURED_LOG_DIR: /logs
+      STRUCTURED_LOG_TARGET: ${STRUCTURED_LOG_TARGET:-stdout}
     ports:
       - "127.0.0.1:8000:8000"
     networks:

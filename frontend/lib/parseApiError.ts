@@ -103,10 +103,36 @@ export function parseApiErrorDetail(detail: unknown): string {
  * Usa parseApiErrorDetail si existe detail; si no, intenta message u otro campo.
  */
 export function getApiErrorMessage(
-  data: { detail?: unknown; message?: string; [key: string]: unknown } | undefined,
+  data:
+    | {
+        detail?: unknown;
+        message?: string;
+        success?: boolean;
+        error?: { message?: string; code?: string };
+        details?: { validation_errors?: unknown };
+        [key: string]: unknown;
+      }
+    | undefined,
   fallback: string = "Ha ocurrido un error. Intente de nuevo."
 ): string {
   if (!data) return fallback;
+
+  const envErr = data.error;
+  if (
+    envErr &&
+    typeof envErr === "object" &&
+    typeof envErr.message === "string" &&
+    envErr.message.trim()
+  ) {
+    return envErr.message.trim();
+  }
+
+  const ve = data.details?.validation_errors;
+  if (Array.isArray(ve)) {
+    const fromVe = parseApiErrorDetail(ve as unknown);
+    if (fromVe) return fromVe;
+  }
+
   const parsed = parseApiErrorDetail(data.detail);
   if (parsed) return parsed;
   if (typeof data.message === "string" && data.message.trim()) return data.message.trim();

@@ -13,27 +13,31 @@ import logging
 
 from app.core.config import settings
 from app.core.error_responses import ensure_detail_string, validation_errors_to_detail
+from app.core.api_envelope import (
+    build_error_envelope,
+    effective_trace_id,
+    validation_details_from_errors,
+)
+from app.core.trace_context import get_trace_id
+from app.middleware.http_transaction_middleware import HttpTransactionMiddleware
 from app.api.api_router import api_router
 from app.services.storage_ops_service import StorageOpsService
 
-# Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-# Peticiones HTTP (sin query string, body ni cabeceras sensibles)
-access_logger = logging.getLogger("uvicorn.error")
 
-# Crear instancia de FastAPI
-# redirect_slashes=False evita 307 al llamar /api/v1/users en lugar de /api/v1/users/
 app = FastAPI(
     title="Aslin 2.0 API",
     description="API REST para sistema de gestión administrativa",
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    redirect_slashes=False
+    redirect_slashes=False,
 )
 
-# Configurar CORS - debe estar antes de otros middlewares
+# Primero el middleware de transacción (más externo): ve la respuesta final y unifica logs.
+app.add_middleware(HttpTransactionMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -45,103 +49,100 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def log_request_client_info(request: Request, call_next):
-    """
-    Registro mínimo por petición: IP de cliente / proxy y ruta.
-    No se registra query string, cuerpo, cookies ni Authorization.
-    """
-    client_host = request.client.host if request.client else None
-    x_forwarded_for = request.headers.get("x-forwarded-for")
-    x_real_ip = request.headers.get("x-real-ip")
-    access_logger.info(
-        "request client_host=%s x_forwarded_for=%s x_real_ip=%s method=%s path=%s",
-        client_host,
-        x_forwarded_for,
-        x_real_ip,
-        request.method,
-        request.url.path,
-    )
-    return await call_next(request)
+def _cors_headers(request: Request) -> dict:
+    origin = request.headers.get("origin")
+    if origin and (
+        origin in settings.CORS_ORIGINS
+        or any(
+            origin.startswith(f"http://{host}")
+            for host in ["localhost", "127.0.0.1", "0.0.0.0", "frontend"]
+        )
+    ):
+        return {
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    return {}
 
 
-# Manejador de excepciones global para asegurar headers CORS en errores
+def _envelope_json_response(
+    request: Request,
+    *,
+    status_code: int,
+    payload: dict,
+) -> JSONResponse:
+    headers = _cors_headers(request)
+    tid = get_trace_id() or effective_trace_id()
+    headers["X-Trace-Id"] = tid
+    return JSONResponse(status_code=status_code, content=payload, headers=headers)
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """
     Manejador global de excepciones que asegura que los headers CORS
     siempre se envíen, incluso en caso de error.
     """
-    logger.error(f"Error no manejado: {str(exc)}")
+    logger.error("Error no manejado: %s", str(exc))
     logger.error(traceback.format_exc())
-    
-    # Crear respuesta con headers CORS
-    origin = request.headers.get("origin")
-    if origin and (origin in settings.CORS_ORIGINS or 
-                   any(origin.startswith(f"http://{host}") for host in ["localhost", "127.0.0.1", "0.0.0.0", "frontend"])):
-        headers = {
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    else:
-        headers = {}
-    
-    detail = "Error interno del servidor"
+
+    message = "Error interno del servidor"
     if settings.DEBUG and str(exc):
-        detail = f"{detail}: {str(exc)}"
-    return JSONResponse(
+        message = f"{message}: {str(exc)}"
+
+    tid = get_trace_id() or effective_trace_id()
+    payload = build_error_envelope(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": detail},
-        headers=headers
+        message=message,
+        details=None,
+        trace_id=tid,
+    )
+    return _envelope_json_response(
+        request,
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        payload=payload,
     )
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """Manejador de excepciones HTTP que incluye headers CORS"""
-    origin = request.headers.get("origin")
-    if origin and (origin in settings.CORS_ORIGINS or 
-                   any(origin.startswith(f"http://{host}") for host in ["localhost", "127.0.0.1", "0.0.0.0", "frontend"])):
-        headers = {
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    else:
-        headers = {}
-    
-    return JSONResponse(
+    """HTTPException con envelope homologado."""
+    message = ensure_detail_string(exc.detail)
+    tid = get_trace_id() or effective_trace_id()
+    payload = build_error_envelope(
         status_code=exc.status_code,
-        content={"detail": exc.detail},
-        headers=headers
+        message=message,
+        details=None,
+        trace_id=tid,
+    )
+    return _envelope_json_response(
+        request,
+        status_code=exc.status_code,
+        payload=payload,
     )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Manejador de errores de validación que incluye headers CORS"""
-    origin = request.headers.get("origin")
-    if origin and (origin in settings.CORS_ORIGINS or 
-                   any(origin.startswith(f"http://{host}") for host in ["localhost", "127.0.0.1", "0.0.0.0", "frontend"])):
-        headers = {
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    else:
-        headers = {}
-    
-    return JSONResponse(
+    """Errores de validación Pydantic con envelope y detalle estructurado."""
+    errors = exc.errors()
+    message = validation_errors_to_detail(errors)
+    tid = get_trace_id() or effective_trace_id()
+    payload = build_error_envelope(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": validation_errors_to_detail(exc.errors())},
-        headers=headers
+        message=message,
+        details=validation_details_from_errors(errors),
+        trace_id=tid,
+    )
+    return _envelope_json_response(
+        request,
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        payload=payload,
     )
 
-# Incluir routers de la API
+
 app.include_router(api_router, prefix="/api/v1")
 
 
@@ -154,9 +155,9 @@ async def startup_event():
     try:
         from app.db.session import engine
         from app.db.base import Base
+
         Base.metadata.create_all(bind=engine)
     except Exception as e:
-        # Si falla (ej. race con workers), las tablas probablemente ya existen
         logger.debug("Startup create_all: %s", e)
 
     if settings.STORAGE_VALIDATE_ON_STARTUP:
@@ -174,7 +175,7 @@ async def root():
         "message": "Bienvenido a Aslin 2.0 API",
         "version": "2.0.0",
         "docs": "/docs",
-        "health": "/health"
+        "health": "/health",
     }
 
 
@@ -192,10 +193,10 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True
+        reload=True,
     )
-
