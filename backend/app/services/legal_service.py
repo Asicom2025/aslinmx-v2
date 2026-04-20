@@ -16,6 +16,7 @@ from app.services.email_service import EmailService
 from app.services.storage_metadata_service import StorageObjectService
 from app.services.storage_service import normalize_siniestro_consecutivo
 from app.utils.estado_normalization import normalizar_nombre_estado
+from app.core.nivel_acceso import usuario_bypass_areas
 from app.models.legal import (
     Area,
     EstadoSiniestro,
@@ -2327,6 +2328,12 @@ class SiniestroUsuarioService:
         """
         Valida que el abogado tenga al menos un área coincidente con el siniestro.
         """
+        from app.models.user import Usuario
+
+        usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+        if usuario and usuario_bypass_areas(db, usuario):
+            return
+
         siniestro_area_ids = SiniestroUsuarioService._get_siniestro_area_ids(
             db, siniestro_id
         )

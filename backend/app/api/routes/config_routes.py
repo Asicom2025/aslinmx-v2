@@ -26,7 +26,6 @@ from app.schemas.config_schema import (
     HistorialCorreoResponse,
     HistorialCorreoFiltros,
 )
-from app.schemas.storage_schema import StorageReconciliationResponse, StorageSummaryResponse
 from app.services.email_service import EmailService, get_email_assets_bytes
 from app.services.auditoria_service import AuditoriaService
 from pathlib import Path
@@ -34,7 +33,6 @@ from pathlib import Path
 from app.services.legal_service import DocumentoService, TiposDocumentoService, SiniestroService
 from app.api.routes.pdf_routes import generar_pdf_bytes_para_documento
 from app.core.config import settings
-from app.services.storage_ops_service import StorageReconciliationService
 from app.services.storage_service import StorageError, get_storage_service
 
 router = APIRouter()
@@ -46,60 +44,6 @@ _cfg_delete = Depends(require_permiso("configuracion", "delete"))
 _cfg_or_sin_update = Depends(
     require_any_permiso(("configuracion", "update"), ("siniestros", "update"))
 )
-
-
-@router.get("/storage/estado", response_model=StorageSummaryResponse)
-async def obtener_estado_storage(
-    verify_objects: bool = False,
-    current_user: User = _cfg_read,
-    db: Session = Depends(get_db),
-):
-    """Resumen operativo del storage para la empresa activa."""
-    empresa_id = current_user.empresa_id
-    if not empresa_id:
-        raise HTTPException(status_code=400, detail="El usuario actual no tiene una empresa activa.")
-
-    return StorageReconciliationService.summarize_company(
-        db,
-        empresa_id=empresa_id,
-        verify_objects=verify_objects,
-        sample_limit=settings.STORAGE_RECONCILE_SAMPLE_LIMIT,
-    )
-
-
-@router.post("/storage/reconciliar", response_model=StorageReconciliationResponse)
-async def reconciliar_storage(
-    request: Request,
-    verify_objects: bool = True,
-    current_user: User = _cfg_update,
-    db: Session = Depends(get_db),
-):
-    """Marca metadata huérfana como inactiva/eliminada sin borrar el objeto físico."""
-    empresa_id = current_user.empresa_id
-    if not empresa_id:
-        raise HTTPException(status_code=400, detail="El usuario actual no tiene una empresa activa.")
-
-    result = StorageReconciliationService.reconcile_company(
-        db,
-        empresa_id=empresa_id,
-        verify_objects=verify_objects,
-        sample_limit=settings.STORAGE_RECONCILE_SAMPLE_LIMIT,
-    )
-
-    AuditoriaService.registrar_accion(
-        db=db,
-        usuario_id=current_user.id,
-        empresa_id=empresa_id,
-        accion="storage_reconciliado",
-        modulo="configuracion",
-        tabla="storage_objects",
-        registro_id=None,
-        datos_nuevos=result,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-        descripcion="Se ejecutó la reconciliación operativa de storage",
-    )
-    return result
 
 
 # ========== Configuración SMTP ==========

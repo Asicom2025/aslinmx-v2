@@ -8,6 +8,19 @@ import { getApiErrorMessage } from "./parseApiError";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
+/** Desenvuelve respuesta JSON homologada `{ success, data, trace_id, meta }` desde `/api/v1`. */
+export function unwrapApiResponseData<T>(raw: unknown): T {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    (raw as { success?: boolean }).success === true &&
+    "data" in (raw as object)
+  ) {
+    return (raw as { data: T }).data;
+  }
+  return raw as T;
+}
+
 // Crear instancia de axios con configuración base
 const api = axios.create({
   baseURL: `${API_URL}/api/v1`,
@@ -54,9 +67,25 @@ api.interceptors.request.use(
   }
 );
 
-// Interceptor para manejar errores de respuesta
+// Interceptor de éxito: desenvuelve envelope { success, data, trace_id, meta }
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    const d = response.data;
+    if (
+      d &&
+      typeof d === "object" &&
+      (d as { success?: boolean }).success === true &&
+      "data" in d
+    ) {
+      const env = d as { data: unknown; trace_id?: string; meta?: unknown };
+      (response as { envelope?: { trace_id?: string; meta?: unknown } }).envelope = {
+        trace_id: env.trace_id,
+        meta: env.meta,
+      };
+      response.data = env.data;
+    }
+    return response;
+  },
   async (error) => {
     const status = error.response?.status;
     const url: string = error.config?.url || "";
@@ -212,7 +241,9 @@ const authService = {
       { token: impersonationToken },
       { withCredentials: true, headers: { "Content-Type": "application/json" } }
     );
-    return response.data as { access_token: string; token_type: string };
+    return unwrapApiResponseData<{ access_token: string; token_type: string }>(
+      response.data
+    );
   },
 };
 
@@ -1763,18 +1794,6 @@ const configService = {
   },
   deletePlantillaCorreo: async (id: string) => {
     await api.delete(`/configuracion/plantillas-correo/${id}`);
-  },
-  getStorageStatus: async (verifyObjects: boolean = false) => {
-    const response = await api.get("/configuracion/storage/estado", {
-      params: { verify_objects: verifyObjects },
-    });
-    return response.data;
-  },
-  reconcileStorage: async (verifyObjects: boolean = true) => {
-    const response = await api.post("/configuracion/storage/reconciliar", null, {
-      params: { verify_objects: verifyObjects },
-    });
-    return response.data;
   },
   enviarCorreo: async (data: {
     configuracion_smtp_id: string;

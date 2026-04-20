@@ -42,5 +42,6 @@ EXPOSE 8000
 
 ENV PYTHONPATH=/app
 
-# Inicializar BD una sola vez antes de uvicorn (evita race con --workers)
+# Inicializar BD una sola vez antes de uvicorn (evita race con --workers).
+# Si STRUCTURED_LOG_TARGET=file o both, varios workers escriben el mismo archivo: use stdout o 1 worker.
 CMD ["sh", "-c", "python init_db.py && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]

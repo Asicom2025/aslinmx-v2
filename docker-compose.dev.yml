@@ -32,10 +32,13 @@ services:
     volumes:
       - ./backend:/app
       - ./db:/app/db:ro
+      - ./logs/backend:/logs
     networks:
       - aslin_network
     environment:
       - WATCHFILES_FORCE_POLLING=true
+      - STRUCTURED_LOG_DIR=/logs
+      - STRUCTURED_LOG_TARGET=${STRUCTURED_LOG_TARGET:-stdout}
     command: sh -c "python init_db.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   frontend:

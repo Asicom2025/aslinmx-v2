@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import false as sql_false, or_
 from sqlalchemy.orm import Session
 
-from app.core.nivel_acceso import get_nivel_rol
+from app.core.nivel_acceso import get_nivel_rol, usuario_bypass_areas
 from app.models.legal import Siniestro, SiniestroArea, SiniestroUsuario
 
 
@@ -22,7 +22,7 @@ def subquery_siniestros_visibles(
     None = sin restricción adicional (nivel 0–1).
     """
     nivel = get_nivel_rol(db, user)
-    if nivel <= 1:
+    if usuario_bypass_areas(db, user):
         return None
 
     base_empresa = (Siniestro.empresa_id == empresa_id) & (Siniestro.eliminado == False)

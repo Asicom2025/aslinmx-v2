@@ -1,7 +1,7 @@
 """
 Rutas API para documentos
 """
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -42,6 +42,45 @@ router = APIRouter(prefix="/documentos", tags=["Documentos"])
 
 ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "application/msword", "application/vnd.", "text/")
 MAX_FILE_SIZE_MB = 25
+
+
+def _registrar_auditoria_fallo_subida_documento(
+    db: Session,
+    request: Request,
+    *,
+    current_user: User,
+    siniestro_id: UUID,
+    empresa_id: Optional[UUID],
+    etapa: str,
+    mensaje: str,
+    datos_extra: Optional[dict[str, Any]] = None,
+) -> None:
+    """
+    Persiste en auditoría un intento fallido de subida de documento.
+    No debe lanzar: nunca enmascara el error original del endpoint.
+    """
+    try:
+        datos_nuevos: dict[str, Any] = {
+            "etapa": etapa,
+            "mensaje": (mensaje or "")[:4000],
+        }
+        if datos_extra:
+            datos_nuevos.update({k: v for k, v in datos_extra.items() if v is not None})
+        AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=current_user.id,
+            empresa_id=empresa_id,
+            accion="documento_upload_fallo",
+            modulo="siniestros",
+            tabla="siniestros",
+            registro_id=siniestro_id,
+            descripcion=f"Fallo al subir documento ({etapa})",
+            datos_nuevos=datos_nuevos,
+            ip_address=request.client.host if request.client else None,
+            user_agent=(request.headers.get("user-agent") or "")[:512] or None,
+        )
+    except Exception:
+        pass
 
 
 def _categoria_documento_nombre_por_documento(
@@ -408,15 +447,39 @@ def upload_documento_archivo(
     Sube un archivo (foto, PDF, etc.) como documento del siniestro.
     Acepta imágenes, PDF, documentos Office y texto.
     """
+    empresa_audit = getattr(current_user, "empresa_id", None)
+
     if not file.filename or not file.filename.strip():
-        raise HTTPException(status_code=400, detail="Nombre de archivo vacío")
+        detail = "Nombre de archivo vacío"
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=empresa_audit,
+            etapa="validacion_nombre",
+            mensaje=detail,
+            datos_extra={"nombre_archivo": file.filename},
+        )
+        raise HTTPException(status_code=400, detail=detail)
 
     content_type = (file.content_type or "").strip().lower()
     if not any(content_type.startswith(p) for p in ALLOWED_MIME_PREFIXES):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Tipo de archivo no permitido: {content_type}. Se permiten imágenes, PDF y documentos.",
+        detail = (
+            f"Tipo de archivo no permitido: {content_type}. "
+            "Se permiten imágenes, PDF y documentos."
         )
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=empresa_audit,
+            etapa="validacion_mime",
+            mensaje=detail,
+            datos_extra={"nombre_archivo": file.filename, "content_type": content_type},
+        )
+        raise HTTPException(status_code=400, detail=detail)
 
     content = b""
     size = 0
@@ -427,19 +490,55 @@ def upload_documento_archivo(
             break
         size += len(chunk)
         if size > max_bytes:
-            raise HTTPException(
-                status_code=400,
-                detail=f"El archivo supera el límite de {MAX_FILE_SIZE_MB} MB.",
+            detail = f"El archivo supera el límite de {MAX_FILE_SIZE_MB} MB."
+            _registrar_auditoria_fallo_subida_documento(
+                db,
+                request,
+                current_user=current_user,
+                siniestro_id=siniestro_id,
+                empresa_id=empresa_audit,
+                etapa="validacion_tamaño",
+                mensaje=detail,
+                datos_extra={
+                    "nombre_archivo": file.filename,
+                    "content_type": content_type,
+                    "tamaño_bytes": size,
+                },
             )
+            raise HTTPException(status_code=400, detail=detail)
         content += chunk
 
     if size == 0:
-        raise HTTPException(status_code=400, detail="El archivo está vacío")
+        detail = "El archivo está vacío"
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=empresa_audit,
+            etapa="validacion_vacio",
+            mensaje=detail,
+            datos_extra={"nombre_archivo": file.filename, "content_type": content_type},
+        )
+        raise HTTPException(status_code=400, detail=detail)
 
     storage_service = get_storage_service()
     siniestro_obj = db.query(Siniestro).filter(Siniestro.id == siniestro_id).first()
+    if siniestro_obj and siniestro_obj.empresa_id:
+        empresa_audit = siniestro_obj.empresa_id
     if not siniestro_obj:
-        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
+        detail = "Siniestro no encontrado"
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=getattr(current_user, "empresa_id", None),
+            etapa="siniestro_no_encontrado",
+            mensaje=detail,
+            datos_extra={"nombre_archivo": file.filename, "tamaño_bytes": size},
+        )
+        raise HTTPException(status_code=404, detail=detail)
     try:
         siniestro_storage_ref = resolve_siniestro_storage_ref(db, siniestro_obj)
         stored_file = storage_service.put_document_bytes(
@@ -450,10 +549,22 @@ def upload_documento_archivo(
             content_type=content_type or "application/octet-stream",
         )
     except StorageError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"No se pudo guardar el archivo en el storage configurado: {exc}",
-        ) from exc
+        detail = f"No se pudo guardar el archivo en el storage configurado: {exc}"
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=empresa_audit,
+            etapa="storage_put",
+            mensaje=detail,
+            datos_extra={
+                "nombre_archivo": file.filename,
+                "content_type": content_type,
+                "tamaño_bytes": size,
+            },
+        )
+        raise HTTPException(status_code=500, detail=detail) from exc
 
     storage_object = None
     try:
@@ -476,10 +587,23 @@ def upload_documento_archivo(
             storage_service.delete(stored_file.storage_path)
         except StorageError:
             pass
-        raise HTTPException(
-            status_code=500,
-            detail=f"No se pudo registrar la metadata del archivo: {exc}",
-        ) from exc
+        detail = f"No se pudo registrar la metadata del archivo: {exc}"
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=empresa_audit,
+            etapa="metadata_storage_object",
+            mensaje=detail,
+            datos_extra={
+                "nombre_archivo": file.filename,
+                "content_type": content_type,
+                "tamaño_bytes": size,
+                "ruta_archivo": getattr(stored_file, "storage_path", None),
+            },
+        )
+        raise HTTPException(status_code=500, detail=detail) from exc
 
     payload = DocumentoCreate(
         siniestro_id=siniestro_id,
@@ -508,10 +632,23 @@ def upload_documento_archivo(
             storage_service.delete(stored_file.storage_path)
         except StorageError:
             pass
-        raise HTTPException(
-            status_code=500,
-            detail=f"No se pudo registrar el documento después de guardar el archivo: {exc}",
-        ) from exc
+        detail = f"No se pudo registrar el documento después de guardar el archivo: {exc}"
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=empresa_audit,
+            etapa="documento_create",
+            mensaje=detail,
+            datos_extra={
+                "nombre_archivo": file.filename,
+                "content_type": content_type,
+                "tamaño_bytes": size,
+                "ruta_archivo": getattr(stored_file, "storage_path", None),
+            },
+        )
+        raise HTTPException(status_code=500, detail=detail) from exc
 
     horas_bita = (Decimal(str(horas_trabajadas)) if horas_trabajadas is not None else Decimal("0"))
     if horas_bita < 0 or horas_bita > 24:

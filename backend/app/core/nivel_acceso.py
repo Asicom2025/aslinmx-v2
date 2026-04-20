@@ -44,3 +44,11 @@ def usuario_bypass_permisos(db: Session, user) -> bool:
 def solo_superadmin_por_nivel(db: Session, user) -> bool:
     """True solo si roles.nivel == 0 (p. ej. impersonación)."""
     return get_nivel_rol(db, user) == NIVEL_SUPERADMIN
+
+
+def usuario_bypass_areas(db: Session, user) -> bool:
+    """
+    True si el usuario no debe depender de asignaciones de áreas.
+    Regla: niveles 0 y 1.
+    """
+    return get_nivel_rol(db, user) <= NIVEL_ADMIN
