@@ -294,12 +294,11 @@ def get_current_user_info(
     Obtener información del usuario actual, incluyendo permisos de su rol.
     """
     list(current_user.areas)  # forzar carga de áreas (multiárea)
-    # JWT añade impersonated_by como UUID en el objeto User; no es columna ORM.
-    # Si se valida antes de quitarlo, Pydantic espera ImpersonatedByBrief y falla.
-    imp_id = getattr(current_user, "impersonated_by", None)
-    if hasattr(current_user, "impersonated_by"):
+    # JWT adjunta impersonation_actor_id (UUID); no es columna ORM. Ver security.get_current_user.
+    imp_id = getattr(current_user, "impersonation_actor_id", None)
+    if hasattr(current_user, "impersonation_actor_id"):
         try:
-            delattr(current_user, "impersonated_by")
+            delattr(current_user, "impersonation_actor_id")
         except AttributeError:
             pass
     data = UserResponse.model_validate(current_user).model_dump()

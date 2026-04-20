@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.schemas.rol_schema import RolCreate, RolUpdate, RolResponse
 from app.services.rol_service import RolService
 from app.core.security import get_current_active_user
-from app.core.permisos import require_permiso
+from app.core.permisos import require_any_permiso
 from app.models.user import User
 
 router = APIRouter()
@@ -23,10 +23,12 @@ def get_roles(
     limit: int = Query(100, ge=1, le=1000),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "read")),
+    current_user: User = Depends(
+        require_any_permiso(("usuarios", "read"), ("usuarios", "ver_roles"))
+    ),
 ):
     """
-    Obtener lista de roles (requiere autenticación)
+    Obtener lista de roles (usuarios.read o usuarios.ver_roles)
     """
     roles = RolService.get_roles(db, skip=skip, limit=limit, activo=activo)
     return roles
@@ -36,10 +38,12 @@ def get_roles(
 def get_rol(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "read")),
+    current_user: User = Depends(
+        require_any_permiso(("usuarios", "read"), ("usuarios", "ver_roles"))
+    ),
 ):
     """
-    Obtener rol por ID (requiere autenticación)
+    Obtener rol por ID (usuarios.read o usuarios.ver_roles)
     """
     rol = RolService.get_rol_by_id(db, rol_id)
     
@@ -56,10 +60,12 @@ def get_rol(
 def create_rol(
     rol: RolCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "create")),
+    current_user: User = Depends(
+        require_any_permiso(("usuarios", "create"), ("usuarios", "crear_roles"))
+    ),
 ):
     """
-    Crear nuevo rol (requiere autenticación)
+    Crear nuevo rol (usuarios.create o usuarios.crear_roles)
     """
     return RolService.create_rol(db, rol)
 
@@ -69,10 +75,12 @@ def update_rol(
     rol_id: str,
     rol_update: RolUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "update")),
+    current_user: User = Depends(
+        require_any_permiso(("usuarios", "update"), ("usuarios", "editar_roles"))
+    ),
 ):
     """
-    Actualizar rol (requiere autenticación)
+    Actualizar rol (usuarios.update o usuarios.editar_roles)
     """
     rol = RolService.update_rol(db, rol_id, rol_update)
     
@@ -89,10 +97,12 @@ def update_rol(
 def delete_rol(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("usuarios", "delete")),
+    current_user: User = Depends(
+        require_any_permiso(("usuarios", "delete"), ("usuarios", "eliminar_roles"))
+    ),
 ):
     """
-    Eliminar rol (requiere autenticación)
+    Eliminar rol (usuarios.delete o usuarios.eliminar_roles)
     """
     if not RolService.delete_rol(db, rol_id):
         raise HTTPException(
