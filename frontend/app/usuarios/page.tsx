@@ -49,6 +49,20 @@ export default function UsuariosPage() {
   const router = useRouter();
   const { user, loading, refresh } = useUser();
   const { can } = usePermisos();
+  const puedeListarRoles =
+    can(MODULO.usuarios, ACCION.read) || can(MODULO.usuarios, ACCION.ver_roles);
+  const puedeCrearRol =
+    can(MODULO.usuarios, ACCION.create) || can(MODULO.usuarios, ACCION.crear_roles);
+  const puedeEditarRol =
+    can(MODULO.usuarios, ACCION.update) || can(MODULO.usuarios, ACCION.editar_roles);
+  const puedeEliminarRol =
+    can(MODULO.usuarios, ACCION.delete) || can(MODULO.usuarios, ACCION.eliminar_roles);
+  const puedeConfigPermisosRol = puedeListarRoles && can(MODULO.permisos, ACCION.read);
+  const mostrarTabRoles =
+    puedeListarRoles ||
+    puedeCrearRol ||
+    puedeEditarRol ||
+    puedeEliminarRol;
   useTour("tour-usuarios", { autoStart: true });
   const [activeTab, setActiveTab] = useState<"usuarios" | "roles">("usuarios");
   const [usuarios, setUsuarios] = useState<User[]>([]);
@@ -72,9 +86,9 @@ export default function UsuariosPage() {
       return;
     }
     loadUsuarios();
-    loadRoles();
+    if (puedeListarRoles) loadRoles();
     loadEmpresas();
-  }, [user, loading, router]);
+  }, [user, loading, router, puedeListarRoles]);
 
   const loadUsuarios = async () => {
     try {
@@ -446,7 +460,7 @@ export default function UsuariosPage() {
         await swalSuccess("Rol creado correctamente");
       }
       setRolModalOpen(false);
-      loadRoles();
+      if (puedeListarRoles) loadRoles();
     } catch (e: any) {
       if (e.response?.status === 401) {
         router.push("/login");
@@ -462,7 +476,7 @@ export default function UsuariosPage() {
     try {
       await apiService.deleteRol(id);
       await swalSuccess("Rol eliminado");
-      loadRoles();
+      if (puedeListarRoles) loadRoles();
     } catch (e: any) {
       if (e.response?.status === 401) {
         router.push("/login");
@@ -508,39 +522,45 @@ export default function UsuariosPage() {
       header: "Acciones",
       cell: ({ row }) => (
         <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              router.push(`/usuarios/roles/${row.original.id}/permisos`);
-            }}
-            className="text-purple-600 hover:text-purple-800 transition-colors"
-            title="Configurar Permisos"
-          >
-            <FiSettings className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditRol(row.original);
-            }}
-            className="text-blue-600 hover:text-blue-800 transition-colors"
-            title="Editar"
-          >
-            <FiEdit2 className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              deleteRol(row.original.id);
-            }}
-            className="text-red-600 hover:text-red-800 transition-colors"
-            title="Eliminar"
-          >
-            <FiTrash2 className="w-5 h-5" />
-          </button>
+          {puedeConfigPermisosRol && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                router.push(`/usuarios/roles/${row.original.id}/permisos`);
+              }}
+              className="text-purple-600 hover:text-purple-800 transition-colors"
+              title="Configurar Permisos"
+            >
+              <FiSettings className="w-5 h-5" />
+            </button>
+          )}
+          {puedeEditarRol && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openEditRol(row.original);
+              }}
+              className="text-blue-600 hover:text-blue-800 transition-colors"
+              title="Editar"
+            >
+              <FiEdit2 className="w-5 h-5" />
+            </button>
+          )}
+          {puedeEliminarRol && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteRol(row.original.id);
+              }}
+              className="text-red-600 hover:text-red-800 transition-colors"
+              title="Eliminar"
+            >
+              <FiTrash2 className="w-5 h-5" />
+            </button>
+          )}
         </div>
       ),
       enableSorting: false,
@@ -579,17 +599,19 @@ export default function UsuariosPage() {
             <FiUsers className="w-5 h-5" />
             Usuarios
           </button>
-          <button
-            className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
-              activeTab === "roles"
-                ? "border-primary-500 text-primary-600"
-                : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-            }`}
-            onClick={() => setActiveTab("roles")}
-          >
-            <FiShield className="w-5 h-5" />
-            Roles
-          </button>
+          {mostrarTabRoles && (
+            <button
+              className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
+                activeTab === "roles"
+                  ? "border-primary-500 text-primary-600"
+                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+              }`}
+              onClick={() => setActiveTab("roles")}
+            >
+              <FiShield className="w-5 h-5" />
+              Roles
+            </button>
+          )}
         </nav>
       </div>
 
@@ -635,10 +657,12 @@ export default function UsuariosPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-semibold">Gestión de Roles</h2>
-            <Button onClick={openCreateRol}>
-              <FiPlus className="w-4 h-4 mr-2" />
-              Nuevo Rol
-            </Button>
+            {puedeCrearRol && (
+              <Button onClick={openCreateRol}>
+                <FiPlus className="w-4 h-4 mr-2" />
+                Nuevo Rol
+              </Button>
+            )}
           </div>
 
           {rolesLoading ? (

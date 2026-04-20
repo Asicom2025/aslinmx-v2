@@ -40,4 +40,9 @@ export const ACCION = {
   ver_reportes_de_autoridades: "ver_reportes_de_autoridades",
   invitar: "invitar",
   exportar_invitaciones: "exportar_invitaciones",
+  /** Gestión de roles (módulo usuarios; además de create/read/update/delete genéricos) */
+  ver_roles: "ver_roles",
+  editar_roles: "editar_roles",
+  crear_roles: "crear_roles",
+  eliminar_roles: "eliminar_roles",
 } as const;
