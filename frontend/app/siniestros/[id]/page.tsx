@@ -5409,6 +5409,7 @@ export default function SiniestroDetailPage() {
           <CustomSelect
             label="Configuración SMTP"
             name="email_configuracion_smtp"
+            disabled={true}
             value={emailForm.configuracion_smtp_id}
             onChange={(val) =>
               setEmailForm((prev) => ({
@@ -5513,17 +5514,19 @@ export default function SiniestroDetailPage() {
             <label className="block text-sm font-medium text-gray-700">
               Mensaje
             </label>
-            <textarea
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              rows={5}
-              value={emailForm.mensaje}
-              onChange={(e) =>
-                setEmailForm((prev) => ({
-                  ...prev,
-                  mensaje: e.target.value,
-                }))
-              }
-            />
+            <div className="mt-1">
+              <JoditEditor
+                value={emailForm.mensaje}
+                onChange={(value) =>
+                  setEmailForm((prev) => ({
+                    ...prev,
+                    mensaje: value,
+                  }))
+                }
+                placeholder="Escribe el mensaje del correo..."
+                height={320}
+              />
+            </div>
           </div>
 
           {/* Adjuntos adicionales */}

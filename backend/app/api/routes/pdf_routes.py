@@ -105,6 +105,48 @@ def _normalize_pdf_image_variables(variables: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _decode_possible_urlencoded_textarea_value(value: Any) -> Any:
+    """
+    Decodifica textos potencialmente codificados con urlencode/urlencode_plus
+    (legado PHP), sin afectar valores normales.
+    """
+    if value is None or not isinstance(value, str):
+        return value
+    trimmed = value.strip()
+    if not trimmed or "%" not in trimmed:
+        return value
+    decoded = trimmed
+    for _ in range(2):
+        candidate = unquote_plus(decoded)
+        if candidate == decoded:
+            break
+        decoded = candidate
+    # Aceptar decodificación solo si realmente hubo cambio.
+    if decoded != trimmed:
+        return decoded
+    return value
+
+
+def _normalize_textarea_variables(
+    variables: Dict[str, Any],
+    plantilla: Any,
+) -> Dict[str, Any]:
+    """
+    Normaliza solo campos tipo textarea del formulario de plantilla.
+    """
+    if not plantilla or not getattr(plantilla, "campos_formulario", None):
+        return dict(variables or {})
+    campos = plantilla.campos_formulario or []
+    textarea_keys = {c.get("clave") for c in campos if c.get("tipo") == "textarea"}
+    if not textarea_keys:
+        return dict(variables or {})
+    out = dict(variables or {})
+    for key in textarea_keys:
+        if key in out:
+            out[key] = _decode_possible_urlencoded_textarea_value(out.get(key))
+    return out
+
+
 def _get_poliza_principal(siniestro: Any) -> Optional[Any]:
     polizas = sorted(
         list(getattr(siniestro, "polizas", []) or []),
@@ -903,6 +945,7 @@ async def generate_pdf(
                 )
                 if respuesta and respuesta.valores:
                     merged_variables = {**respuesta.valores, **merged_variables}
+            merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
             merged_variables = _expand_datetime_variables(merged_variables)
             merged_variables = _format_currency_variables(merged_variables, plantilla)
             merged_variables = _normalize_pdf_image_variables(merged_variables)
@@ -1042,6 +1085,7 @@ async def generate_pdf_from_template(
             if respuesta and respuesta.valores:
                 merged_variables = {**respuesta.valores, **merged_variables}
 
+        merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
         merged_variables = _expand_datetime_variables(merged_variables)
         merged_variables = _format_currency_variables(merged_variables, plantilla)
 
@@ -1126,6 +1170,7 @@ async def download_pdf(
                 )
                 if respuesta and respuesta.valores:
                     merged_variables = {**respuesta.valores, **merged_variables}
+            merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
             merged_variables = _expand_datetime_variables(merged_variables)
             merged_variables = _format_currency_variables(merged_variables, plantilla)
             merged_variables = _normalize_pdf_image_variables(merged_variables)
@@ -1265,6 +1310,7 @@ async def download_pdf_from_template(
             )
             if respuesta and respuesta.valores:
                 merged_variables = {**respuesta.valores, **merged_variables}
+        merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
         merged_variables = _expand_datetime_variables(merged_variables)
         merged_variables = _format_currency_variables(merged_variables, plantilla)
         merged_variables = _normalize_pdf_image_variables(merged_variables)
@@ -1361,6 +1407,7 @@ def generar_pdf_bytes_para_documento(
     )
     if respuesta and respuesta.valores:
         merged_variables = {**merged_variables, **respuesta.valores}
+    merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
     merged_variables = _expand_datetime_variables(merged_variables)
     merged_variables = _format_currency_variables(merged_variables, plantilla)
     merged_variables = _normalize_pdf_image_variables(merged_variables)
