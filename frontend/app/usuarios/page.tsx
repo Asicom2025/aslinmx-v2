@@ -21,7 +21,7 @@ import { usePermisos } from "@/hooks/usePermisos";
 import { MODULO, ACCION } from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
 import { ColumnDef } from "@tanstack/react-table";
-import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn, FiMail, FiDownload, FiKey } from "react-icons/fi";
+import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn, FiMail, FiDownload, FiKey, FiEye } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 
@@ -49,8 +49,8 @@ export default function UsuariosPage() {
   const router = useRouter();
   const { user, loading, refresh } = useUser();
   const { can } = usePermisos();
-  const puedeListarRoles =
-    can(MODULO.usuarios, ACCION.read) || can(MODULO.usuarios, ACCION.ver_roles);
+  /** Ver listado de roles / GET roles (no confundir con usuarios.read). */
+  const puedeListarRoles = can(MODULO.usuarios, ACCION.ver_roles);
   const puedeCrearRol =
     can(MODULO.usuarios, ACCION.create) || can(MODULO.usuarios, ACCION.crear_roles);
   const puedeEditarRol =
@@ -63,6 +63,9 @@ export default function UsuariosPage() {
     puedeCrearRol ||
     puedeEditarRol ||
     puedeEliminarRol;
+  const puedeCrearUsuario = can(MODULO.usuarios, ACCION.create);
+  const puedeEditarUsuario = can(MODULO.usuarios, ACCION.update);
+  const puedeEliminarUsuario = can(MODULO.usuarios, ACCION.delete);
   useTour("tour-usuarios", { autoStart: true });
   const [activeTab, setActiveTab] = useState<"usuarios" | "roles">("usuarios");
   const [usuarios, setUsuarios] = useState<User[]>([]);
@@ -385,17 +388,32 @@ export default function UsuariosPage() {
               </button>
             </>
           )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openEditUsuario(row.original);
-            }}
-            className="text-blue-600 hover:text-blue-800 transition-colors"
-            title="Editar"
-          >
-            <FiEdit2 className="w-5 h-5" />
-          </button>
+          {puedeEditarUsuario && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openEditUsuario(row.original);
+              }}
+              className="text-blue-600 hover:text-blue-800 transition-colors"
+              title="Editar"
+            >
+              <FiEdit2 className="w-5 h-5" />
+            </button>
+          )}
+          {!puedeEditarUsuario && can(MODULO.usuarios, ACCION.read) && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                openEditUsuario(row.original);
+              }}
+              className="text-slate-600 hover:text-slate-900 transition-colors"
+              title="Ver detalle"
+            >
+              <FiEye className="w-5 h-5" />
+            </button>
+          )}
           {(user?.rol?.nivel === 0 || user?.rol?.nivel === 1) && can(MODULO.usuarios, ACCION.invitar) && (
             <button
               type="button"
@@ -409,17 +427,19 @@ export default function UsuariosPage() {
               <FiMail className="w-5 h-5" />
             </button>
           )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              deleteUsuario(row.original.id);
-            }}
-            className="text-red-600 hover:text-red-800 transition-colors"
-            title="Eliminar"
-          >
-            <FiTrash2 className="w-5 h-5" />
-          </button>
+          {puedeEliminarUsuario && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteUsuario(row.original.id);
+              }}
+              className="text-red-600 hover:text-red-800 transition-colors"
+              title="Eliminar"
+            >
+              <FiTrash2 className="w-5 h-5" />
+            </button>
+          )}
         </div>
       ),
       enableSorting: false,
@@ -633,10 +653,12 @@ export default function UsuariosPage() {
                   </Button>
                 </>
               )}
-              <Button data-tour="usuarios-nuevo" onClick={openCreateUsuario}>
-                <FiPlus className="w-4 h-4 mr-2" />
-                Nuevo Usuario
-              </Button>
+              {puedeCrearUsuario && (
+                <Button data-tour="usuarios-nuevo" onClick={openCreateUsuario}>
+                  <FiPlus className="w-4 h-4 mr-2" />
+                  Nuevo Usuario
+                </Button>
+              )}
             </div>
           </div>
 

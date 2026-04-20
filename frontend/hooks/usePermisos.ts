@@ -65,7 +65,16 @@ export function usePermisos(): UsePermisosReturn {
       const modulo = RUTA_A_MODULO[path];
       if (!modulo) return true;
       if (modulo === "usuarios") {
-        return can(modulo, "read") || can(modulo, "ver_roles");
+        return (
+          can(modulo, "read") ||
+          can(modulo, "ver_roles") ||
+          can(modulo, "crear_roles") ||
+          can(modulo, "editar_roles") ||
+          can(modulo, "eliminar_roles") ||
+          can(modulo, "create") ||
+          can(modulo, "update") ||
+          can(modulo, "delete")
+        );
       }
       return can(modulo, "read");
     },

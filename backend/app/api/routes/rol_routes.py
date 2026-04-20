@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.schemas.rol_schema import RolCreate, RolUpdate, RolResponse
 from app.services.rol_service import RolService
 from app.core.security import get_current_active_user
-from app.core.permisos import require_any_permiso
+from app.core.permisos import require_any_permiso, require_permiso
 from app.models.user import User
 
 router = APIRouter()
@@ -23,12 +23,10 @@ def get_roles(
     limit: int = Query(100, ge=1, le=1000),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_permiso(("usuarios", "read"), ("usuarios", "ver_roles"))
-    ),
+    current_user: User = Depends(require_permiso("usuarios", "ver_roles")),
 ):
     """
-    Obtener lista de roles (usuarios.read o usuarios.ver_roles)
+    Listar roles: solo usuarios.ver_roles (independiente de leer usuarios).
     """
     roles = RolService.get_roles(db, skip=skip, limit=limit, activo=activo)
     return roles
@@ -38,12 +36,10 @@ def get_roles(
 def get_rol(
     rol_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_any_permiso(("usuarios", "read"), ("usuarios", "ver_roles"))
-    ),
+    current_user: User = Depends(require_permiso("usuarios", "ver_roles")),
 ):
     """
-    Obtener rol por ID (usuarios.read o usuarios.ver_roles)
+    Obtener rol por ID: solo usuarios.ver_roles.
     """
     rol = RolService.get_rol_by_id(db, rol_id)
     

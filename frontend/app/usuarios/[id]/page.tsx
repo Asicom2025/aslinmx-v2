@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
+import { usePermisos } from "@/hooks/usePermisos";
+import { MODULO, ACCION } from "@/lib/permisosConstants";
 import apiService from "@/lib/apiService";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
@@ -10,6 +12,7 @@ import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { swalSuccess, swalError } from "@/lib/swal";
 import { getUserDisplayName, getUserInitial } from "@/lib/userName";
+import { compressImageFileToDataUrl } from "@/lib/imageDataUrl";
 import { FiArrowLeft, FiSave } from "react-icons/fi";
 
 interface User {
@@ -33,6 +36,8 @@ interface User {
     apellido_materno?: string;
     titulo?: string;
     cedula_profesional?: string;
+    firma?: string | null;
+    firma_digital?: string | null;
   } | null;
   contactos?: {
     telefono?: string;
@@ -51,12 +56,16 @@ export default function EditarUsuarioPage() {
   const router = useRouter();
   const params = useParams();
   const { user: currentUser, loading } = useUser();
+  const { can } = usePermisos();
+  const puedeEditarUsuario = can(MODULO.usuarios, ACCION.update);
+  const puedeListarRoles = can(MODULO.usuarios, ACCION.ver_roles);
   const [loadingUser, setLoadingUser] = useState(true);
   const [saving, setSaving] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [roles, setRoles] = useState<any[]>([]);
   const [empresas, setEmpresas] = useState<any[]>([]);
   const [areas, setAreas] = useState<any[]>([]);
+  const canEditFirmas = currentUser?.rol?.nivel === 0 || currentUser?.rol?.nivel === 1;
 
   const [form, setForm] = useState({
     email: "",
@@ -73,6 +82,8 @@ export default function EditarUsuarioPage() {
       apellido_materno: "",
       titulo: "",
       cedula_profesional: "",
+      firma: "",
+      firma_digital: "",
     },
     contactos: {
       telefono: "",
@@ -95,10 +106,10 @@ export default function EditarUsuarioPage() {
       return;
     }
     loadUser();
-    loadRoles();
+    if (puedeListarRoles) loadRoles();
     loadEmpresas();
     loadAreas();
-  }, [currentUser, loading, router, params.id]);
+  }, [currentUser, loading, router, params.id, puedeListarRoles]);
 
   const loadRoles = async () => {
     try {
@@ -150,6 +161,8 @@ export default function EditarUsuarioPage() {
           apellido_materno: data.perfil?.apellido_materno || data.apellido_materno || "",
           titulo: data.perfil?.titulo || "",
           cedula_profesional: data.perfil?.cedula_profesional || "",
+          firma: data.perfil?.firma || "",
+          firma_digital: data.perfil?.firma_digital || "",
         },
         contactos: {
           telefono: data.contactos?.telefono || "",
@@ -196,8 +209,51 @@ export default function EditarUsuarioPage() {
     }
   };
 
+  const handleFirmaFile = async (
+    field: "firma" | "firma_digital",
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    if (!canEditFirmas) {
+      swalError("Solo los roles nivel 0 o 1 pueden editar firmas.");
+      e.target.value = "";
+      return;
+    }
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) {
+      swalError("Selecciona un archivo de imagen (PNG, JPG, etc.)");
+      e.target.value = "";
+      return;
+    }
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, {
+        maxEdge: 1400,
+        mime: "image/jpeg",
+        quality: 0.88,
+      });
+      setForm((prev) => ({
+        ...prev,
+        perfil: { ...prev.perfil, [field]: dataUrl },
+      }));
+    } catch {
+      swalError("No se pudo procesar la imagen de firma. Prueba con otro archivo.");
+    }
+    e.target.value = "";
+  };
+
+  const clearFirma = (field: "firma" | "firma_digital") => {
+    if (!canEditFirmas) return;
+    setForm((prev) => ({
+      ...prev,
+      perfil: { ...prev.perfil, [field]: "" },
+    }));
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!puedeEditarUsuario) {
+      swalError("No tienes permiso para modificar usuarios.");
+      return;
+    }
     setSaving(true);
     try {
       const userId = params.id as string;
@@ -227,7 +283,15 @@ export default function EditarUsuarioPage() {
         router.push("/login");
         return;
       }
-      swalError(e.response?.data?.detail || "Error al actualizar usuario");
+      const status = e.response?.status;
+      if (status === 413) {
+        swalError(
+          "El servidor rechazó la petición por tamaño (413). Si subiste firmas, usa imágenes más pequeñas. " +
+            "Si el error persiste, el administrador debe aumentar el límite del cuerpo HTTP en Apache (LimitRequestBody) o en el proxy.",
+        );
+      } else {
+        swalError(e.response?.data?.detail || "Error al actualizar usuario");
+      }
     } finally {
       setSaving(false);
     }
@@ -257,7 +321,9 @@ export default function EditarUsuarioPage() {
             <FiArrowLeft className="w-6 h-6" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Editar Usuario</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {puedeEditarUsuario ? "Editar Usuario" : "Usuario"}
+            </h1>
             <p className="text-sm text-gray-600">{user.email}</p>
           </div>
         </div>
@@ -303,7 +369,11 @@ export default function EditarUsuarioPage() {
       </div>
 
       {/* Formulario */}
-      <form onSubmit={onSubmit} className="space-y-6">
+      <form onSubmit={onSubmit} className="space-y-6">        
+        <fieldset
+          disabled={!puedeEditarUsuario}
+          className="min-w-0 border-0 p-0 m-0 space-y-6 disabled:opacity-60"
+        >
         {/* Información básica */}
         <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-6">
           <h2 className="font-semibold text-lg mb-4">Información de cuenta</h2>
@@ -458,6 +528,78 @@ export default function EditarUsuarioPage() {
               onChange={(e) => onChange("perfil", "cedula_profesional", e.target.value)}
             />
           </div>
+
+          <div className="md:col-span-2 space-y-3 pt-2 border-t border-gray-100">
+            <div>
+              <h3 className="font-medium text-gray-900">Firmas</h3>
+              <p className="text-sm text-gray-500">
+                Imágenes de firma para documentos y correos (mismo criterio que Mi perfil).                
+              </p>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="border rounded-lg p-4 bg-gray-50/50">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Firma física</label>
+                <p className="text-xs text-gray-500 mb-2">Firma literal en documentos y PDFs.</p>
+                {form.perfil.firma ? (
+                  <div className="flex flex-col gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={form.perfil.firma}
+                      alt="Firma"
+                      className="max-h-24 w-auto object-contain border rounded bg-white"
+                    />
+                    {canEditFirmas && (
+                      <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma")}>
+                        Quitar firma física
+                      </Button>
+                    )}
+                  </div>
+                ) : canEditFirmas ? (
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-white hover:file:bg-primary/90"
+                    onChange={(e) => handleFirmaFile("firma", e)}
+                  />
+                ) : (
+                  <p className="text-sm text-gray-400">Sin firma registrada</p>
+                )}
+              </div>
+              <div className="border rounded-lg p-4 bg-gray-50/50">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Firma digital</label>
+                <p className="text-xs text-gray-500 mb-2">Se puede incluir al enviar correos desde la plataforma.</p>
+                {form.perfil.firma_digital ? (
+                  <div className="flex flex-col gap-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={form.perfil.firma_digital}
+                      alt="Firma digital"
+                      className="max-h-24 w-auto object-contain border rounded bg-white"
+                    />
+                    {canEditFirmas && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => clearFirma("firma_digital")}
+                      >
+                        Quitar firma digital
+                      </Button>
+                    )}
+                  </div>
+                ) : canEditFirmas ? (
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="block w-full text-sm text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary file:text-white hover:file:bg-primary/90"
+                    onChange={(e) => handleFirmaFile("firma_digital", e)}
+                  />
+                ) : (
+                  <p className="text-sm text-gray-400">Sin firma digital registrada</p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Contacto */}
@@ -515,6 +657,7 @@ export default function EditarUsuarioPage() {
             />
           </div>
         </div>
+        </fieldset>
 
         {/* Botones */}
         <div className="flex items-center justify-end gap-3">
@@ -523,12 +666,14 @@ export default function EditarUsuarioPage() {
             variant="secondary"
             onClick={() => router.push("/usuarios")}
           >
-            Cancelar
+            {puedeEditarUsuario ? "Cancelar" : "Volver"}
           </Button>
-          <Button type="submit" variant="primary" loading={saving}>
-            <FiSave className="w-4 h-4 mr-2" />
-            Guardar cambios
-          </Button>
+          {puedeEditarUsuario && (
+            <Button type="submit" variant="primary" loading={saving}>
+              <FiSave className="w-4 h-4 mr-2" />
+              Guardar cambios
+            </Button>
+          )}
         </div>
       </form>
     </div>
