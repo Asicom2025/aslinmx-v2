@@ -95,6 +95,17 @@ def _build_profile_asset_inline_data_url(asset_value: Optional[str]) -> Optional
     return f"data:{mime};base64,{encoded}"
 
 
+def _inline_user_profile_assets_data(data: dict) -> None:
+    """Sustituye foto/firmas en storage por data URL para el cliente (mismo criterio que GET /users/me)."""
+    perfil_data = data.get("perfil") or {}
+    if not isinstance(perfil_data, dict):
+        return
+    for field in ("foto_de_perfil", "firma", "firma_digital"):
+        if field in perfil_data:
+            perfil_data[field] = _build_profile_asset_inline_data_url(perfil_data.get(field))
+    data["perfil"] = perfil_data
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(
     user: UserCreate,
@@ -325,11 +336,7 @@ def get_current_user_info(
         actor = db.query(User).filter(User.id == imp_id).first()
         if actor:
             data["impersonated_by"] = {"id": actor.id, "email": actor.correo}
-    perfil_data = data.get("perfil") or {}
-    for field in ("foto_de_perfil", "firma", "firma_digital"):
-        if field in perfil_data:
-            perfil_data[field] = _build_profile_asset_inline_data_url(perfil_data.get(field))
-    data["perfil"] = perfil_data
+    _inline_user_profile_assets_data(data)
     return data
 
 
@@ -772,7 +779,9 @@ def get_user(
             detail="Usuario no encontrado"
         )
     list(user.areas)  # forzar carga de áreas (multiárea) para la respuesta
-    return user
+    payload = UserResponse.model_validate(user).model_dump()
+    _inline_user_profile_assets_data(payload)
+    return UserResponse.model_validate(payload)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -793,8 +802,10 @@ def update_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado"
         )
-    
-    return user
+    list(user.areas)
+    payload = UserResponse.model_validate(user).model_dump()
+    _inline_user_profile_assets_data(payload)
+    return UserResponse.model_validate(payload)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
