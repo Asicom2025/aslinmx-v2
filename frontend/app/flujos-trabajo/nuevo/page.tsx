@@ -58,11 +58,13 @@ export default function NuevoFlujoTrabajoPage() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">Nuevo Flujo de Trabajo</h1>
+    <div className="min-h-screen w-full bg-gray-50 py-4 sm:py-6">
+      <div className="container-app w-full">
+        <h1 className="mb-4 text-fluid-2xl font-bold text-gray-900 sm:mb-6 sm:text-3xl">
+          Nuevo Flujo de Trabajo
+        </h1>
 
-        <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6">
+        <form onSubmit={handleSubmit} className="rounded-lg bg-white p-4 shadow sm:p-6">
           <Input
             label="Nombre del Flujo"
             name="nombre"

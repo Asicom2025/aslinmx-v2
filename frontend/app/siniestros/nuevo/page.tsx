@@ -833,11 +833,11 @@ export default function NuevoSiniestroPage() {
   }));
 
   return (
-    <div className="min-h-screen w-full bg-gray-50">
-      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
-        <div className="mb-4 lg:mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+    <div className="min-h-screen w-full bg-gray-50 py-4 lg:py-6">
+      <div className="container-app w-full">
+        <div className="mb-4 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center lg:mb-6">
           <div className="min-w-0">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">
               Nuevo Siniestro
             </h1>
             <p className="text-gray-600 mt-1 sm:mt-2 text-sm sm:text-base">

@@ -34,9 +34,11 @@ export default function SoportePage() {
   }
 
   return (
-    <div className="w-full p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Ayuda y Soporte</h1>
-      <div className="bg-white rounded-lg shadow p-8">
+    <div className="container-app w-full py-4 sm:py-6">
+      <h1 className="mb-4 text-fluid-2xl font-bold text-gray-900 sm:mb-6 sm:text-3xl">
+        Ayuda y Soporte
+      </h1>
+      <div className="rounded-lg bg-white p-4 shadow sm:p-6 md:p-8">
         <div className="space-y-6">
           <div>
             <h2 className="text-xl font-semibold mb-4">Documentación</h2>

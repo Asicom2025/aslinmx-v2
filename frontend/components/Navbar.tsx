@@ -31,6 +31,8 @@ export default function Navbar() {
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const mobileSearchRef = useRef<HTMLDivElement>(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const { user, logout, activeEmpresa, setActiveEmpresa } = useUser();
   const userDisplayName = getUserDisplayName(user);
   const userInitial = getUserInitial(user);
@@ -137,9 +139,11 @@ export default function Navbar() {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
-        setShowSearchDropdown(false);
-      }
+      const t = e.target as Node;
+      if (searchContainerRef.current?.contains(t)) return;
+      if (mobileSearchRef.current?.contains(t)) return;
+      setShowSearchDropdown(false);
+      setMobileSearchOpen(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -164,15 +168,17 @@ export default function Navbar() {
         : "Nombre del asegurado...";
 
   return (
+    <>
     <header
-      className="fixed top-0 left-0 right-0 lg:left-64 z-30 text-white h-16"
+      className="fixed top-0 left-0 right-0 lg:left-64 z-30 h-16 text-white pt-safe"
       style={gradientStyle}
     >
-      <div className="px-4 sm:px-6 lg:px-8 h-full flex items-center justify-between">
+      <div className="flex h-full items-center justify-between px-3 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3 min-w-0">
           <button
             aria-label="Abrir menú"
-            className="p-2 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40 lg:hidden"
+            className="min-h-10 min-w-10 shrink-0 rounded-md p-2 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40 touch-manipulation lg:hidden"
+            type="button"
             onClick={() => {}}
             data-sidebar-toggle
           >
@@ -282,14 +288,28 @@ export default function Navbar() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 shrink-0 items-center gap-1 sm:gap-2">
+          <button
+            type="button"
+            aria-label="Buscar siniestros"
+            className="min-h-10 min-w-10 shrink-0 rounded-md p-2 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40 touch-manipulation md:hidden"
+            onClick={() => {
+              setMobileSearchOpen((prev) => !prev);
+              setProfileOpen(false);
+              setNotificacionesOpen(false);
+            }}
+          >
+            <FiSearch className="h-6 w-6" />
+          </button>
           {/* Notificaciones */}
           <div data-tour="navbar-notificaciones" className="relative">
             <button
-              className="relative p-2 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+              type="button"
+              className="relative min-h-10 min-w-10 shrink-0 rounded-md p-2 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40 touch-manipulation"
               onClick={() => {
                 setNotificacionesOpen((prev) => !prev);
                 setProfileOpen(false);
+                setMobileSearchOpen(false);
               }}
             >
               <FiBell className="w-6 h-6" />
@@ -301,7 +321,7 @@ export default function Navbar() {
             </button>
 
             {notificacionesOpen && (
-              <div className="absolute right-0 mt-2 w-80 bg-white text-gray-800 rounded-md shadow-lg ring-1 ring-black/5 z-50 max-h-96 overflow-y-auto">
+              <div className="absolute right-0 z-50 mt-2 max-h-96 w-[min(20rem,calc(100vw-1rem))] overflow-y-auto rounded-md bg-white text-gray-800 shadow-lg ring-1 ring-black/5">
                 <div className="px-4 py-3 border-b flex justify-between items-center">
                   <h3 className="font-semibold">Notificaciones</h3>
                   {notificacionesNoLeidas > 0 && (
@@ -362,10 +382,12 @@ export default function Navbar() {
           {/* Perfil */}
           <div data-tour="navbar-perfil" className="relative">
             <button
-              className="flex items-center gap-2 p-2 rounded-md hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+              type="button"
+              className="flex min-h-10 max-w-[100vw] items-center gap-2 rounded-md p-2 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40 touch-manipulation"
               onClick={() => {
                 setProfileOpen((prev) => !prev);
                 setNotificacionesOpen(false);
+                setMobileSearchOpen(false);
               }}
             >
               <div className="w-8 h-8 rounded-full bg-white/30 overflow-hidden grid place-items-center font-semibold shrink-0">
@@ -388,7 +410,7 @@ export default function Navbar() {
             </button>
 
             {profileOpen && (
-              <div className="absolute right-0 mt-2 w-auto bg-white text-gray-800 rounded-md shadow-lg ring-1 ring-black/5 z-50">
+              <div className="absolute right-0 z-50 mt-2 w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] rounded-md bg-white text-gray-800 shadow-lg ring-1 ring-black/5">
                 <div className="px-4 py-3 border-b">
                   <p className="font-medium">
                     {userDisplayName || user?.email || "Mi Cuenta"}
@@ -436,5 +458,105 @@ export default function Navbar() {
         </div>
       </div>
     </header>
+
+    {mobileSearchOpen ? (
+      <>
+        <button
+          type="button"
+          aria-label="Cerrar búsqueda"
+          className="fixed inset-0 top-16 z-[35] bg-black/40 md:hidden"
+          onClick={() => setMobileSearchOpen(false)}
+        />
+        <div
+          ref={mobileSearchRef}
+          className="fixed left-0 right-0 top-16 z-40 max-h-[min(75dvh,calc(100dvh-5rem))] flex flex-col border-b border-gray-200 bg-white text-gray-800 shadow-lg md:hidden"
+        >
+          <div className="flex shrink-0 border-b border-gray-200">
+            <button
+              type="button"
+              onClick={() => setActiveSearchTab("id")}
+              className={`flex-1 px-2 py-2.5 text-xs font-medium sm:text-sm ${
+                activeSearchTab === "id" ? "bg-gray-800 text-white" : "text-gray-600"
+              }`}
+            >
+              Por ID
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSearchTab("numero_siniestro")}
+              className={`flex-1 px-2 py-2.5 text-xs font-medium sm:text-sm ${
+                activeSearchTab === "numero_siniestro" ? "bg-gray-800 text-white" : "text-gray-600"
+              }`}
+            >
+              Núm. sin.
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSearchTab("asegurado")}
+              className={`flex-1 px-2 py-2.5 text-xs font-medium sm:text-sm ${
+                activeSearchTab === "asegurado" ? "bg-gray-800 text-white" : "text-gray-600"
+              }`}
+            >
+              Asegurado
+            </button>
+          </div>
+          <div className="shrink-0 p-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchValue}
+                onChange={handleSearchInputChange}
+                onFocus={() => searchValue.trim() && setShowSearchDropdown(true)}
+                placeholder={placeholderByTab}
+                className="w-full min-w-0 rounded-md bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none ring-1 ring-gray-200 focus:ring-2 focus:ring-primary-500"
+                autoComplete="off"
+              />
+              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
+                <FiSearch className="h-5 w-5" />
+              </span>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            {searchLoading ? (
+              <div className="flex items-center justify-center py-8 text-gray-500">
+                <FaSpinner className="h-6 w-6 animate-spin" />
+              </div>
+            ) : searchResults.length === 0 ? (
+              <div className="py-6 text-center text-sm text-gray-500">
+                {searchValue.trim() ? "Sin resultados" : "Escribe para buscar"}
+              </div>
+            ) : (
+              <ul className="py-1">
+                {searchResults.map((s: any) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      className="flex w-full flex-col gap-0.5 rounded px-3 py-2.5 text-left hover:bg-gray-100"
+                      onClick={() => {
+                        handleSelectResult(s.id);
+                        setMobileSearchOpen(false);
+                      }}
+                    >
+                      <span className="break-words font-medium text-gray-900">
+                        {s.id_formato || s.numero_reporte || s.numero_siniestro || s.id}
+                      </span>
+                      {(s.numero_siniestro || s.numero_reporte) && (
+                        <span className="text-xs text-gray-500">
+                          {s.numero_siniestro ? `Núm. siniestro: ${s.numero_siniestro}` : s.numero_reporte}
+                        </span>
+                      )}
+                      {s.asegurado_nombre ? (
+                        <span className="text-xs text-gray-600">Asegurado: {s.asegurado_nombre}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </>
+    ) : null}
+    </>
   );
 }

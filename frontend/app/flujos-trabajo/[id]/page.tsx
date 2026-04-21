@@ -421,19 +421,19 @@ export default function FlujoDetallePage() {
   const mostrarPlantillasEtapa = !!tipoDocumentoSeleccionado && esTipoEditorFlujo;
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">{flujo.nombre}</h1>
+    <div className="min-h-screen w-full bg-gray-50 py-4 sm:py-6">
+      <div className="container-app w-full">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="break-words text-fluid-2xl font-bold text-gray-900 sm:text-3xl">{flujo.nombre}</h1>
             {flujo.es_predeterminado && (
-              <span className="inline-block mt-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
+              <span className="mt-2 inline-block rounded bg-blue-100 px-2 py-1 text-xs text-blue-800">
                 Predeterminado
               </span>
             )}
           </div>
-          <Button variant="secondary" onClick={() => router.push("/flujos-trabajo")}>
-            <FiArrowLeft className="w-4 h-4 mr-1" />
+          <Button className="w-full shrink-0 sm:w-auto" variant="secondary" onClick={() => router.push("/flujos-trabajo")}>
+            <FiArrowLeft className="mr-1 h-4 w-4" />
             Volver
           </Button>
         </div>
@@ -442,11 +442,12 @@ export default function FlujoDetallePage() {
           <p className="text-gray-600 mb-6">{flujo.descripcion}</p>
         )}
 
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold">Etapas del Flujo</h2>
+        <div className="mb-6 rounded-lg bg-white p-4 shadow sm:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold sm:text-xl">Etapas del Flujo</h2>
             {canFlujoUpdate && (
               <Button
+                className="w-full sm:w-auto"
                 variant="primary"
                 size="sm"
                 onClick={() => {

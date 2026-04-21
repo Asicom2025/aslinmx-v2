@@ -115,10 +115,10 @@ export default function LoginPage() {
   return (
     <>
       <RecaptchaScript />
-      <div className="min-h-screen flex items-center justify-center bg-degradado-primario py-10 px-4 sm:px-6 lg:px-8">
-        <div className="w-full max-w-sm sm:max-w-md">
+      <div className="flex min-h-dvh items-center justify-center bg-degradado-primario px-3 py-8 pb-safe pt-safe sm:px-6 sm:py-10 lg:px-8">
+        <div className="w-full min-w-0 max-w-sm sm:max-w-md">
           <form
-            className="space-y-6 rounded-lg bg-white p-6 shadow-md sm:p-8"
+            className="space-y-6 rounded-lg bg-white p-4 shadow-md sm:p-8"
             onSubmit={handleSubmit}
           >
             {/* ASLIN arriba, DX Legal debajo, dentro del formulario */}

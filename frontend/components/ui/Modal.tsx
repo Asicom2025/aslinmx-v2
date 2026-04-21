@@ -20,7 +20,7 @@ export default function Modal({
   title, 
   children, 
   maxWidthClass = "max-w-2xl",
-  maxHeightClass = "max-h-[90vh]",
+  maxHeightClass = "max-h-[min(90dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem))]",
   contentClassName = "flex-1 overflow-y-auto p-4 sm:p-6",
 }: ModalProps) {
   useEffect(() => {
@@ -41,7 +41,7 @@ export default function Modal({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[1000] overflow-y-auto">
+    <div className="fixed inset-0 z-[1000] overflow-y-auto pt-safe pb-safe">
       {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-black/40 transition-opacity" 
@@ -50,9 +50,9 @@ export default function Modal({
       />
       
       {/* Modal Container */}
-      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+      <div className="flex min-h-full items-center justify-center p-2 sm:p-6">
         <div 
-          className={`relative w-full ${maxWidthClass} ${maxHeightClass} bg-white rounded-lg shadow-xl flex flex-col overflow-hidden`}
+          className={`relative flex w-full min-w-0 flex-col overflow-hidden rounded-lg bg-white shadow-xl ${maxWidthClass} ${maxHeightClass}`}
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"

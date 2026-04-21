@@ -3372,8 +3372,8 @@ export default function SiniestroDetailPage() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gray-50">
-      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
+    <div className="min-h-screen w-full bg-gray-50 py-4 lg:py-6">
+      <div className="container-app w-full">
         {/* Header */}
         <div
           data-tour="detalle-header"
@@ -3520,7 +3520,7 @@ export default function SiniestroDetailPage() {
               <div className="bg-white rounded-lg shadow overflow-hidden">
                 {/* Primera línea: Pestañas de Áreas */}
                 <div
-                  className="flex border-b border-gray-200"
+                  className="flex overflow-x-auto border-b border-gray-200 [-webkit-overflow-scrolling:touch]"
                   style={{ backgroundColor: empresaColors.secondary + "15" }}
                 >
                   {areasConFlujos.length === 0 ? (
@@ -3549,7 +3549,7 @@ export default function SiniestroDetailPage() {
                             setActiveFlujoTab("");
                           }
                         }}
-                        className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                        className={`shrink-0 border-b-2 px-3 py-3 text-sm font-medium transition-colors sm:px-6 ${
                           activeAreaTab === areaConFlujos.area.id
                             ? "bg-white"
                             : "border-transparent !text-gray-600 hover:bg-white/10"
@@ -3575,7 +3575,7 @@ export default function SiniestroDetailPage() {
                 {activeAreaTab && (
                   <>
                     <div
-                      className="flex border-b border-gray-200"
+                      className="flex overflow-x-auto border-b border-gray-200 [-webkit-overflow-scrolling:touch]"
                       style={{
                         backgroundColor: empresaColors.secondary + "08",
                       }}
@@ -3591,7 +3591,7 @@ export default function SiniestroDetailPage() {
                                   `general-${flujoConEtapas.flujo.id}`,
                                 )
                               }
-                              className={`px-6 py-2 text-xs font-medium border-b-2 transition-colors ${
+                              className={`shrink-0 border-b-2 px-3 py-2 text-xs font-medium transition-colors sm:px-6 ${
                                 activeFlujoTab ===
                                 `general-${flujoConEtapas.flujo.id}`
                                   ? "bg-white"
@@ -3627,7 +3627,7 @@ export default function SiniestroDetailPage() {
                                 `area-${flujoConEtapas.flujo.id}`,
                               )
                             }
-                            className={`px-6 py-2 text-xs font-medium border-b-2 transition-colors ${
+                            className={`shrink-0 border-b-2 px-3 py-2 text-xs font-medium transition-colors sm:px-6 ${
                               activeFlujoTab ===
                               `area-${flujoConEtapas.flujo.id}`
                                 ? "bg-white"
@@ -3652,7 +3652,7 @@ export default function SiniestroDetailPage() {
                     </div>
 
                     {/* Contenido del Flujo seleccionado */}
-                    <div className="p-6">
+                    <div className="min-w-0 p-3 sm:p-6">
                       {activeFlujoTab && (
                         <>
                           {activeFlujoTab.startsWith("general-") &&
@@ -5293,7 +5293,7 @@ export default function SiniestroDetailPage() {
           pdfFilename || currentEtapa?.nombre || "Documento"
         }`}
         maxWidthClass="max-w-6xl"
-        maxHeightClass="max-h-[90vh]"
+        maxHeightClass="max-h-[min(92dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem))]"
       >
         <div className="space-y-4">
           {pdfLoading ? (
@@ -5307,7 +5307,7 @@ export default function SiniestroDetailPage() {
             <div className="w-full">
               <iframe
                 src={`data:application/pdf;base64,${pdfBase64}`}
-                className="w-full h-[70vh] border border-gray-300 rounded-lg"
+                className="h-[min(70dvh,calc(100dvh-14rem))] min-h-[240px] w-full rounded-lg border border-gray-300 sm:h-[70vh]"
                 title="Vista previa del PDF"
               />
               <DocumentoAcciones

@@ -599,15 +599,15 @@ export default function UsuariosPage() {
   }
 
   return (
-    <div className="w-full p-6 space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Usuarios y Roles</h1>
+    <div className="container-app w-full space-y-4 py-4 sm:space-y-6 sm:py-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Usuarios y Roles</h1>
         <TourButton tour="tour-usuarios" label="Ver guía" />
       </div>
 
       {/* Tabs */}
-      <div data-tour="usuarios-tabs" className="border-b border-gray-200">
-        <nav className="-mb-px flex gap-6" aria-label="Tabs">
+      <div data-tour="usuarios-tabs" className="overflow-x-auto border-b border-gray-200 [-webkit-overflow-scrolling:touch]">
+        <nav className="-mb-px flex min-w-0 gap-4 sm:gap-6" aria-label="Tabs">
           <button
             className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
               activeTab === "usuarios"
@@ -637,10 +637,10 @@ export default function UsuariosPage() {
 
       {/* Contenido de pestañas */}
       {activeTab === "usuarios" && (
-        <div data-tour="usuarios-tabla" className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-6 flex-wrap gap-2">
-            <h2 className="text-xl font-semibold">Gestión de Usuarios</h2>
-            <div className="flex gap-2">
+        <div data-tour="usuarios-tabla" className="rounded-lg bg-white p-4 shadow sm:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold sm:text-xl">Gestión de Usuarios</h2>
+            <div className="flex flex-wrap gap-2">
               {user?.rol?.nivel === 0 && can(MODULO.usuarios, ACCION.exportar_invitaciones) && (
                 <>
                   <Button variant="secondary" type="button" onClick={exportInvitacionesCredenciales}>
@@ -676,11 +676,11 @@ export default function UsuariosPage() {
       )}
 
       {activeTab === "roles" && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-semibold">Gestión de Roles</h2>
+        <div className="rounded-lg bg-white p-4 shadow sm:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold sm:text-xl">Gestión de Roles</h2>
             {puedeCrearRol && (
-              <Button onClick={openCreateRol}>
+              <Button className="w-full sm:w-auto" onClick={openCreateRol}>
                 <FiPlus className="w-4 h-4 mr-2" />
                 Nuevo Rol
               </Button>

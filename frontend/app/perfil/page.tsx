@@ -294,10 +294,10 @@ export default function PerfilPage() {
   };
 
   return (
-    <div className="w-full p-6 space-y-6">
+    <div className="container-app w-full space-y-4 py-4 sm:space-y-6 sm:py-6">
       <div className="rounded-xl bg-degradado-primario text-white shadow">
-        <div className="p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 p-4 sm:p-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <button
               type="button"
               onClick={() => inputFotoPerfilRef.current?.click()}
@@ -326,11 +326,11 @@ export default function PerfilPage() {
               aria-label="Seleccionar foto de perfil"
               onChange={handleFotoPerfilFile}
             />
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold leading-tight">
+            <div className="min-w-0">
+              <h1 className="text-fluid-xl font-bold leading-tight md:text-2xl">
                 {getUserDisplayName(profilePreviewUser, user.email)}
               </h1>
-              <p className="text-white/80 text-sm md:text-base">
+              <p className="text-sm text-white/80 md:text-base break-words">
                 {user.rol?.nombre || "Sin rol"} ·{" "}
                 {user.empresa?.nombre || "Sin empresa"}
               </p>

@@ -371,30 +371,31 @@ export default function EditarUsuarioPage() {
   }
 
   return (
-    <div className="w-full p-6 space-y-6">
+    <div className="container-app w-full space-y-4 py-4 sm:space-y-6 sm:py-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <button
+            type="button"
             onClick={() => router.push("/usuarios")}
-            className="text-gray-600 hover:text-gray-900 transition-colors"
+            className="min-h-10 min-w-10 shrink-0 touch-manipulation text-gray-600 transition-colors hover:text-gray-900"
             title="Volver"
           >
-            <FiArrowLeft className="w-6 h-6" />
+            <FiArrowLeft className="h-6 w-6" />
           </button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
+          <div className="min-w-0">
+            <h1 className="text-fluid-xl font-bold text-gray-900 sm:text-2xl">
               {puedeEditarUsuario ? "Editar Usuario" : "Usuario"}
             </h1>
-            <p className="text-sm text-gray-600">{user.email}</p>
+            <p className="break-all text-sm text-gray-600 sm:break-words">{user.email}</p>
           </div>
         </div>
       </div>
 
       {/* Información de usuario */}
       <div className="rounded-xl bg-degradado-primario text-white shadow">
-        <div className="p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-4 p-4 sm:p-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-center gap-3 sm:gap-4">
             <div className="w-16 h-16 rounded-full bg-white/25 grid place-items-center text-2xl font-semibold">
               <span>
                 {getUserInitial(user)}
@@ -441,9 +442,9 @@ export default function EditarUsuarioPage() {
           className="min-w-0 border-0 p-0 m-0 space-y-6 disabled:opacity-60"
         >
         {/* Información básica */}
-        <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-6">
-          <h2 className="font-semibold text-lg mb-4">Información de cuenta</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-black/5 sm:p-6">
+          <h2 className="mb-4 text-lg font-semibold">Información de cuenta</h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Input
               label="Email *"
               name="email"

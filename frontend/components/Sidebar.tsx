@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
 import LogoDx from "@/assets/logos/logo_dx-legal.png";
@@ -14,6 +15,7 @@ import {
   FiSettings,
   FiClock,
   FiHelpCircle,
+  FiX,
 } from "react-icons/fi";
 import TourButton from "@/components/ui/TourButton";
 import { FaFileContract } from "react-icons/fa";
@@ -44,6 +46,7 @@ const iconMap: Record<string, JSX.Element> = {
 
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
   const { activeEmpresa } = useUser();
   const { canAccessRoute } = usePermisos();
 
@@ -72,15 +75,58 @@ export default function Sidebar() {
     return () => document.removeEventListener("click", handler);
   }, []);
 
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => {
+      if (mq.matches && open) document.body.style.overflow = "hidden";
+      else document.body.style.overflow = "";
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => {
+      mq.removeEventListener("change", apply);
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
   return (
-    <aside
-      data-tour="sidebar"
-      style={gradientStyle}
-      className={`fixed z-40 inset-y-0 left-0 h-screen w-64 transform transition-transform duration-200 ease-in-out text-white lg:translate-x-0 ${
-        open ? "translate-x-0" : "-translate-x-full"
-      }`}
-    >
-      <div className="h-50 flex items-center justify-center font-semibold tracking-wide border-b border-white/10">
+    <>
+      {open ? (
+        <button
+          type="button"
+          aria-label="Cerrar menú"
+          className="fixed inset-0 top-16 z-30 bg-black/40 lg:hidden"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
+      <aside
+        data-tour="sidebar"
+        style={gradientStyle}
+        className={`fixed z-40 left-0 top-16 bottom-0 flex w-64 flex-col transform transition-transform duration-200 ease-in-out text-white lg:inset-y-0 lg:top-0 lg:h-screen lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+      <div className="relative flex h-50 items-center justify-center border-b border-white/10 font-semibold tracking-wide">
+        <button
+          type="button"
+          aria-label="Cerrar menú"
+          className="absolute right-2 top-2 rounded-md p-2 hover:bg-white/10 lg:hidden"
+          onClick={() => setOpen(false)}
+        >
+          <FiX className="h-5 w-5" />
+        </button>
         <img
           src={logoSrc}
           onError={(e) => {
@@ -90,12 +136,13 @@ export default function Sidebar() {
           className="h-full w-full object-contain"
         />
       </div>
-      <nav className="py-4 flex-1">
+      <nav className="flex-1 overflow-y-auto py-4">
         {links.map((item) => (
           <Link
             key={item.href}
             href={item.href}
             className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/10"
+            onClick={() => setOpen(false)}
           >
             {iconMap[item.href]}
             <span className="truncate">{item.label}</span>
@@ -111,5 +158,6 @@ export default function Sidebar() {
         />
       </div>
     </aside>
+    </>
   );
 }
