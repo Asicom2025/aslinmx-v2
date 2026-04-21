@@ -26,7 +26,21 @@ import { ColumnDef } from "@tanstack/react-table";
 import { FiFolder, FiFileText, FiEye } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import { usePermisos } from "@/hooks/usePermisos";
-import { MODULO, ACCION } from "@/lib/permisosConstants";
+import {
+  MODULO,
+  ACCION,
+  canConfigSmtpLeer,
+  canConfigSmtpCrear,
+  canConfigSmtpActualizar,
+  canConfigSmtpEliminar,
+  canConfigAreasCrear,
+  canConfigAreasActualizar,
+  canConfigAreasEliminar,
+  canCatalogoDocumentoLeer,
+  canCatalogoDocumentoCrear,
+  canCatalogoDocumentoActualizar,
+  canCatalogoDocumentoEliminar,
+} from "@/lib/permisosConstants";
 import TourButton from "@/components/ui/TourButton";
 
 type ConfigTab = "general" | "flujos" | "areas" | "documentos" | "tipos_documento";
@@ -141,6 +155,8 @@ function GeneralTab() {
   const { activeEmpresa, user, refresh } = useUser();
   const { can } = usePermisos();
   const canCfgUpdate = can(MODULO.configuracion, ACCION.update);
+  const showSmtpConfig = canConfigSmtpLeer(can);
+  const showPlantillasCorreo = can(MODULO.configuracion, ACCION.read);
   const [form, setForm] = useState({
     nombre: "",
     alias: "",
@@ -418,13 +434,9 @@ function GeneralTab() {
       )}
 
       {/* Configuración SMTP para envío de correos */}
-      {activeEmpresa && (
-        <SmtpSection />
-      )}
+      {activeEmpresa && showSmtpConfig && <SmtpSection />}
 
-      {activeEmpresa && (
-        <PlantillasCorreoSection />
-      )}
+      {activeEmpresa && showPlantillasCorreo && <PlantillasCorreoSection />}
     </div>
   );
 }
@@ -644,9 +656,9 @@ const smtpFormInitial = {
 function SmtpSection() {
   const { activeEmpresa } = useUser();
   const { can } = usePermisos();
-  const canCreate = can(MODULO.configuracion, ACCION.create);
-  const canUpdate = can(MODULO.configuracion, ACCION.update);
-  const canDelete = can(MODULO.configuracion, ACCION.delete);
+  const canCreate = canConfigSmtpCrear(can);
+  const canUpdate = canConfigSmtpActualizar(can);
+  const canDelete = canConfigSmtpEliminar(can);
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -870,12 +882,9 @@ function SmtpSection() {
 function AreasTab() {
   const { user } = useUser();
   const { can } = usePermisos();
-  const canAreaCreate =
-    can(MODULO.configuracion, ACCION.create) || can(MODULO.parametros, ACCION.create);
-  const canAreaUpdate =
-    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
-  const canAreaDelete =
-    can(MODULO.configuracion, ACCION.delete) || can(MODULO.parametros, ACCION.delete);
+  const canAreaCreate = canConfigAreasCrear(can);
+  const canAreaUpdate = canConfigAreasActualizar(can);
+  const canAreaDelete = canConfigAreasEliminar(can);
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [usuarios, setUsuarios] = useState<any[]>([]);
@@ -1440,12 +1449,9 @@ function DocumentosTable({
 function PlantillasTab() {
   const { user } = useUser();
   const { can } = usePermisos();
-  const canCatCreate =
-    can(MODULO.configuracion, ACCION.create) || can(MODULO.parametros, ACCION.create);
-  const canCatUpdate =
-    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
-  const canCatDelete =
-    can(MODULO.configuracion, ACCION.delete) || can(MODULO.parametros, ACCION.delete);
+  const canCatCreate = canCatalogoDocumentoCrear(can);
+  const canCatUpdate = canCatalogoDocumentoActualizar(can);
+  const canCatDelete = canCatalogoDocumentoEliminar(can);
   const router = useRouter();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1583,9 +1589,7 @@ function PlantillasTab() {
           onPreview={openPreview}
           canEdit={canCatUpdate}
           canDelete={canCatDelete}
-          canOpenSubcatalogos={
-            can(MODULO.configuracion, ACCION.read) || can(MODULO.parametros, ACCION.read)
-          }
+          canOpenSubcatalogos={canCatalogoDocumentoLeer(can)}
           onVerCategorias={(tipo) => {
             setTipoDocumentoSeleccionado(tipo);
             setCategoriasModalOpen(true);

@@ -21,7 +21,7 @@ import Switch from "@/components/ui/Switch";
 import CustomSelect from "@/components/ui/Select";
 import { FiArrowLeft, FiPlus, FiFolder, FiFileText } from "react-icons/fi";
 import { usePermisos } from "@/hooks/usePermisos";
-import { MODULO, ACCION } from "@/lib/permisosConstants";
+import { canConfigFlujoActualizar } from "@/lib/permisosConstants";
 
 interface TipoDocumento {
   id: string;
@@ -50,8 +50,7 @@ export default function FlujoDetallePage() {
   const params = useParams();
   const flujoId = params.id as string;
   const { can } = usePermisos();
-  const canFlujoUpdate =
-    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
+  const canFlujoUpdate = canConfigFlujoActualizar(can);
 
   const [flujo, setFlujo] = useState<FlujoCompleto | null>(null);
   const [loading, setLoading] = useState(true);

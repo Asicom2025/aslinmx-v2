@@ -17,22 +17,21 @@ import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
 import { FiPlus } from "react-icons/fi";
 import { usePermisos } from "@/hooks/usePermisos";
-import { MODULO, ACCION } from "@/lib/permisosConstants";
+import {
+  canConfigFlujoLeer,
+  canConfigFlujoCrear,
+  canConfigFlujoActualizar,
+  canConfigFlujoEliminar,
+} from "@/lib/permisosConstants";
 
 export default function FlujosTrabajoPage() {
   const router = useRouter();
   const { user, loading: userLoading } = useUser();
   const { can } = usePermisos();
-  const canFlujoCreate =
-    can(MODULO.configuracion, ACCION.create) || can(MODULO.parametros, ACCION.create);
-  const canFlujoUpdate =
-    can(MODULO.configuracion, ACCION.update) || can(MODULO.parametros, ACCION.update);
-  const canFlujoDelete =
-    can(MODULO.configuracion, ACCION.delete) || can(MODULO.parametros, ACCION.delete);
-  const canVerDetalleFlujo =
-    can(MODULO.configuracion, ACCION.read) ||
-    can(MODULO.parametros, ACCION.read) ||
-    can(MODULO.siniestros, ACCION.read);
+  const canFlujoCreate = canConfigFlujoCrear(can);
+  const canFlujoUpdate = canConfigFlujoActualizar(can);
+  const canFlujoDelete = canConfigFlujoEliminar(can);
+  const canVerDetalleFlujo = canConfigFlujoLeer(can);
   const [flujos, setFlujos] = useState<FlujoTrabajo[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterArea, setFilterArea] = useState<string | null>(null);

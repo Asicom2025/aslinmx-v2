@@ -43,11 +43,34 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _flujo_read_any = Depends(
-    require_any_permiso(("configuracion", "read"), ("parametros", "read"), ("siniestros", "read"))
+    require_any_permiso(
+        ("configuracion", "read"),
+        ("parametros", "read"),
+        ("siniestros", "read"),
+        ("configuracion", "leer_flujos"),
+    )
 )
-_flujo_create_any = Depends(require_any_permiso(("configuracion", "create"), ("parametros", "create")))
-_flujo_update_any = Depends(require_any_permiso(("configuracion", "update"), ("parametros", "update")))
-_flujo_delete_any = Depends(require_any_permiso(("configuracion", "delete"), ("parametros", "delete")))
+_flujo_create_any = Depends(
+    require_any_permiso(
+        ("configuracion", "create"),
+        ("parametros", "create"),
+        ("configuracion", "editar_flujos"),
+    )
+)
+_flujo_update_any = Depends(
+    require_any_permiso(
+        ("configuracion", "update"),
+        ("parametros", "update"),
+        ("configuracion", "editar_flujos"),
+    )
+)
+_flujo_delete_any = Depends(
+    require_any_permiso(
+        ("configuracion", "delete"),
+        ("parametros", "delete"),
+        ("configuracion", "eliminar_flujos"),
+    )
+)
 _sin_read = Depends(require_permiso("siniestros", "read"))
 _sin_update = Depends(require_permiso("siniestros", "update"))
 

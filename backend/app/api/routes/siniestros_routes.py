@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
-from app.core.permisos import require_permiso
+from app.core.permisos import assert_permiso_actualizar_siniestro, require_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
     SiniestroCreate, SiniestroUpdate, SiniestroResponse,
@@ -152,13 +152,18 @@ def update_siniestro(
     siniestro_id: UUID,
     payload: SiniestroUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "update")),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Actualiza un siniestro existente.
     Valida que pertenezca a la empresa del usuario.
+    Permisos: siniestros.update para cambios generales; solo estado_id requiere editar_status;
+    solo calificacion_id requiere editar_calificacion; ambos pueden combinarse sin update.
     Si se actualiza descripcion_hechos, crea una nueva versión automáticamente.
     """
+    campos = set(payload.model_dump(exclude_unset=True).keys())
+    assert_permiso_actualizar_siniestro(db, current_user, campos)
+
     if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
