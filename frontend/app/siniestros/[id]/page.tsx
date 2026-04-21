@@ -350,8 +350,9 @@ export default function SiniestroDetailPage() {
   const canGenerarPdf = can("siniestros", "generar_pdf");
   const canActualizarSiniestro = can("siniestros", "update");
   const canAgregarAbogado = can("siniestros", "asignar_abogado");
-  const canCrearSiniestro = can("siniestros", "create");
   const canAsignarAreas = can("siniestros", "asignar_areas");
+  const canEditarStatusSiniestro = can("siniestros", "editar_status");
+  const canCalificacionSiniestro = can("siniestros", "editar_calificacion");
   const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
 
@@ -3463,7 +3464,7 @@ export default function SiniestroDetailPage() {
                 }))}
                 placeholder="Seleccionar estado"
                 disabled={
-                  !canActualizarSiniestro || loadingEstados || updatingStatus
+                  !canEditarStatusSiniestro || loadingEstados || updatingStatus
                 }
               />
 
@@ -3482,7 +3483,7 @@ export default function SiniestroDetailPage() {
                 }))}
                 placeholder="Seleccionar calificación"
                 disabled={
-                  !canActualizarSiniestro ||
+                  !canCalificacionSiniestro ||
                   loadingCalificaciones ||
                   updatingCalificacion
                 }

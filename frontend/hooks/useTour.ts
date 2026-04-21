@@ -250,12 +250,12 @@ const TOURS: Record<TourName, DriveStep[]> = {
     },
   ],
 
-  // 6. Usuarios y Roles
+  // 6. Usuarios
   "tour-usuarios": [
     {
       element: "[data-tour='usuarios-tabs']",
       popover: {
-        title: "Usuarios y Roles",
+        title: "Usuarios",
         description: "Gestiona los usuarios del sistema en la primera pestaña y los roles de acceso en la segunda.",
         side: "bottom",
         align: "start",

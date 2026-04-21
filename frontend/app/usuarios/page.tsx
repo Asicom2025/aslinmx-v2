@@ -1,6 +1,6 @@
 /**
- * Página de Usuarios y Roles
- * Gestiona usuarios y roles del sistema
+ * Página de Usuarios
+ * Gestiona usuarios del sistema
  */
 
 "use client";
@@ -601,7 +601,7 @@ export default function UsuariosPage() {
   return (
     <div className="container-app w-full space-y-4 py-4 sm:space-y-6 sm:py-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Usuarios y Roles</h1>
+        <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Usuarios</h1>
         <TourButton tour="tour-usuarios" label="Ver guía" />
       </div>
 

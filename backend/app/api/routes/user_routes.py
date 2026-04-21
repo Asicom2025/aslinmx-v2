@@ -23,7 +23,10 @@ from app.schemas.user_schema import (
     UserLogin,
     Token,
     LoginResponse,
+    MobileLoginResponse,
     TwoFAVerifyRequest,
+    MobileRefreshRequest,
+    MobileToken,
     UserMeUpdate,
     ChangePasswordRequest,
     TwoFAToggleRequest,
@@ -182,6 +185,55 @@ async def login(
         return response
 
 
+@router.post("/login/mobile", response_model=MobileLoginResponse)
+async def mobile_login(
+    credentials: UserLogin,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Login móvil: retorna access y refresh en el cuerpo (sin cookie).
+    """
+    if credentials.recaptcha_token:
+        client_ip = request.client.host if request.client else None
+        recaptcha_result = await RecaptchaService.verify_token(
+            credentials.recaptcha_token,
+            remote_ip=client_ip,
+            recaptcha_action="login"
+        )
+        if not RecaptchaService.is_valid(recaptcha_result, min_score=0.5):
+            reasons = recaptcha_result.get("reasons", [])
+            detail_msg = "Verificación de reCAPTCHA fallida. Por favor, intenta nuevamente."
+            if reasons:
+                detail_msg += f" Razones: {', '.join(reasons)}"
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=detail_msg
+            )
+
+    result = UserService.start_login(db, credentials.username, credentials.password)
+    user = result.get("user") if result else None
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario inactivo")
+
+    if result.get("requires_2fa"):
+        return {"requires_2fa": True, "temp_token": result.get("temp_token")}
+
+    access_token = result.get("access_token")
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+    return {
+        "requires_2fa": False,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+    }
+
+
 @router.post("/2fa/verify", response_model=Token)
 def verify_2fa(
     payload: TwoFAVerifyRequest,
@@ -213,6 +265,27 @@ def verify_2fa(
         path="/",
     )
     return response
+
+
+@router.post("/2fa/verify/mobile", response_model=MobileToken)
+def verify_2fa_mobile(
+    payload: TwoFAVerifyRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Login móvil paso 2: retorna access+refresh en cuerpo.
+    """
+    token = UserService.verify_2fa_and_issue_token(db, payload.temp_token, payload.code)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código 2FA inválido o token expirado")
+
+    temp_payload = decode_access_token(payload.temp_token)
+    user_id = temp_payload.get("sub") if temp_payload else None
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Temp token inválido o expirado")
+
+    refresh_token = create_refresh_token({"sub": str(user_id)})
+    return {"access_token": token, "token_type": "bearer", "refresh_token": refresh_token}
 
 
 @router.post("/refresh", response_model=Token)
@@ -281,6 +354,59 @@ def refresh_access_token(
         path="/",
     )
     return response
+
+
+@router.post("/refresh/mobile", response_model=MobileToken)
+def refresh_access_token_mobile(
+    payload: MobileRefreshRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Renueva access token para cliente móvil usando refresh en el body.
+    """
+    refresh_token = payload.refresh_token
+    if not is_refresh_token(refresh_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    decoded = decode_access_token(refresh_token) or {}
+    sub = decoded.get("sub")
+    if not sub:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        user_uuid = uuid_lib.UUID(str(sub))
+    except Exception:
+        user_uuid = sub
+
+    user = db.query(User).filter(User.id == user_uuid).first()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sesión expirada",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    imp = decoded.get("imp")
+    access_payload = {"sub": str(user.id)}
+    refresh_payload = {"sub": str(user.id)}
+    if imp:
+        access_payload["imp"] = imp
+        refresh_payload["imp"] = imp
+    new_access_token = create_access_token(access_payload)
+    new_refresh_token = create_refresh_token(refresh_payload)
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "refresh_token": new_refresh_token,
+    }
 
 
 @router.post("/logout")

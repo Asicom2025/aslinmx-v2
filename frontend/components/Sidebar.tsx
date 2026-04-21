@@ -24,7 +24,7 @@ const baseLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/siniestros", label: "Siniestros" },
   { href: "/agenda", label: "Agenda" },
-  { href: "/usuarios", label: "Usuarios y Roles" },
+  { href: "/usuarios", label: "Usuarios" },
   { href: "/parametros", label: "Parámetros" },
   { href: "/reportes", label: "Reportes" },
   { href: "/configuracion", label: "Configuración" },
