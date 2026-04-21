@@ -832,19 +832,22 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="w-full p-6 space-y-6">
+    <div className="container-app w-full space-y-4 py-4 sm:space-y-6 sm:py-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-600">Bienvenido, {getUserDisplayName(user, user?.email || "")}</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Dashboard</h1>
+          <p className="mt-1 text-sm text-gray-600 break-words">
+            Bienvenido, {getUserDisplayName(user, user?.email || "")}
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <TourButton tour="tour-dashboard" label="Ver guía" />
           <button
             data-tour="dashboard-actualizar"
+            type="button"
             onClick={loadDashboardData}
-            className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
+            className="min-h-10 w-full touch-manipulation rounded-md bg-primary-600 px-4 py-2 text-white transition-colors hover:bg-primary-700 sm:w-auto"
           >
             Actualizar
           </button>
@@ -853,7 +856,7 @@ export default function DashboardPage() {
 
       {/* Métricas principales (KPIs) */}
       {can("dashboard", "ver_kpis") && (
-        <div data-tour="dashboard-metricas" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div data-tour="dashboard-metricas" className="grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-4">
           <MetricCard
             title="Total Siniestros"
             value={stats.total_siniestros}
@@ -883,7 +886,7 @@ export default function DashboardPage() {
 
       {/* Mapa de México - Siniestros por Estado */}
       {can("dashboard", "ver_grafica_mapa") && (
-      <div data-tour="dashboard-mapa" className="bg-white rounded-lg shadow p-6">
+      <div data-tour="dashboard-mapa" className="bg-white overflow-x-auto rounded-lg shadow p-4 sm:p-6">
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <FiMap className="w-5 h-5" />
           Siniestros por Estado en México
@@ -913,7 +916,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros por Estado - Gráfico de Barras */}
         {can("dashboard", "ver_grafica_barras_por_estado") && (
-        <div data-tour="dashboard-grafica-estados" className="bg-white rounded-lg shadow p-6">
+        <div data-tour="dashboard-grafica-estados" className="bg-white overflow-x-auto rounded-lg shadow p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiBarChart2 className="w-5 h-5" />
             Siniestros por Estado (Gráfico de Barras)
@@ -928,7 +931,7 @@ export default function DashboardPage() {
 
         {/* Siniestros por Prioridad - Gráfico de Barras Horizontal */}
         {can("dashboard", "ver_grafica_prioridad") && (
-        <div data-tour="dashboard-grafica-prioridades" className="bg-white rounded-lg shadow p-6">
+        <div data-tour="dashboard-grafica-prioridades" className="bg-white overflow-x-auto rounded-lg shadow p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiTrendingUp className="w-5 h-5" />
             Siniestros por Prioridad
@@ -946,7 +949,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros por Área - Gráfico de Dona */}
         {can("dashboard", "ver_grafica_areas") && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white overflow-x-auto rounded-lg shadow p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiUsers className="w-5 h-5" />
             Siniestros por Área
@@ -961,7 +964,7 @@ export default function DashboardPage() {
 
         {/* Siniestros por Mes - Gráfico de Líneas */}
         {can("dashboard", "ver_grafica_por_mes") && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white overflow-x-auto rounded-lg shadow p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiTrendingUp className="w-5 h-5" />
             Siniestros por Mes (últimos 6 meses)
@@ -979,7 +982,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Siniestros Recientes */}
         {can("dashboard", "ver_siniestros_recientes") && (
-        <div data-tour="dashboard-recientes" className="bg-white rounded-lg shadow p-6">
+        <div data-tour="dashboard-recientes" className="bg-white overflow-x-auto rounded-lg shadow p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
             <FiClock className="w-5 h-5" />
             Siniestros Recientes
@@ -1032,7 +1035,7 @@ export default function DashboardPage() {
 
         {/* Actividades Recientes */}
         {can("dashboard", "ver_actividad_reciente") && (
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white overflow-x-auto rounded-lg shadow p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FiFileText className="w-5 h-5" />
             Actividades Recientes (últimas 24 horas)
@@ -1060,13 +1063,13 @@ function MetricCard({
   color: string;
 }) {
   return (
-    <div className="bg-white rounded-lg shadow p-6">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="rounded-lg bg-white p-4 shadow sm:p-6">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm font-medium text-gray-600">{title}</p>
-          <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
+          <p className="mt-2 text-2xl font-bold text-gray-900 sm:text-3xl">{value}</p>
         </div>
-        <div className={`${color} text-white p-4 rounded-lg`}>{icon}</div>
+        <div className={`shrink-0 rounded-lg p-3 text-white sm:p-4 ${color}`}>{icon}</div>
       </div>
     </div>
   );

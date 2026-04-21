@@ -414,24 +414,24 @@ export default function AgendaPage() {
   const hasEnvConfig = !!GOOGLE_CALENDAR_CLIENT_ID && !!GOOGLE_CALENDAR_API_KEY;
 
   return (
-    <div className="w-full p-6 space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-1">Agenda</h1>
+    <div className="container-app w-full space-y-4 py-4 sm:space-y-5 sm:py-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <h1 className="mb-1 text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Agenda</h1>
           <TourButton tour="tour-agenda" label="Ver guía" />
-          <p className="text-sm text-gray-600">
+          <p className="mt-1 text-sm text-gray-600">
             Visualiza tus próximas citas sincronizadas con Google Calendar.
           </p>
         </div>
 
-        <div className="flex flex-col items-end gap-2">
-          <div className="flex gap-2">
+        <div className="flex w-full min-w-0 flex-col gap-2 lg:w-auto lg:items-end">
+          <div className="flex flex-wrap gap-2">
             {isConnected && (
               <>
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(true)}
-                  className="px-4 py-2 rounded-md text-sm font-medium bg-green-600 text-white hover:bg-green-700 flex items-center gap-2"
+                  className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white hover:bg-green-700 sm:flex-initial sm:px-4 touch-manipulation"
                 >
                   <FiPlus className="w-5 h-5" />
                   Nueva Reunión
@@ -439,7 +439,7 @@ export default function AgendaPage() {
                 <button
                   type="button"
                   onClick={handleDisconnectGoogle}
-                  className="px-4 py-2 rounded-md text-sm font-medium bg-red-600 text-white hover:bg-red-700 flex items-center gap-2"
+                  className="flex min-h-10 flex-1 items-center justify-center gap-2 rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700 sm:flex-initial sm:px-4 touch-manipulation"
                   title="Desconectar Google Calendar"
                 >
                   <FiLogOut className="w-5 h-5" />
@@ -453,7 +453,7 @@ export default function AgendaPage() {
                 type="button"
                 onClick={handleConnectGoogle}
                 disabled={loadingCalendar || !hasEnvConfig}
-                className={`px-4 py-2 rounded-md text-sm font-medium flex items-center gap-2 ${
+                className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium sm:w-auto sm:px-4 touch-manipulation ${
                   hasEnvConfig
                     ? "bg-primary-600 text-white hover:bg-primary-700"
                     : "bg-gray-300 text-gray-600 cursor-not-allowed"
@@ -464,7 +464,7 @@ export default function AgendaPage() {
             )}
           </div>
           {!hasEnvConfig && (
-            <p className="text-xs text-red-500 max-w-xs text-right">
+            <p className="max-w-full break-words text-xs text-red-500 lg:max-w-xs lg:text-right">
               Configura las variables{" "}
               <code className="bg-red-50 px-1 rounded">
                 NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID
@@ -498,7 +498,10 @@ export default function AgendaPage() {
         </div>
       )}
 
-      <div data-tour="agenda-calendario" className="bg-white rounded-lg shadow p-4 h-[70vh]">
+      <div
+        data-tour="agenda-calendario"
+        className="min-h-[min(70dvh,32rem)] overflow-x-auto rounded-lg bg-white p-2 shadow sm:p-4 md:h-[70vh] md:min-h-0"
+      >
         <Calendar
           localizer={localizer}
           events={events}

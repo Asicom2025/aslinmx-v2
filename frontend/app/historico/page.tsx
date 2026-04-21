@@ -34,9 +34,9 @@ export default function HistoricoPage() {
   }
 
   return (
-    <div className="w-full p-6">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Histórico</h1>
-      <div className="bg-white rounded-lg shadow p-8 text-center">
+    <div className="container-app w-full py-4 sm:py-6">
+      <h1 className="mb-4 text-fluid-2xl font-bold text-gray-900 sm:mb-6 sm:text-3xl">Histórico</h1>
+      <div className="rounded-lg bg-white p-4 text-center shadow sm:p-6 md:p-8">
         <p className="text-gray-600 mb-4">Historial de Actividades y Cambios</p>
         <p className="text-sm text-gray-500">
           Esta funcionalidad estará disponible próximamente.

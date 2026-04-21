@@ -9,6 +9,15 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontSize: {
+        "fluid-xs": ["clamp(0.75rem, 0.72rem + 0.15vw, 0.8125rem)", { lineHeight: "1.4" }],
+        "fluid-sm": ["clamp(0.8125rem, 0.78rem + 0.2vw, 0.875rem)", { lineHeight: "1.45" }],
+        "fluid-base": ["clamp(0.875rem, 0.82rem + 0.35vw, 1rem)", { lineHeight: "1.5" }],
+        "fluid-lg": ["clamp(1rem, 0.92rem + 0.45vw, 1.125rem)", { lineHeight: "1.45" }],
+        "fluid-xl": ["clamp(1.125rem, 1rem + 0.65vw, 1.25rem)", { lineHeight: "1.35" }],
+        "fluid-2xl": ["clamp(1.25rem, 1.05rem + 1vw, 1.5rem)", { lineHeight: "1.3" }],
+        "fluid-3xl": ["clamp(1.5rem, 1.15rem + 1.4vw, 1.875rem)", { lineHeight: "1.25" }],
+      },
       colors: {
         // Paleta ajustada a los requerimientos
         primary: {

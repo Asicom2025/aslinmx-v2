@@ -209,9 +209,9 @@ export default function PermisosRolPage() {
         </div>
       </header>
 
-      <main className="w-full px-4 sm:px-6 lg:px-8 py-8">
+      <main className="container-app w-full py-6 sm:py-8">
         {/* Estadísticas */}
-        <div className="grid grid-cols-2 gap-4 mb-8">
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary-50">

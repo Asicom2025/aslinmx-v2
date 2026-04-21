@@ -177,12 +177,12 @@ export default function FlujosTrabajoPage() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">Flujos de Trabajo</h1>
+    <div className="min-h-screen w-full bg-gray-50 py-4 sm:py-6">
+      <div className="container-app w-full">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Flujos de Trabajo</h1>
           {canFlujoCreate && (
-            <Button onClick={openCreate} variant="primary">
+            <Button className="w-full sm:w-auto" onClick={openCreate} variant="primary">
               <FiPlus className="w-4 h-4 mr-1" />
               Nuevo Flujo
             </Button>
@@ -225,9 +225,9 @@ export default function FlujosTrabajoPage() {
                 key={flujo.id}
                 className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow p-6"
               >
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900">{flujo.nombre}</h3>
+                <div className="mb-4 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-semibold text-gray-900 sm:text-xl">{flujo.nombre}</h3>
                     {flujo.es_predeterminado && (
                       <span className="inline-block mt-1 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded">
                         Predeterminado

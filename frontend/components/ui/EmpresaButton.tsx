@@ -34,12 +34,13 @@ const EmpresaButton = forwardRef<HTMLButtonElement, EmpresaButtonProps>(function
 }, ref) {
   const colors = useEmpresaColors();
 
-  const baseClasses = "font-semibold rounded-lg flex flex-row items-center justify-center transition-all focus:outline-none focus:ring-2 focus:ring-offset-2";
-  
+  const baseClasses =
+    "font-semibold rounded-lg flex flex-row items-center justify-center transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 touch-manipulation";
+
   const sizeClasses = {
-    sm: "px-3 py-1.5 text-sm",
-    md: "px-4 py-2 text-base",
-    lg: "px-6 py-3 text-lg",
+    sm: "min-h-9 px-3 py-2 text-sm",
+    md: "min-h-11 px-4 py-2.5 text-base",
+    lg: "min-h-12 px-6 py-3 text-lg",
   };
   
   const widthClass = fullWidth ? "w-full" : "";

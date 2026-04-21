@@ -29,6 +29,34 @@ body {
   .bg-degradado-primario {
     background: linear-gradient(0deg, rgba(199,50,103,1) 0%, rgba(42,73,125,1) 50%, rgba(48,153,204,1) 100%);
   }
+  /* iOS notch / home indicator */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
+
+@layer components {
+  /* Contenedor estándar para páginas bajo AppShell */
+  .container-app {
+    @apply mx-auto w-full min-w-0 max-w-[1920px] px-3 sm:px-4 lg:px-6;
+  }
+  /* Tablas anchas: scroll horizontal en móvil sin romper el layout */
+  .table-responsive-wrap {
+    @apply -mx-3 min-w-0 overflow-x-auto px-3 sm:mx-0 sm:px-0;
+  }
+  /* Modales/diálogos: altura y ancho seguros en móvil */
+  .modal-body-scroll {
+    @apply max-h-[min(85dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-3rem))] w-full min-w-0 overflow-y-auto overflow-x-hidden;
+  }
 }
 
 /* Estilos personalizados para Aslin */
@@ -45,6 +73,11 @@ body {
 /* Estilos para Tiptap Editor */
 .ProseMirror {
   outline: none;
+}
+
+.ProseMirror img {
+  max-width: 100%;
+  height: auto;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {

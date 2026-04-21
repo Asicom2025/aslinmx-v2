@@ -124,14 +124,14 @@ export default function ReportesPage() {
         </div>
 
         {/* Reportes Disponibles */}
-        <div className="bg-white rounded-lg shadow">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
+        <div className="overflow-hidden rounded-lg bg-white shadow">
+        <div className="border-b border-gray-200 p-4 sm:p-6">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 sm:text-xl">
             <FiFileText className="w-5 h-5" />
             Reportes Disponibles
           </h2>
         </div>
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           {reportesDisponibles.length === 0 ? (
             <div className="text-center py-12">
               <FiFileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -144,14 +144,14 @@ export default function ReportesPage() {
                   key={reporte.modulo}
                   className="border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
+                  <div className="mb-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
                       <h3 className="text-lg font-semibold text-gray-900 mb-1">
                         {reporte.nombre}
                       </h3>
                       <p className="text-sm text-gray-600 mb-3">{reporte.descripcion}</p>
                     </div>
-                    <div className="bg-primary-100 text-primary-600 rounded-full p-2">
+                    <div className="shrink-0 self-start rounded-full bg-primary-100 p-2 text-primary-600 sm:self-auto">
                       <FiBarChart2 className="w-5 h-5" />
                     </div>
                   </div>

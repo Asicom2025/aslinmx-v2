@@ -67,16 +67,16 @@ export default function ParametrosPage() {
   }
 
   return (
-    <div className="min-h-screen w-full bg-gray-50 p-6">
-      <div className="w-full">
-        <div className="flex justify-between items-center mb-4">
-          <h1 className="text-3xl font-bold text-gray-900">Parámetros</h1>
+    <div className="min-h-screen w-full bg-gray-50 py-4 sm:py-6">
+      <div className="container-app w-full">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Parámetros</h1>
           <TourButton tour="tour-parametros" label="Ver guía" />
         </div>
 
         {/* Tabs */}
-        <div data-tour="params-tabs" className="border-b border-gray-200 mb-6 overflow-x-auto">
-          <nav className="-mb-px flex gap-6" aria-label="Tabs">
+        <div data-tour="params-tabs" className="mb-6 overflow-x-auto border-b border-gray-200 [-webkit-overflow-scrolling:touch]">
+          <nav className="-mb-px flex min-w-0 gap-4 sm:gap-6" aria-label="Tabs">
             <TabButton id="instituciones" label="Instituciones" />
             <TabButton id="autoridades" label="Autoridades" />
             <TabButton id="provenientes" label="Provenientes" />

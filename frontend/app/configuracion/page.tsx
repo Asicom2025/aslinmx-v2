@@ -89,10 +89,10 @@ export default function ConfiguracionPage() {
   );
 
   return (
-    <div className="min-h-screen w-full bg-gray-50">
-      <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 lg:mb-6">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+    <div className="min-h-screen w-full bg-gray-50 py-4 lg:py-6">
+      <div className="container-app w-full">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:mb-6">
+          <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">
             Configuración
           </h1>
           <div className="flex flex-wrap items-center gap-2">
@@ -103,9 +103,9 @@ export default function ConfiguracionPage() {
         {/* Tabs */}
         <div
           data-tour="config-tabs"
-          className="border-b border-gray-200 mb-4 lg:mb-6 overflow-x-auto"
+          className="mb-4 overflow-x-auto border-b border-gray-200 [-webkit-overflow-scrolling:touch] lg:mb-6"
         >
-          <nav className="-mb-px flex gap-4 sm:gap-6 min-w-max" aria-label="Tabs">
+          <nav className="-mb-px flex w-max min-w-max gap-4 sm:gap-6" aria-label="Tabs">
             <TabButton id="general" label="General" />
             <TabButton id="flujos" label="Flujos" />
             <TabButton id="areas" label="Áreas" />
