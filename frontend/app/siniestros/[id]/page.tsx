@@ -503,6 +503,44 @@ export default function SiniestroDetailPage() {
     }
   }, [siniestro]);
 
+  /** Código de proveniente para `buildSiniestroIdLegible`: catálogo cargado o objeto anidado en el siniestro. */
+  const codigoProvenienteParaIdLegible = (siniestroData: Siniestro | null) => {
+    const fromCat = (provenienteInfo?.codigo || "").trim();
+    if (fromCat) return fromCat;
+    const nested = (siniestroData as any)?.proveniente;
+    const c = nested?.codigo;
+    return typeof c === "string" ? c.trim() : "";
+  };
+
+  /**
+   * HTML de firma física para plantillas ({{firmado_por}}, {{firma_fisica}}).
+   * Foto/firma en R2 llegan como data URL desde GET /users y GET /users/:id (lista también).
+   */
+  const buildFirmaPhysicalHtml = (autorUsuario: any): string => {
+    const firmaRaw =
+      (autorUsuario?.perfil && (autorUsuario.perfil as any).firma) ||
+      autorUsuario?.firma ||
+      "";
+    let firmaSrc = "";
+    if (typeof firmaRaw === "string" && firmaRaw.trim()) {
+      const raw = firmaRaw.trim();
+      if (raw.startsWith("data:")) {
+        firmaSrc = raw;
+      } else if (
+        raw.startsWith("http://") ||
+        raw.startsWith("https://") ||
+        raw.startsWith("/")
+      ) {
+        firmaSrc = raw;
+      } else {
+        firmaSrc = `data:image/png;base64,${raw}`;
+      }
+    }
+    return firmaSrc
+      ? `<img src="${firmaSrc.replace(/"/g, "&quot;")}" alt="Firma" style="max-width:60px;height:auto;"/>`
+      : "---";
+  };
+
   /**
    * Aplica los valores dinámicos del siniestro y del contexto actual
    * a una plantilla HTML con placeholders tipo {{nombre_campo}}.
@@ -545,43 +583,16 @@ export default function SiniestroDetailPage() {
       autorUsuario?.email ||
       "";
 
-    // Firma física: viene de user.perfil.firma; si no existe, representamos sin firma.
-    const firmaRaw =
-      (autorUsuario?.perfil && (autorUsuario.perfil as any).firma) ||
-      autorUsuario?.firma ||
-      "";
+    const firmaHtml = buildFirmaPhysicalHtml(autorUsuario);
 
-    // Construir src de imagen para la firma:
-    // - Si ya es data URL (data:...), se usa tal cual.
-    // - Si parece URL absoluta/relativa (http/https o empieza con "/"), se usa tal cual.
-    // - En otro caso, se asume base64 crudo y se envuelve como data:image/png;base64,...
-    let firmaSrc = "";
-    if (typeof firmaRaw === "string" && firmaRaw.trim()) {
-      const raw = firmaRaw.trim();
-      if (raw.startsWith("data:")) {
-        firmaSrc = raw;
-      } else if (
-        raw.startsWith("http://") ||
-        raw.startsWith("https://") ||
-        raw.startsWith("/")
-      ) {
-        firmaSrc = raw;
-      } else {
-        firmaSrc = `data:image/png;base64,${raw}`;
-      }
-    }
-
-    const firmaHtml = firmaSrc
-      ? `<img src="${firmaSrc}" alt="Firma" style="max-height:80px;"/>`
-      : "---";
-
-    // ID legible: mismo criterio que API (id_formato o fecha_registro → fecha_siniestro)
+    // ID legible: mismo criterio que API (id_formato; si no, anualidad columna → fechas)
     const construirIdFormato = (): string => {
       if (!siniestroData) return "";
       return buildSiniestroIdLegible({
         id_formato: siniestroData.id_formato,
-        codigoProveniente: provenienteInfo?.codigo || "",
+        codigoProveniente: codigoProvenienteParaIdLegible(siniestroData),
         codigoSiniestro: siniestroData.codigo,
+        anualidad: siniestroData.anualidad,
         fecha_registro: siniestroData.fecha_registro,
         fecha_siniestro: siniestroData.fecha_siniestro,
       });
@@ -632,6 +643,7 @@ export default function SiniestroDetailPage() {
       creado_por: autorNombre,
       // ── Firma física como imagen HTML (si no hay, se coloca '---') ───────────
       firmado_por: firmaHtml,
+      firma_fisica: firmaHtml,
     };
 
     let resultado = contenido;
@@ -653,6 +665,7 @@ export default function SiniestroDetailPage() {
     areaNombre: string,
     aseguradoData: any,
     autorNombre: string,
+    autorUsuario?: any | null,
   ): Record<string, string> => {
     const hoy = new Date();
     const formatoFecha = (fecha?: string | Date | null) => {
@@ -684,8 +697,9 @@ export default function SiniestroDetailPage() {
       if (!siniestroData) return "";
       return buildSiniestroIdLegible({
         id_formato: siniestroData.id_formato,
-        codigoProveniente: provenienteInfo?.codigo || "",
+        codigoProveniente: codigoProvenienteParaIdLegible(siniestroData),
         codigoSiniestro: siniestroData.codigo,
+        anualidad: siniestroData.anualidad,
         fecha_registro: siniestroData.fecha_registro,
         fecha_siniestro: siniestroData.fecha_siniestro,
       });
@@ -705,9 +719,13 @@ export default function SiniestroDetailPage() {
       )?.nombre ?? "";
     const polizaPrincipalData = getDisplayPolizasFromSiniestro(siniestroData)[0];
 
+    const firmaImg = buildFirmaPhysicalHtml(autorUsuario ?? {});
+
     return {
       creado_en: creadoEn,
       creado_por: autorNombre,
+      firmado_por: firmaImg,
+      firma_fisica: firmaImg,
       id: construirIdFormato(),
       asegurado: nombreAsegurado,
       area: areaNombre || "",
@@ -2186,6 +2204,7 @@ export default function SiniestroDetailPage() {
         areaNombre,
         aseguradoInfo,
         autorNombre,
+        autorUsuario,
       );
 
       const plantillaId =
@@ -2202,7 +2221,7 @@ export default function SiniestroDetailPage() {
             (docExistente?.area_id as string | undefined) || activeAreaTab || undefined,
           );
           if (respuesta?.valores && typeof respuesta.valores === "object") {
-            variables = { ...variables, ...respuesta.valores };
+            variables = { ...respuesta.valores, ...variables };
           }
         } catch {
           // Sin respuesta de formulario, seguir con las variables base
@@ -2281,6 +2300,7 @@ export default function SiniestroDetailPage() {
           areaNombre,
           aseguradoInfo,
           autorNombre,
+          autorUsuarioDoc,
         );
 
         const plantillaIdDoc = documento.plantilla_documento_id;
@@ -2292,7 +2312,7 @@ export default function SiniestroDetailPage() {
               (documento?.area_id as string | undefined) || activeAreaTab || undefined,
             );
             if (respuesta?.valores && typeof respuesta.valores === "object") {
-              variables = { ...variables, ...respuesta.valores };
+              variables = { ...respuesta.valores, ...variables };
             }
           } catch {
             // Sin respuesta de formulario, seguir con las variables base
@@ -2704,8 +2724,26 @@ export default function SiniestroDetailPage() {
         areasConFlujos.find(
           (acf) => acf.area.id === (documento.area_id || activeAreaTab),
         )?.area.nombre || "";
-        const autorNombre =
-          getUserDisplayName(user as any, "");
+
+      let autorUsuarioDl: any = user;
+      if (documento.usuario_subio) {
+        const encontrado = todosLosUsuarios.find(
+          (u) => u.id === documento.usuario_subio,
+        );
+        if (encontrado) {
+          autorUsuarioDl = encontrado;
+        } else {
+          try {
+            const fetched = await apiService.getUserById(
+              documento.usuario_subio,
+            );
+            if (fetched) autorUsuarioDl = fetched;
+          } catch {
+            // fallback al usuario logueado
+          }
+        }
+      }
+      const autorNombre = getUserDisplayName(autorUsuarioDl as any, "");
 
       let variables = getVariablesForPdf(
         siniestro,
@@ -2713,6 +2751,7 @@ export default function SiniestroDetailPage() {
         areaNombre,
         aseguradoInfo,
         autorNombre,
+        autorUsuarioDl,
       );
 
       const plantillaIdDoc = documento.plantilla_documento_id;
@@ -2724,7 +2763,7 @@ export default function SiniestroDetailPage() {
             (documento?.area_id as string | undefined) || activeAreaTab || undefined,
           );
           if (respuesta?.valores && typeof respuesta.valores === "object") {
-            variables = { ...variables, ...respuesta.valores };
+            variables = { ...respuesta.valores, ...variables };
           }
         } catch {
           // Sin respuesta de formulario: descargar con variables base
@@ -3109,10 +3148,18 @@ export default function SiniestroDetailPage() {
       }
 
       if (docExistente) {
-        // Si existe, cargar el contenido existente
+        // Si existe: decodificar y volver a aplicar placeholders del sistema (p. ej. {{id}})
+        // para alinear con PDF / id_formato aunque el HTML guardado tenga valor antiguo o placeholders sin resolver.
         setDocumentoExistente(docExistente);
+        const decoded = decodeHtmlForEditor(docExistente.contenido || "");
         setDocumentoContenido(
-          decodeHtmlForEditor(docExistente.contenido || ""),
+          aplicarPlaceholdersPlantilla(
+            decoded,
+            etapa,
+            siniestro,
+            user,
+            aseguradoInfo,
+          ),
         );
       } else {
         // Si no existe, cargar la plantilla para precargar
@@ -3349,8 +3396,9 @@ export default function SiniestroDetailPage() {
                 const codigoCompleto =
                   buildSiniestroIdLegible({
                     id_formato: siniestro.id_formato,
-                    codigoProveniente: provenienteInfo?.codigo || "",
+                    codigoProveniente: codigoProvenienteParaIdLegible(siniestro),
                     codigoSiniestro: siniestro.codigo,
+                    anualidad: siniestro.anualidad,
                     fecha_registro: siniestro.fecha_registro,
                     fecha_siniestro: siniestro.fecha_siniestro,
                   }) || null;

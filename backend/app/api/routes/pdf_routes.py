@@ -18,7 +18,7 @@ from app.services.generated_file_service import (
     ArchivoGeneradoService,
     build_generated_file_access_payload,
 )
-from app.services.storage_service import normalize_siniestro_consecutivo
+from app.services.storage_service import format_siniestro_id_legible
 from app.services.storage_service import get_storage_service
 from app.services.pdf_service import PDFService
 from app.services.legal_service import (
@@ -39,6 +39,7 @@ import io
 import base64
 import logging
 from urllib.parse import unquote_plus
+from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,26 @@ def _maybe_storage_path_to_data_url(raw_value: str) -> Optional[str]:
     ext = raw.rsplit(".", 1)[-1].lower() if "." in raw else ""
     mime = _PDF_MIME_BY_EXT.get(ext, "image/png")
     return f"data:{mime};base64,{base64.b64encode(content).decode('utf-8')}"
+
+
+def _perfil_firma_src_for_pdf_img(raw_value: Optional[str]) -> str:
+    """
+    Convierte perfil.firma (data URL, http(s), clave R2 u objeto con /, o base64 plano)
+    a un src usable en <img> dentro del HTML del PDF.
+    """
+    raw = (raw_value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("data:") or raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    converted = _maybe_storage_path_to_data_url(raw)
+    if isinstance(converted, str) and (
+        converted.startswith("data:") or converted.startswith("http://") or converted.startswith("https://")
+    ):
+        return converted
+    if raw.startswith("r2://") or "/" in raw:
+        return ""
+    return f"data:image/png;base64,{raw}"
 
 
 def _normalize_pdf_image_variables(variables: Dict[str, Any]) -> Dict[str, Any]:
@@ -332,12 +353,16 @@ def _variables_plantilla_alineadas_frontend(
         if area_row and getattr(area_row, "nombre", None):
             area_nombre = str(area_row.nombre).strip()
 
+    # Mismo criterio que el frontend: nombre y firma del usuario que subió el documento si existe.
+    vars_user_id = getattr(doc, "usuario_subio", None) or getattr(current_user, "id", None)
+
     autor = ""
+    u = None
     try:
         u = (
             db.query(User)
             .options(joinedload(User.perfil))
-            .filter(User.id == current_user.id)
+            .filter(User.id == vars_user_id)
             .first()
         )
         if u:
@@ -345,6 +370,19 @@ def _variables_plantilla_alineadas_frontend(
             autor = (fn or "").strip() if fn else (u.correo or "").strip()
     except Exception:
         autor = (getattr(current_user, "correo", None) or "").strip()
+
+    firma_html = "---"
+    try:
+        if u and getattr(u, "perfil", None):
+            src = _perfil_firma_src_for_pdf_img(getattr(u.perfil, "firma", None))
+            if src:
+                firma_html = (
+                    '<img src="'
+                    + src.replace('"', "&quot;")
+                    + '" alt="Firma" style="max-width:30px;height:auto;"/>'
+                )
+    except Exception:
+        firma_html = "---"
 
     codigo_prov = ""
     if getattr(siniestro, "proveniente_id", None):
@@ -357,20 +395,20 @@ def _variables_plantilla_alineadas_frontend(
             codigo_prov = str(prov.codigo).strip()
 
     sc = (getattr(siniestro, "codigo", None) or "").strip()
-    consecutivo = normalize_siniestro_consecutivo(sc) or ""
-    fecha_ref = getattr(siniestro, "fecha_registro", None) or getattr(
-        siniestro, "fecha_siniestro", None
-    )
-    anualidad = ""
-    if fecha_ref is not None and hasattr(fecha_ref, "year"):
-        try:
-            anualidad = str(int(fecha_ref.year) % 100).zfill(2)
-        except (TypeError, ValueError):
-            pass
-
-    id_formato = ""
-    if codigo_prov and consecutivo and anualidad:
-        id_formato = f"{codigo_prov}-{consecutivo}-{anualidad}"
+    raw_id_fmt = (getattr(siniestro, "id_formato", None) or "").strip()
+    if raw_id_fmt:
+        id_formato = raw_id_fmt
+    else:
+        id_formato = (
+            format_siniestro_id_legible(
+                codigo_prov,
+                sc,
+                anualidad_column=getattr(siniestro, "anualidad", None),
+                fecha_registro=getattr(siniestro, "fecha_registro", None),
+                fecha_siniestro=getattr(siniestro, "fecha_siniestro", None),
+            )
+            or ""
+        )
 
     creado_src = (
         getattr(doc, "creado_en", None)
@@ -427,6 +465,8 @@ def _variables_plantilla_alineadas_frontend(
         {
             "creado_en": creado_en,
             "creado_por": autor,
+            "firmado_por": firma_html,
+            "firma_fisica": firma_html,
             "id": id_formato,
             "asegurado": nombre_asegurado,
             "nombre_asegurado": nombre_asegurado,
@@ -524,6 +564,27 @@ def _format_currency_variables(variables: dict, plantilla: Any) -> dict:
     return out
 
 
+def _resolve_pdf_default_logo_uri() -> Optional[str]:
+    """
+    Logo por defecto en PDFs (frontend/assets/logos/logo_large_black.png, fondo transparente).
+    Prioridad: PNG en app/static, PNG en monorepo frontend, luego SVG legacy en las mismas rutas.
+    """
+    app_dir = Path(__file__).resolve().parents[2]  # .../app
+    candidates = (
+        app_dir / "static" / "assets" / "logos" / "logo_large_black.png",
+        app_dir.parent.parent / "frontend" / "assets" / "logos" / "logo_large_black.png",
+        app_dir / "static" / "assets" / "logos" / "logo_large_black.svg",
+        app_dir.parent.parent / "frontend" / "assets" / "logos" / "logo_large_black.svg",
+    )
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return candidate.resolve().as_uri()
+        except OSError:
+            continue
+    return None
+
+
 def _get_empresa_logo_url(db: Session, user: User) -> Optional[str]:
     """Obtiene la URL del logo de la empresa del usuario (activa o primera disponible)."""
     empresa_id = getattr(user, "empresa_id", None)
@@ -544,15 +605,19 @@ def _get_empresa_logo_url(db: Session, user: User) -> Optional[str]:
 def _get_logo_for_header(db: Session, user: User, header_plantilla=None) -> Optional[str]:
     """
     Obtiene la URL del logo a usar: prioriza el logo del header (plantilla),
-    si no tiene usa el logo de la empresa del usuario.
+    luego el logo de la empresa del usuario, y por último el logo por defecto (logo_large_black.png).
     """
     # 1. Logo personalizado del header/plantilla
     if header_plantilla and getattr(header_plantilla, "logo_url", None):
         logo = header_plantilla.logo_url
         if logo and isinstance(logo, str) and logo.strip():
             return logo.strip()
-    # 2. Fallback: logo de la empresa
-    return _get_empresa_logo_url(db, user)
+    # 2. Logo de la empresa
+    empresa_logo = _get_empresa_logo_url(db, user)
+    if empresa_logo:
+        return empresa_logo
+    # 3. Fallback global PDF (sustituye ausencia de logo en empresa/header)
+    return _resolve_pdf_default_logo_uri()
 
 
 def _build_header_html_with_logo(
@@ -590,8 +655,11 @@ def _build_header_html_with_logo(
     )
 
 def _prepend_logo_if_empresa_has_one(db: Session, html_content: str, user: User) -> str:
-    """Si la empresa tiene logo y el contenido no incluye ya el placeholder {{logo}}, antepone el logo."""
-    logo_url = _get_empresa_logo_url(db, user)
+    """
+    Si el contenido no incluye ya el logo, antepone uno: logo de empresa si existe;
+    si no, logo por defecto (logo_large_black.png).
+    """
+    logo_url = _get_empresa_logo_url(db, user) or _resolve_pdf_default_logo_uri()
     if not logo_url:
         return html_content
     img_tag = f'<img src="{logo_url}" alt="Logo" style="display: block; max-height: 120px; max-width: 320px; object-fit: contain; margin: 0;" />'

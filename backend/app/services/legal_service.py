@@ -14,7 +14,7 @@ from fastapi import HTTPException, status
 from app.services.auditoria_service import AuditoriaService
 from app.services.email_service import EmailService
 from app.services.storage_metadata_service import StorageObjectService
-from app.services.storage_service import normalize_siniestro_consecutivo
+from app.services.storage_service import format_siniestro_id_legible, normalize_siniestro_consecutivo
 from app.utils.estado_normalization import normalizar_nombre_estado
 from app.core.nivel_acceso import usuario_bypass_areas
 from app.models.legal import (
@@ -1020,27 +1020,14 @@ class SiniestroService:
                 )
                 if prov:
                     codigo_prov = (prov.codigo or "").strip()
-        consecutivo = normalize_siniestro_consecutivo((siniestro.codigo or "").strip()) or ""
-        anualidad = ""
-        year_full = getattr(siniestro, "anualidad", None)
-        if year_full is not None:
-            try:
-                anualidad = str(int(year_full) % 100).zfill(2)
-            except (TypeError, ValueError):
-                pass
-        if not anualidad:
-            fecha_ref = siniestro.fecha_registro or siniestro.fecha_siniestro
-            if fecha_ref:
-                try:
-                    year = fecha_ref.year if hasattr(fecha_ref, "year") else None
-                    if year is not None:
-                        anualidad = str(int(year) % 100).zfill(2)
-                except (TypeError, ValueError):
-                    pass
-        if codigo_prov and consecutivo and anualidad:
-            setattr(siniestro, "id_formato", f"{codigo_prov}-{consecutivo}-{anualidad}")
-        else:
-            setattr(siniestro, "id_formato", None)
+        fid = format_siniestro_id_legible(
+            codigo_prov,
+            (siniestro.codigo or "").strip(),
+            anualidad_column=getattr(siniestro, "anualidad", None),
+            fecha_registro=siniestro.fecha_registro,
+            fecha_siniestro=siniestro.fecha_siniestro,
+        )
+        setattr(siniestro, "id_formato", fid)
 
     @staticmethod
     def _nombre_asegurado_display(aseg: Optional[Asegurado]) -> Optional[str]:
