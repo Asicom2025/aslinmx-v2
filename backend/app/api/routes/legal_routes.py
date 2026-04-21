@@ -73,14 +73,49 @@ from app.services.legal_service import (
 
 router = APIRouter(prefix="/catalogos", tags=["Catálogos"])
 
-_dep_area_create = Depends(require_any_permiso(("configuracion", "create"), ("parametros", "create")))
-_dep_area_update = Depends(require_any_permiso(("configuracion", "update"), ("parametros", "update")))
-_dep_area_delete = Depends(require_any_permiso(("configuracion", "delete"), ("parametros", "delete")))
+_dep_area_read = Depends(
+    require_any_permiso(
+        ("configuracion", "read"),
+        ("parametros", "read"),
+        ("configuracion", "ver_areas"),
+        ("siniestros", "read"),
+    )
+)
+_dep_area_create = Depends(
+    require_any_permiso(
+        ("configuracion", "create"),
+        ("parametros", "create"),
+        ("configuracion", "editar_areas"),
+    )
+)
+_dep_area_update = Depends(
+    require_any_permiso(
+        ("configuracion", "update"),
+        ("parametros", "update"),
+        ("configuracion", "editar_areas"),
+    )
+)
+_dep_area_delete = Depends(
+    require_any_permiso(
+        ("configuracion", "delete"),
+        ("parametros", "delete"),
+        ("configuracion", "eliminar_areas"),
+    )
+)
 
+_dep_catdoc_read = Depends(
+    require_any_permiso(
+        ("configuracion", "read"),
+        ("parametros", "read"),
+        ("configuracion", "ver_tipos_de_documentos"),
+        ("siniestros", "read"),
+    )
+)
 _dep_catdoc_create = Depends(
     require_any_permiso(
         ("configuracion", "create"),
         ("parametros", "create"),
+        ("configuracion", "editar_tipos_de_documentos"),
         ("siniestros", "create"),
         ("siniestros", "subir_archivo"),
     )
@@ -89,11 +124,16 @@ _dep_catdoc_update = Depends(
     require_any_permiso(
         ("configuracion", "update"),
         ("parametros", "update"),
+        ("configuracion", "editar_tipos_de_documentos"),
         ("siniestros", "update"),
     )
 )
 _dep_catdoc_delete = Depends(
-    require_any_permiso(("configuracion", "delete"), ("parametros", "delete"))
+    require_any_permiso(
+        ("configuracion", "delete"),
+        ("parametros", "delete"),
+        ("configuracion", "eliminar_tipos_de_documentos"),
+    )
 )
 
 
@@ -123,7 +163,7 @@ def _area_to_response(area) -> AreaResponse:
 def list_areas(
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_area_read,
 ):
     areas = AreaService.list(db, current_user.empresa_id, activo)
     return [_area_to_response(a) for a in areas]
@@ -837,7 +877,7 @@ def list_tipos_documento(
     activo: Optional[bool] = Query(None),
     area_id: Optional[UUID] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_read,
 ):
     return TiposDocumentoService.list(db, activo, area_id)
 
@@ -882,7 +922,7 @@ def list_categorias_documento(
     tipo_documento_id: Optional[UUID] = Query(None),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_read,
 ):
     return CategoriaDocumentoService.list(db, tipo_documento_id, activo)
 
@@ -928,7 +968,7 @@ def list_plantillas_documento(
     categoria_id: Optional[UUID] = Query(None),
     activo: Optional[bool] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_read,
 ):
     return PlantillaDocumentoService.list(db, tipo_documento_id, categoria_id, activo)
 
@@ -937,7 +977,7 @@ def list_plantillas_documento(
 def get_plantilla_documento(
     plantilla_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = _dep_catdoc_read,
 ):
     plantilla = PlantillaDocumentoService.get_by_id(db, plantilla_id)
     if not plantilla:

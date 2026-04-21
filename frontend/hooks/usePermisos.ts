@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useUser } from "@/context/UserContext";
+import { ACCION, MODULO } from "@/lib/permisosConstants";
 
 /** Mapeo ruta (href) -> nombre técnico del módulo (para permiso "leer") */
 export const RUTA_A_MODULO: Record<string, string> = {
@@ -74,6 +75,15 @@ export function usePermisos(): UsePermisosReturn {
           can(modulo, "create") ||
           can(modulo, "update") ||
           can(modulo, "delete")
+        );
+      }
+      if (modulo === MODULO.configuracion) {
+        return (
+          can(modulo, ACCION.read) ||
+          can(modulo, ACCION.leer_smtp) ||
+          can(modulo, ACCION.leer_flujos) ||
+          can(modulo, ACCION.ver_areas) ||
+          can(modulo, ACCION.ver_tipos_de_documentos)
         );
       }
       return can(modulo, "read");

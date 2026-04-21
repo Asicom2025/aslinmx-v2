@@ -9,7 +9,11 @@ import { ColumnDef } from "@tanstack/react-table";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { usePermisos } from "@/hooks/usePermisos";
-import { MODULO, ACCION } from "@/lib/permisosConstants";
+import {
+  canCatalogoDocumentoCrear,
+  canCatalogoDocumentoActualizar,
+  canCatalogoDocumentoEliminar,
+} from "@/lib/permisosConstants";
 import PlantillasCategoriaModal from "./PlantillasCategoriaModal";
 import { FiFileText } from "react-icons/fi";
 
@@ -24,11 +28,9 @@ interface CategoriasModalProps {
 
 export default function CategoriasModal({ open, onClose, tipoDocumento }: CategoriasModalProps) {
   const { can } = usePermisos();
-  const canCat = (accion: string) =>
-    can(MODULO.configuracion, accion) || can(MODULO.parametros, accion);
-  const canCreate = canCat(ACCION.create);
-  const canUpdate = canCat(ACCION.update);
-  const canDelete = canCat(ACCION.delete);
+  const canCreate = canCatalogoDocumentoCrear(can);
+  const canUpdate = canCatalogoDocumentoActualizar(can);
+  const canDelete = canCatalogoDocumentoEliminar(can);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);

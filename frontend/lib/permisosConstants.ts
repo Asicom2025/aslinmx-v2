@@ -30,6 +30,10 @@ export const ACCION = {
   ver_siniestros_recientes: "ver_siniestros_recientes",
   ver_grafica_por_mes: "ver_grafica_por_mes",
   asignar_areas: "asignar_areas",
+  /** Cambiar solo estado_id del siniestro (sin siniestros.update completo) */
+  editar_status: "editar_status",
+  /** Cambiar solo calificacion_id del siniestro */
+  editar_calificacion: "editar_calificacion",
   ver_bitacora: "ver_bitacora",
   ver_documentos: "ver_documentos",
   subir_archivo: "subir_archivo",
@@ -45,4 +49,103 @@ export const ACCION = {
   editar_roles: "editar_roles",
   crear_roles: "crear_roles",
   eliminar_roles: "eliminar_roles",
+  /** Configuración — granular (módulo configuracion) */
+  leer_smtp: "leer_smtp",
+  editar_smtp: "editar_smtp",
+  eliminar_smtp: "eliminar_smtp",
+  leer_flujos: "leer_flujos",
+  editar_flujos: "editar_flujos",
+  eliminar_flujos: "eliminar_flujos",
+  ver_areas: "ver_areas",
+  editar_areas: "editar_areas",
+  eliminar_areas: "eliminar_areas",
+  ver_tipos_de_documentos: "ver_tipos_de_documentos",
+  editar_tipos_de_documentos: "editar_tipos_de_documentos",
+  eliminar_tipos_de_documentos: "eliminar_tipos_de_documentos",
 } as const;
+
+export type CanFn = (modulo: string, accion: string) => boolean;
+
+/** SMTP en configuración: lectura (compat. con read). */
+export const canConfigSmtpLeer = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.read) || can(MODULO.configuracion, ACCION.leer_smtp);
+
+export const canConfigSmtpCrear = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.create) ||
+  can(MODULO.configuracion, ACCION.editar_smtp);
+
+export const canConfigSmtpActualizar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.update) ||
+  can(MODULO.configuracion, ACCION.editar_smtp);
+
+export const canConfigSmtpEliminar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.delete) || can(MODULO.configuracion, ACCION.eliminar_smtp);
+
+/** Flujos de trabajo (configuración / parámetros / siniestros lectura). */
+export const canConfigFlujoLeer = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.read) ||
+  can(MODULO.parametros, ACCION.read) ||
+  can(MODULO.siniestros, ACCION.read) ||
+  can(MODULO.configuracion, ACCION.leer_flujos);
+
+export const canConfigFlujoCrear = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.create) ||
+  can(MODULO.parametros, ACCION.create) ||
+  can(MODULO.configuracion, ACCION.editar_flujos);
+
+export const canConfigFlujoActualizar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.update) ||
+  can(MODULO.parametros, ACCION.update) ||
+  can(MODULO.configuracion, ACCION.editar_flujos);
+
+export const canConfigFlujoEliminar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.delete) ||
+  can(MODULO.parametros, ACCION.delete) ||
+  can(MODULO.configuracion, ACCION.eliminar_flujos);
+
+/** Áreas (catálogo): lectura para pantallas que ya usaban read de config/param/siniestros. */
+export const canConfigAreasLeer = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.read) ||
+  can(MODULO.parametros, ACCION.read) ||
+  can(MODULO.configuracion, ACCION.ver_areas) ||
+  can(MODULO.siniestros, ACCION.read);
+
+export const canConfigAreasCrear = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.create) ||
+  can(MODULO.parametros, ACCION.create) ||
+  can(MODULO.configuracion, ACCION.editar_areas);
+
+export const canConfigAreasActualizar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.update) ||
+  can(MODULO.parametros, ACCION.update) ||
+  can(MODULO.configuracion, ACCION.editar_areas);
+
+export const canConfigAreasEliminar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.delete) ||
+  can(MODULO.parametros, ACCION.delete) ||
+  can(MODULO.configuracion, ACCION.eliminar_areas);
+
+/** Tipos/categorías/plantillas de documento (catálogos legales). */
+export const canCatalogoDocumentoLeer = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.read) ||
+  can(MODULO.parametros, ACCION.read) ||
+  can(MODULO.configuracion, ACCION.ver_tipos_de_documentos) ||
+  can(MODULO.siniestros, ACCION.read);
+
+export const canCatalogoDocumentoCrear = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.create) ||
+  can(MODULO.parametros, ACCION.create) ||
+  can(MODULO.configuracion, ACCION.editar_tipos_de_documentos) ||
+  can(MODULO.siniestros, ACCION.create) ||
+  can(MODULO.siniestros, ACCION.subir_archivo);
+
+export const canCatalogoDocumentoActualizar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.update) ||
+  can(MODULO.parametros, ACCION.update) ||
+  can(MODULO.configuracion, ACCION.editar_tipos_de_documentos) ||
+  can(MODULO.siniestros, ACCION.update);
+
+export const canCatalogoDocumentoEliminar = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.delete) ||
+  can(MODULO.parametros, ACCION.delete) ||
+  can(MODULO.configuracion, ACCION.eliminar_tipos_de_documentos);

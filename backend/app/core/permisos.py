@@ -3,7 +3,7 @@ Dependencia para validar permisos por módulo y acción.
 Si el usuario no tiene el permiso, se lanza HTTP 403.
 """
 
-from typing import Tuple
+from typing import Set, Tuple
 
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
@@ -37,6 +37,53 @@ def _tiene_permiso(db: Session, rol_id: UUID, modulo_tecnico: str, accion_tecnic
         .first()
     )
     return existe is not None
+
+
+def assert_permiso_actualizar_siniestro(
+    db: Session,
+    current_user: User,
+    campos: Set[str],
+) -> None:
+    """
+    Permisos para PUT /siniestros/{id} según los campos enviados (model_dump exclude_unset).
+    - Cualquier campo distinto de estado_id o calificacion_id exige siniestros.update.
+    - estado_id exige siniestros.update o siniestros.editar_status.
+    - calificacion_id exige siniestros.update o siniestros.editar_calificacion.
+    """
+    if not campos:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No hay campos para actualizar",
+        )
+    if not current_user.rol_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene un rol asignado",
+        )
+    if usuario_bypass_permisos(db, current_user):
+        return
+
+    rid = current_user.rol_id
+    if _tiene_permiso(db, rid, "siniestros", "update"):
+        return
+
+    otros = campos - {"estado_id", "calificacion_id"}
+    if otros:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso siniestros.update para modificar otros campos del siniestro",
+        )
+
+    if "estado_id" in campos and not _tiene_permiso(db, rid, "siniestros", "editar_status"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso siniestros.editar_status",
+        )
+    if "calificacion_id" in campos and not _tiene_permiso(db, rid, "siniestros", "editar_calificacion"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso siniestros.editar_calificacion",
+        )
 
 
 def require_permiso(modulo_tecnico: str, accion_tecnico: str):

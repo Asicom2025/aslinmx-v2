@@ -41,8 +41,24 @@ _cfg_read = Depends(require_permiso("configuracion", "read"))
 _cfg_create = Depends(require_permiso("configuracion", "create"))
 _cfg_update = Depends(require_permiso("configuracion", "update"))
 _cfg_delete = Depends(require_permiso("configuracion", "delete"))
+_smtp_read = Depends(
+    require_any_permiso(("configuracion", "read"), ("configuracion", "leer_smtp"))
+)
+_smtp_create = Depends(
+    require_any_permiso(("configuracion", "create"), ("configuracion", "editar_smtp"))
+)
+_smtp_update = Depends(
+    require_any_permiso(("configuracion", "update"), ("configuracion", "editar_smtp"))
+)
+_smtp_delete = Depends(
+    require_any_permiso(("configuracion", "delete"), ("configuracion", "eliminar_smtp"))
+)
 _cfg_or_sin_update = Depends(
-    require_any_permiso(("configuracion", "update"), ("siniestros", "update"))
+    require_any_permiso(
+        ("configuracion", "update"),
+        ("configuracion", "editar_smtp"),
+        ("siniestros", "update"),
+    )
 )
 
 
@@ -50,7 +66,7 @@ _cfg_or_sin_update = Depends(
 @router.get("/smtp", response_model=List[ConfiguracionSMTPResponse])
 async def listar_configuraciones_smtp(
     activo: bool = None,
-    current_user: User = _cfg_read,
+    current_user: User = _smtp_read,
     db: Session = Depends(get_db)
 ):
     """Lista todas las configuraciones SMTP de la empresa"""
@@ -66,7 +82,7 @@ async def listar_configuraciones_smtp(
 async def crear_configuracion_smtp(
     config: ConfiguracionSMTPCreate,
     request: Request,
-    current_user: User = _cfg_create,
+    current_user: User = _smtp_create,
     db: Session = Depends(get_db)
 ):
     """Crea una nueva configuración SMTP"""
@@ -100,7 +116,7 @@ async def crear_configuracion_smtp(
 @router.get("/smtp/{config_id}", response_model=ConfiguracionSMTPResponse)
 async def obtener_configuracion_smtp(
     config_id: UUID,
-    current_user: User = _cfg_read,
+    current_user: User = _smtp_read,
     db: Session = Depends(get_db)
 ):
     """Obtiene una configuración SMTP específica"""
@@ -118,7 +134,7 @@ async def actualizar_configuracion_smtp(
     config_id: UUID,
     config_update: ConfiguracionSMTPUpdate,
     request: Request,
-    current_user: User = _cfg_update,
+    current_user: User = _smtp_update,
     db: Session = Depends(get_db)
 ):
     """Actualiza una configuración SMTP"""
@@ -167,7 +183,7 @@ async def actualizar_configuracion_smtp(
 async def eliminar_configuracion_smtp(
     config_id: UUID,
     request: Request,
-    current_user: User = _cfg_delete,
+    current_user: User = _smtp_delete,
     db: Session = Depends(get_db)
 ):
     """Elimina una configuración SMTP"""
@@ -201,7 +217,7 @@ async def eliminar_configuracion_smtp(
 async def probar_configuracion_smtp(
     config_id: UUID,
     test_request: TestSMTPRequest,
-    current_user: User = _cfg_update,
+    current_user: User = _smtp_update,
     db: Session = Depends(get_db)
 ):
     """Prueba una configuración SMTP enviando un correo de prueba"""
