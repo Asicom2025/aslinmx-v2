@@ -71,6 +71,7 @@ docker-compose.override.yml
 # Logs
 logs/
 recursos/
+mobile/*
 backend/uploads/*
 backend/app/tests/*
 *.log

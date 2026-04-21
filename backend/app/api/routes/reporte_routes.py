@@ -117,17 +117,6 @@ async def listar_reportes_disponibles(
             agrupaciones_disponibles=["estado_id", "prioridad", "calificacion_id", "asegurado_estado"]
         ),
         ReporteDisponible(
-            modulo="entidades",
-            nombre="Reporte de Entidades",
-            descripcion="Listado de entidades unificadas",
-            columnas_disponibles=[
-                "id", "nombre", "codigo", "email", "telefono", "direccion", "contacto_principal",
-                "es_institucion", "es_autoridad", "es_organo", "observaciones",
-                "activo", "creado_en", "actualizado_en"
-            ],
-            filtros_disponibles=["activo", "es_institucion", "es_autoridad", "es_organo"]
-        ),
-        ReporteDisponible(
             modulo="instituciones",
             nombre="Reporte de Instituciones",
             descripcion="Listado de instituciones",

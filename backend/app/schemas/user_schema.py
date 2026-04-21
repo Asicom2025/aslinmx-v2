@@ -150,6 +150,14 @@ class LoginResponse(BaseModel):
     temp_token: Optional[str] = None  # token temporal previo a 2FA
 
 
+class MobileLoginResponse(BaseModel):
+    """Respuesta de login para cliente móvil con refresh explícito."""
+    requires_2fa: bool
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    temp_token: Optional[str] = None
+
+
 class TwoFAVerifyRequest(BaseModel):
     """Solicitud de verificación 2FA (TOTP)"""
     code: str = Field(..., min_length=6, max_length=8)
@@ -160,6 +168,16 @@ class Token(BaseModel):
     """Schema de token de acceso"""
     access_token: str
     token_type: str = "bearer"
+
+
+class MobileToken(Token):
+    """Par de tokens para cliente móvil."""
+    refresh_token: str
+
+
+class MobileRefreshRequest(BaseModel):
+    """Solicitud de renovación para cliente móvil."""
+    refresh_token: str = Field(..., min_length=20)
 
 
 class TokenData(BaseModel):
