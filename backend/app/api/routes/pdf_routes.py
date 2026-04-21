@@ -153,12 +153,16 @@ def _normalize_textarea_variables(
     plantilla: Any,
 ) -> Dict[str, Any]:
     """
-    Normaliza solo campos tipo textarea del formulario de plantilla.
+    Normaliza campos tipo textarea y html (texto enriquecido) del formulario de plantilla.
     """
     if not plantilla or not getattr(plantilla, "campos_formulario", None):
         return dict(variables or {})
     campos = plantilla.campos_formulario or []
-    textarea_keys = {c.get("clave") for c in campos if c.get("tipo") == "textarea"}
+    textarea_keys = {
+        c.get("clave")
+        for c in campos
+        if c.get("tipo") in ("textarea", "html")
+    }
     if not textarea_keys:
         return dict(variables or {})
     out = dict(variables or {})

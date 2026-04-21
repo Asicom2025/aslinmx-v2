@@ -426,7 +426,18 @@ class CategoriaDocumentoResponse(CategoriaDocumentoBase):
 
 
 # ===== CAMPOS DE FORMULARIO PERSONALIZADO =====
-TipoCampoFormulario = Literal["text", "number", "currency", "date", "datetime", "email", "tel", "textarea", "select"]
+TipoCampoFormulario = Literal[
+    "text",
+    "number",
+    "currency",
+    "date",
+    "datetime",
+    "email",
+    "tel",
+    "textarea",
+    "html",
+    "select",
+]
 TamañoCampoFormulario = Literal["full", "half", "third"]
 
 class CampoFormulario(BaseModel):

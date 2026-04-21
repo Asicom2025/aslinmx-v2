@@ -103,6 +103,35 @@ export const canConfigFlujoEliminar = (can: CanFn) =>
   can(MODULO.parametros, ACCION.delete) ||
   can(MODULO.configuracion, ACCION.eliminar_flujos);
 
+/**
+ * Visibilidad de pestañas en /configuración: no usar siniestros.read como sustituto de permisos
+ * de catálogo (evita mostrar Áreas / Tipos / Documentos solo por leer siniestros).
+ */
+export const canConfiguracionTabGeneral = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.read) ||
+  can(MODULO.configuracion, ACCION.update) ||
+  can(MODULO.configuracion, ACCION.leer_smtp) ||
+  can(MODULO.parametros, ACCION.read) ||
+  can(MODULO.parametros, ACCION.update);
+
+export const canConfiguracionTabAreas = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.read) ||
+  can(MODULO.parametros, ACCION.read) ||
+  can(MODULO.configuracion, ACCION.ver_areas);
+
+export const canConfiguracionTabTiposDocumento = (can: CanFn) =>
+  can(MODULO.configuracion, ACCION.read) ||
+  can(MODULO.parametros, ACCION.read) ||
+  can(MODULO.configuracion, ACCION.ver_tipos_de_documentos);
+
+/** Expediente documentos desde configuración: ver listado o permisos de administración. */
+export const canConfiguracionTabDocumentos = (can: CanFn) =>
+  can(MODULO.siniestros, ACCION.ver_documentos) ||
+  can(MODULO.configuracion, ACCION.update) ||
+  can(MODULO.parametros, ACCION.update) ||
+  can(MODULO.configuracion, ACCION.create) ||
+  can(MODULO.parametros, ACCION.create);
+
 /** Áreas (catálogo): lectura para pantallas que ya usaban read de config/param/siniestros. */
 export const canConfigAreasLeer = (can: CanFn) =>
   can(MODULO.configuracion, ACCION.read) ||

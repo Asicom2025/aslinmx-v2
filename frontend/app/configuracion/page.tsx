@@ -36,6 +36,11 @@ import {
   canConfigAreasCrear,
   canConfigAreasActualizar,
   canConfigAreasEliminar,
+  canConfigFlujoLeer,
+  canConfiguracionTabGeneral,
+  canConfiguracionTabAreas,
+  canConfiguracionTabTiposDocumento,
+  canConfiguracionTabDocumentos,
   canCatalogoDocumentoLeer,
   canCatalogoDocumentoCrear,
   canCatalogoDocumentoActualizar,
@@ -79,8 +84,15 @@ function FlujosTrabajoPageWrapper() {
 export default function ConfiguracionPage() {
   const router = useRouter();
   const { loading } = useUser();
+  const { can } = usePermisos();
   useTour("tour-configuracion", { autoStart: true });
   const [activeTab, setActiveTab] = useState<ConfigTab>("general");
+
+  const showTabGeneral = useMemo(() => canConfiguracionTabGeneral(can), [can]);
+  const showTabFlujos = useMemo(() => canConfigFlujoLeer(can), [can]);
+  const showTabAreas = useMemo(() => canConfiguracionTabAreas(can), [can]);
+  const showTabDocumentos = useMemo(() => canConfiguracionTabDocumentos(can), [can]);
+  const showTabTiposDocumento = useMemo(() => canConfiguracionTabTiposDocumento(can), [can]);
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -88,6 +100,26 @@ export default function ConfiguracionPage() {
       router.push("/login");
     }
   }, [router, loading]);
+
+  /** Si la pestaña activa ya no es visible (p. ej. permisos granulares), ir a la primera permitida. */
+  useEffect(() => {
+    const visible: ConfigTab[] = [];
+    if (showTabGeneral) visible.push("general");
+    if (showTabFlujos) visible.push("flujos");
+    if (showTabAreas) visible.push("areas");
+    if (showTabDocumentos) visible.push("documentos");
+    if (showTabTiposDocumento) visible.push("tipos_documento");
+    if (visible.length > 0 && !visible.includes(activeTab)) {
+      setActiveTab(visible[0]);
+    }
+  }, [
+    showTabGeneral,
+    showTabFlujos,
+    showTabAreas,
+    showTabDocumentos,
+    showTabTiposDocumento,
+    activeTab,
+  ]);
 
   const TabButton = ({ id, label }: { id: ConfigTab; label: string }) => (
     <button
@@ -120,32 +152,42 @@ export default function ConfiguracionPage() {
           className="mb-4 overflow-x-auto border-b border-gray-200 [-webkit-overflow-scrolling:touch] lg:mb-6"
         >
           <nav className="-mb-px flex w-max min-w-max gap-4 sm:gap-6" aria-label="Tabs">
-            <TabButton id="general" label="General" />
-            <TabButton id="flujos" label="Flujos" />
-            <TabButton id="areas" label="Áreas" />
-            <TabButton id="documentos" label="Documentos" />
-            <TabButton id="tipos_documento" label="Tipos de Documento" />
+            {showTabGeneral && <TabButton id="general" label="General" />}
+            {showTabFlujos && <TabButton id="flujos" label="Flujos" />}
+            {showTabAreas && <TabButton id="areas" label="Áreas" />}
+            {showTabDocumentos && <TabButton id="documentos" label="Documentos" />}
+            {showTabTiposDocumento && <TabButton id="tipos_documento" label="Tipos de Documento" />}
           </nav>
         </div>
 
+        {!showTabGeneral &&
+          !showTabFlujos &&
+          !showTabAreas &&
+          !showTabDocumentos &&
+          !showTabTiposDocumento && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              No tienes permisos para ninguna sección de configuración. Solicita acceso a tu administrador.
+            </div>
+          )}
+
         {/* Content */}
-        {activeTab === "general" && (
+        {showTabGeneral && activeTab === "general" && (
           <div data-tour="config-empresa">
             <GeneralTab />
           </div>
         )}
 
-        {activeTab === "flujos" && (
+        {showTabFlujos && activeTab === "flujos" && (
           <div className="bg-white rounded-lg shadow p-2">
             <FlujosTrabajoPageWrapper />
           </div>
         )}
 
-        {activeTab === "areas" && <AreasTab />}
+        {showTabAreas && activeTab === "areas" && <AreasTab />}
 
-        {activeTab === "documentos" && <DocumentosTab />}
+        {showTabDocumentos && activeTab === "documentos" && <DocumentosTab />}
 
-        {activeTab === "tipos_documento" && <PlantillasTab />}
+        {showTabTiposDocumento && activeTab === "tipos_documento" && <PlantillasTab />}
       </div>
     </div>
   );
@@ -302,11 +344,6 @@ function GeneralTab() {
         <p className="text-gray-500">Cargando empresa...</p>
       ) : activeEmpresa ? (
         <form onSubmit={onSubmit} className="space-y-6">
-          {!canCfgUpdate && (
-            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-              Solo lectura: tu rol no incluye permiso para editar la configuración de la empresa.
-            </p>
-          )}
           <fieldset disabled={!canCfgUpdate} className="min-w-0 border-0 p-0 m-0 space-y-6 disabled:opacity-60">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input label="Nombre" name="nombre" value={form.nombre} onChange={onChange} required />
