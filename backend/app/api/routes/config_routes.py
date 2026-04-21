@@ -53,11 +53,14 @@ _smtp_update = Depends(
 _smtp_delete = Depends(
     require_any_permiso(("configuracion", "delete"), ("configuracion", "eliminar_smtp"))
 )
+# Enviar correo / enviar archivo: desde expediente suele hacerlo quien tiene lectura o documentos, no solo quien actualiza siniestro o SMTP.
 _cfg_or_sin_update = Depends(
     require_any_permiso(
         ("configuracion", "update"),
         ("configuracion", "editar_smtp"),
         ("siniestros", "update"),
+        ("siniestros", "read"),
+        ("siniestros", "ver_documentos"),
     )
 )
 
