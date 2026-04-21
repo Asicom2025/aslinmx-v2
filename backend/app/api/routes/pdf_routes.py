@@ -29,7 +29,15 @@ from app.services.legal_service import (
 )
 from app.services.empresa_service import EmpresaService
 from app.models.user import User
-from app.models.legal import Area, Proveniente, SiniestroArea, Institucion, Autoridad, EstadoSiniestro
+from app.models.legal import (
+    Area,
+    Proveniente,
+    SiniestroArea,
+    Institucion,
+    Autoridad,
+    EstadoSiniestro,
+    RespuestaFormularioPlantilla,
+)
 from typing import Optional, Any, Dict, Tuple
 from datetime import datetime as dt
 from uuid import UUID as PyUUID
@@ -857,6 +865,52 @@ def _build_section_html(
     return body_html
 
 
+def _respuesta_formulario_valores_para_pdf(
+    db: Session,
+    *,
+    plantilla_id: PyUUID,
+    siniestro_id: PyUUID,
+    doc_area_id: Optional[PyUUID],
+) -> Dict[str, Any]:
+    """
+    Misma resolución que el detalle de siniestro al armar variables del PDF:
+    prioriza la respuesta guardada con el area_id del documento; si no hay,
+    la de área global (NULL); si aún no hay y solo existe un registro para
+    esa plantilla+siniestro, úsalo (documento sin area_id pero formulario
+    guardado con pestaña de área activa).
+    """
+    if doc_area_id is not None:
+        r = RespuestaFormularioService.get_or_none(
+            db,
+            plantilla_id=plantilla_id,
+            siniestro_id=siniestro_id,
+            area_id=doc_area_id,
+        )
+        if r and r.valores:
+            return dict(r.valores)
+
+    r = RespuestaFormularioService.get_or_none(
+        db,
+        plantilla_id=plantilla_id,
+        siniestro_id=siniestro_id,
+        area_id=None,
+    )
+    if r and r.valores:
+        return dict(r.valores)
+
+    todas = (
+        db.query(RespuestaFormularioPlantilla)
+        .filter(
+            RespuestaFormularioPlantilla.plantilla_id == plantilla_id,
+            RespuestaFormularioPlantilla.siniestro_id == siniestro_id,
+        )
+        .all()
+    )
+    if len(todas) == 1 and todas[0].valores:
+        return dict(todas[0].valores)
+    return {}
+
+
 def _merge_pdfs(pdf_bytes_list: list) -> bytes:
     """Fusiona varios PDF en uno solo, en orden (usa PdfWriter de pypdf)."""
     if not pdf_bytes_list:
@@ -1472,13 +1526,15 @@ def generar_pdf_bytes_para_documento(
     )
     siniestro_vars = _get_siniestro_asegurado_variables(db, siniestro_id, empresa_id)
     merged_variables = {**siniestro_vars}
-    respuesta = RespuestaFormularioService.get_or_none(
+    doc_area_id = getattr(doc, "area_id", None)
+    rf_vals = _respuesta_formulario_valores_para_pdf(
         db,
         plantilla_id=doc.plantilla_documento_id,
         siniestro_id=siniestro_id,
+        doc_area_id=doc_area_id,
     )
-    if respuesta and respuesta.valores:
-        merged_variables = {**merged_variables, **respuesta.valores}
+    if rf_vals:
+        merged_variables = {**merged_variables, **rf_vals}
     merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
     merged_variables = _expand_datetime_variables(merged_variables)
     merged_variables = _format_currency_variables(merged_variables, plantilla)
