@@ -890,12 +890,12 @@ class UserService:
     @staticmethod
     def toggle_two_factor(
         db: Session,
-        current_user: User,
+        subject_user: User,
         payload: TwoFAToggleRequest,
     ) -> bool:
         # Asegurar registro 2FA
-        UserService.ensure_user_totp_secret(db, current_user)
-        record = current_user.dosfa
+        UserService.ensure_user_totp_secret(db, subject_user)
+        record = subject_user.dosfa
         if payload.enable:
             # Al habilitar, si se requiere c?digo, validarlo con el secreto actual
             if payload.code:
@@ -907,6 +907,6 @@ class UserService:
             record.habilitado = False
         db.add(record)
         db.commit()
-        db.refresh(current_user)
+        db.refresh(subject_user)
         return True
 

@@ -313,6 +313,15 @@ const userService = {
     const response = await api.delete(`/users/${userId}`);
     return response.data;
   },
+  /** Solo nivel 0/1: otpauth del usuario indicado (mismo criterio que firmas en edición de usuario). */
+  getUserOtpAuthUrl: async (userId: string) => {
+    const response = await api.get(`/users/${userId}/2fa/otpauth`);
+    return response.data as { otpauth_url: string };
+  },
+  toggleUser2FA: async (userId: string, enable: boolean, code?: string) => {
+    const response = await api.post(`/users/${userId}/2fa/toggle`, { enable, code });
+    return response.data;
+  },
   inviteUserCredential: async (userId: string) => {
     const response = await api.post(`/users/${userId}/invitar-credencial`);
     return response.data;

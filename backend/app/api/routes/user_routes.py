@@ -759,7 +759,60 @@ def get_users(
     Obtener lista de usuarios (requiere autenticación)
     """
     users = UserService.get_users(db, skip=skip, limit=limit)
-    return users
+    out: List[UserResponse] = []
+    for u in users:
+        list(u.areas)
+        payload = UserResponse.model_validate(u).model_dump()
+        _inline_user_profile_assets_data(payload)
+        out.append(UserResponse.model_validate(payload))
+    return out
+
+
+@router.get("/{user_id}/2fa/otpauth")
+def get_user_otpauth_uri(
+    user_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "read")),
+):
+    """
+    URI otpauth:// para configurar TOTP de otro usuario (solo roles nivel 0 o 1).
+    """
+    _require_nivel_1_administrador(db, current_user)
+    target = UserService.get_user_by_id(db, user_id)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado",
+        )
+    UserService.ensure_user_totp_secret(db, target)
+    uri = UserService.get_totp_uri(target)
+    return {"otpauth_url": uri}
+
+
+@router.post("/{user_id}/2fa/toggle", response_model=OperationResult)
+def toggle_user_two_factor(
+    user_id: str,
+    payload: TwoFAToggleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("usuarios", "read")),
+):
+    """
+    Habilita o deshabilita 2FA de otro usuario (solo roles nivel 0 o 1).
+    """
+    _require_nivel_1_administrador(db, current_user)
+    target = UserService.get_user_by_id(db, user_id)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado",
+        )
+    ok = UserService.toggle_two_factor(db, target, payload)
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Código 2FA inválido",
+        )
+    return {"success": True, "detail": "Estado de 2FA actualizado"}
 
 
 @router.get("/{user_id}", response_model=UserResponse)

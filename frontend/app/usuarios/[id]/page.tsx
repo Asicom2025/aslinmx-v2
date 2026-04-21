@@ -10,7 +10,7 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import Switch from "@/components/ui/Switch";
 import CustomSelect, { SelectOption } from "@/components/ui/Select";
-import { swalSuccess, swalError } from "@/lib/swal";
+import { swalSuccess, swalError, swalInfo } from "@/lib/swal";
 import { getUserDisplayName, getUserInitial } from "@/lib/userName";
 import { compressImageFileToDataUrl } from "@/lib/imageDataUrl";
 import { FiArrowLeft, FiSave } from "react-icons/fi";
@@ -67,6 +67,10 @@ export default function EditarUsuarioPage() {
   const [areas, setAreas] = useState<any[]>([]);
   const canEditFirmas = currentUser?.rol?.nivel === 0 || currentUser?.rol?.nivel === 1;
 
+  const [twoFA, setTwoFA] = useState({ enable: false, code: "", otpauth: "" });
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [savingSecurity, setSavingSecurity] = useState(false);
+
   const [form, setForm] = useState({
     email: "",
     username: "",
@@ -110,6 +114,41 @@ export default function EditarUsuarioPage() {
     loadEmpresas();
     loadAreas();
   }, [currentUser, loading, router, params.id, puedeListarRoles]);
+
+  useEffect(() => {
+    if (!user) return;
+    setTwoFA((prev) => ({
+      ...prev,
+      enable: !!user.two_factor_enabled,
+      code: "",
+      otpauth: "",
+    }));
+    setQrDataUrl("");
+  }, [user?.id, user?.two_factor_enabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function genQR() {
+      if (!twoFA.otpauth) {
+        setQrDataUrl("");
+        return;
+      }
+      try {
+        const qr = await import("qrcode");
+        const url = await qr.toDataURL(twoFA.otpauth);
+        if (!cancelled) setQrDataUrl(url);
+      } catch {
+        if (!cancelled) {
+          setQrDataUrl("");
+          swalError("No se pudo generar el QR localmente");
+        }
+      }
+    }
+    genQR();
+    return () => {
+      cancelled = true;
+    };
+  }, [twoFA.otpauth]);
 
   const loadRoles = async () => {
     try {
@@ -264,11 +303,13 @@ export default function EditarUsuarioPage() {
         area_ids: form.area_ids || [],
         rol_id: form.rol_id || null,
         is_active: form.is_active,
-        two_factor_enabled: form.two_factor_enabled,
         perfil: form.perfil,
         contactos: form.contactos,
         direccion: form.direccion,
       };
+      if (!canEditFirmas) {
+        updateData.two_factor_enabled = form.two_factor_enabled;
+      }
 
       // Solo incluir password si se proporcionó uno nuevo
       if (form.password && form.password.trim() !== "") {
@@ -294,6 +335,27 @@ export default function EditarUsuarioPage() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const onGuardarSeguridad2FA = async () => {
+    if (!canEditFirmas) return;
+    const userId = params.id as string;
+    setSavingSecurity(true);
+    try {
+      if (twoFA.enable !== !!user?.two_factor_enabled) {
+        await apiService.toggleUser2FA(userId, twoFA.enable);
+        setTwoFA((prev) => ({ ...prev, code: "", otpauth: "" }));
+        setQrDataUrl("");
+        await loadUser();
+        await swalSuccess("Estado de 2FA actualizado");
+      } else {
+        await swalInfo("No hay cambios de 2FA que guardar.");
+      }
+    } catch (err: any) {
+      swalError(err.response?.data?.detail || "Error al actualizar 2FA");
+    } finally {
+      setSavingSecurity(false);
     }
   };
 
@@ -363,6 +425,10 @@ export default function EditarUsuarioPage() {
                 }`}
               />
               {user.is_active ? "Cuenta activa" : "Cuenta inactiva"}
+            </span>
+            <span className="hidden sm:inline text-white/80">|</span>
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-sm">
+              2FA: {user.two_factor_enabled ? "Habilitado" : "Deshabilitado"}
             </span>
           </div>
         </div>
@@ -441,27 +507,6 @@ export default function EditarUsuarioPage() {
                 onChange={(checked) => onChange("main", "is_active", checked)}
               />
             </div>
-          </div>
-        </div>
-
-        {/* Seguridad */}
-        <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-6">
-          <h2 className="font-semibold text-lg mb-4">Seguridad</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Switch
-                label="2FA habilitado"
-                checked={form.two_factor_enabled}
-                onChange={(checked) => onChange("main", "two_factor_enabled", checked)}
-              />
-            </div>
-            <Input
-              label="Nueva contraseña (dejar vacío para no cambiar)"
-              name="password"
-              type="password"
-              value={form.password}
-              onChange={(e) => onChange("main", "password", e.target.value)}
-            />
           </div>
         </div>
 
@@ -658,6 +703,178 @@ export default function EditarUsuarioPage() {
           </div>
         </div>
         </fieldset>
+
+        {/* Seguridad: fuera del fieldset (nivel 0/1 puede configurar 2FA aunque el resto sea solo lectura) */}
+        {(puedeEditarUsuario || canEditFirmas) && (
+          <div className="bg-white rounded-xl shadow-sm ring-1 ring-black/5 p-6 space-y-6">
+            <div>
+              <h2 className="font-semibold text-lg">Seguridad</h2>
+              <p className="text-sm text-gray-500">
+                Contraseña y autenticación de dos factores (mismo criterio que Mi perfil para nivel 0/1).
+              </p>
+            </div>
+
+            {canEditFirmas && (
+              <div className="space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <h3 className="font-medium">Autenticación de dos factores (2FA)</h3>
+                      <p className="text-sm text-gray-500">Protege la cuenta del usuario con un código TOTP</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTwoFA((s) => ({ ...s, enable: !s.enable }))}
+                      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                        twoFA.enable ? "bg-azul" : "bg-gray-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          twoFA.enable ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  {twoFA.enable && (
+                    <div className="grid grid-cols-1 gap-4">
+                      <div className="text-sm text-gray-600">
+                        <p className="mb-2">1) Presiona &quot;Mostrar QR/clave&quot;</p>
+                        <p className="mb-2">2) El usuario lo escanea con su app de autenticación</p>
+                        <p className="mb-2">3) Usa &quot;Guardar seguridad&quot; para aplicar el estado de 2FA</p>
+                        <p className="text-xs text-gray-500">
+                          Tras habilitar, en el próximo inicio de sesión se pedirá el código 2FA.
+                        </p>
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const data = await apiService.getUserOtpAuthUrl(params.id as string);
+                                setTwoFA((s) => ({ ...s, otpauth: data.otpauth_url }));
+                                await swalInfo("Escanea el QR con la app de autenticación del usuario");
+                              } catch (err: any) {
+                                swalError(err.response?.data?.detail || "No se pudo generar el QR");
+                              }
+                            }}
+                            className="text-azul underline"
+                          >
+                            Mostrar QR/clave
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                const data = await apiService.getUserOtpAuthUrl(params.id as string);
+                                setTwoFA((s) => ({ ...s, otpauth: data.otpauth_url }));
+                                await swalSuccess("QR refrescado");
+                              } catch (err: any) {
+                                swalError(err.response?.data?.detail || "No se pudo refrescar el QR");
+                              }
+                            }}
+                            className="text-azul underline"
+                          >
+                            Refrescar QR
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!qrDataUrl}
+                            onClick={async () => {
+                              try {
+                                if (!qrDataUrl) return;
+                                const link = document.createElement("a");
+                                link.href = qrDataUrl;
+                                link.download = "2fa-qr.png";
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                              } catch {
+                                swalError("No se pudo descargar el QR");
+                              }
+                            }}
+                            className="text-azul underline disabled:opacity-50"
+                          >
+                            Descargar QR
+                          </button>
+                        </div>
+                        {twoFA.otpauth && (
+                          <div className="mt-2 flex flex-col items-start gap-4 md:flex-row md:items-center">
+                            {qrDataUrl ? (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img
+                                src={qrDataUrl}
+                                alt="QR 2FA"
+                                className="h-40 w-40 rounded border border-gray-200 object-contain sm:h-48 sm:w-48 md:h-52 md:w-52"
+                              />
+                            ) : (
+                              <div className="grid h-40 w-40 place-items-center rounded border border-gray-200 text-xs text-gray-500 sm:h-48 sm:w-48 md:h-52 md:w-52">
+                                Generando QR...
+                              </div>
+                            )}
+                            <div className="max-w-full flex-1 overflow-auto rounded border border-gray-200 bg-gray-50 p-2 text-xs break-all">
+                              {twoFA.otpauth}
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  className="text-azul underline"
+                                  onClick={async () => {
+                                    try {
+                                      await navigator.clipboard.writeText(twoFA.otpauth);
+                                      await swalSuccess("Clave copiada al portapapeles");
+                                    } catch {
+                                      swalError("No se pudo copiar");
+                                    }
+                                  }}
+                                >
+                                  Copiar clave
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {!twoFA.enable && user.two_factor_enabled && (
+                    <p className="text-sm text-gray-500">Desactivar 2FA no requiere código</p>
+                  )}
+                <div className="flex justify-end pt-2">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    loading={savingSecurity}
+                    onClick={onGuardarSeguridad2FA}
+                  >
+                    Guardar seguridad
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {!canEditFirmas && puedeEditarUsuario && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Switch
+                  label="2FA habilitado"
+                  checked={form.two_factor_enabled}
+                  onChange={(checked) => onChange("main", "two_factor_enabled", checked)}
+                />
+              </div>
+            )}
+
+            {puedeEditarUsuario && (
+              <div className="max-w-xl">
+                <Input
+                  label="Nueva contraseña (dejar vacío para no cambiar)"
+                  name="password"
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => onChange("main", "password", e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Botones */}
         <div className="flex items-center justify-end gap-3">

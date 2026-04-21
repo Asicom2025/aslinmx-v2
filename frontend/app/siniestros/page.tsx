@@ -1287,6 +1287,7 @@ function SiniestrosPageContent() {
             id_formato: row.original.id_formato,
             codigoProveniente: getProvenienteCodigo(row.original.proveniente_id),
             codigoSiniestro: row.original.codigo,
+            anualidad: row.original.anualidad,
             fecha_registro: row.original.fecha_registro,
             fecha_siniestro: row.original.fecha_siniestro,
           }) || "—";

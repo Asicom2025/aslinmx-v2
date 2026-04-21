@@ -13,7 +13,7 @@ import logging
 import mimetypes
 from pathlib import Path, PurePosixPath
 import shutil
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import quote, urlparse, urlunparse
 import uuid as uuid_lib
 
@@ -556,7 +556,9 @@ def resolve_siniestro_storage_ref(db, siniestro: Siniestro) -> str:
         siniestro_id=str(siniestro.id),
         proveniente_code=proveniente_code,
         consecutivo=siniestro.codigo,
-        fecha_referencia=siniestro.fecha_registro or siniestro.fecha_siniestro,
+        anualidad_column=getattr(siniestro, "anualidad", None),
+        fecha_registro=getattr(siniestro, "fecha_registro", None),
+        fecha_siniestro=getattr(siniestro, "fecha_siniestro", None),
     )
 
 
@@ -565,11 +567,18 @@ def build_siniestro_storage_ref(
     siniestro_id: str,
     proveniente_code: Optional[str],
     consecutivo: Optional[str],
-    fecha_referencia: Optional[datetime],
+    fecha_referencia: Optional[datetime] = None,
+    anualidad_column: Optional[Any] = None,
+    fecha_registro: Optional[datetime] = None,
+    fecha_siniestro: Optional[datetime] = None,
 ) -> str:
     codigo_proveniente = _normalize_siniestro_storage_component(proveniente_code)
     consecutivo_normalizado = normalize_siniestro_consecutivo(consecutivo)
-    anualidad = _normalize_siniestro_anualidad(fecha_referencia)
+    reg = fecha_registro
+    sin = fecha_siniestro
+    if reg is None and sin is None:
+        reg = fecha_referencia
+    anualidad = siniestro_anualidad_dos_digitos(anualidad_column, reg, sin)
 
     if codigo_proveniente and consecutivo_normalizado and anualidad:
         return f"{codigo_proveniente}-{consecutivo_normalizado}-{anualidad}"
@@ -671,6 +680,47 @@ def _normalize_siniestro_anualidad(value: Optional[datetime]) -> Optional[str]:
         return str(int(year) % 100).zfill(2)
     except (TypeError, ValueError):
         return None
+
+
+def siniestro_anualidad_dos_digitos(
+    anualidad_column: Optional[Any] = None,
+    fecha_registro: Optional[datetime] = None,
+    fecha_siniestro: Optional[datetime] = None,
+) -> Optional[str]:
+    """
+    Sufijo de 2 dígitos del año (ej. 26): prioriza columna anualidad (año calendario),
+    luego fecha_registro, luego fecha_siniestro. Alineado con id_formato en legal_service.
+    """
+    if anualidad_column is not None:
+        try:
+            return str(int(anualidad_column) % 100).zfill(2)
+        except (TypeError, ValueError):
+            pass
+    fecha_ref = fecha_registro or fecha_siniestro
+    return _normalize_siniestro_anualidad(fecha_ref)
+
+
+def format_siniestro_id_legible(
+    codigo_proveniente: Optional[str],
+    codigo_siniestro: Optional[str],
+    *,
+    anualidad_column: Optional[Any] = None,
+    fecha_registro: Optional[datetime] = None,
+    fecha_siniestro: Optional[datetime] = None,
+) -> Optional[str]:
+    """ID legible proveniente-consecutivo-anualidad (ej. 102-087-26). None si falta dato."""
+    prov = (codigo_proveniente or "").strip()
+    cons = normalize_siniestro_consecutivo((codigo_siniestro or "").strip()) or ""
+    if not prov or not cons:
+        return None
+    anu = siniestro_anualidad_dos_digitos(
+        anualidad_column,
+        fecha_registro,
+        fecha_siniestro,
+    )
+    if not anu:
+        return None
+    return f"{prov}-{cons}-{anu}"
 
 
 def _build_content_disposition(filename: str) -> str:
