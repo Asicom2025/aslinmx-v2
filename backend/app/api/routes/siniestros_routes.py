@@ -22,6 +22,11 @@ from app.services.siniestro_acceso_service import (
     usuario_puede_editar_siniestro,
     usuario_puede_eliminar_siniestro,
 )
+
+
+def _actualizacion_solo_estado_o_calificacion(campos: set[str]) -> bool:
+    """True si el body solo toca estado_id y/o calificacion_id (permisos granulares)."""
+    return bool(campos) and campos.issubset({"estado_id", "calificacion_id"})
 from app.core.nivel_acceso import get_nivel_rol
 
 logger = logging.getLogger(__name__)
@@ -164,7 +169,15 @@ def update_siniestro(
     campos = set(payload.model_dump(exclude_unset=True).keys())
     assert_permiso_actualizar_siniestro(db, current_user, campos)
 
-    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+    # Cambiar solo estado/calificación: basta con poder ver el siniestro + permisos granulares (ya validados arriba).
+    # El resto de campos sigue exigiendo la regla estricta de edición (nivel / responsable principal).
+    if _actualizacion_solo_estado_o_calificacion(campos):
+        if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Siniestro no encontrado",
+            )
+    elif not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tiene permiso para editar este siniestro según su nivel o asignación",

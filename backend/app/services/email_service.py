@@ -4,6 +4,7 @@ Servicio para envío de correos electrónicos
 
 import smtplib
 from pathlib import Path
+from email.utils import formataddr
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -32,6 +33,22 @@ from app.core.config import settings
 from app.services.storage_service import get_storage_service
 
 logger = logging.getLogger(__name__)
+
+
+def _build_from_header(
+    config: ConfiguracionSMTP,
+    remitente_nombre_override: Optional[str] = None,
+) -> str:
+    """
+    Cabecera From: nombre visible + email SMTP.
+    Si remitente_nombre_override viene no vacío, se usa (usuario que envía); si no, remitente_nombre de la config o 'Sistema'.
+    """
+    if remitente_nombre_override and str(remitente_nombre_override).strip():
+        display = str(remitente_nombre_override).strip()
+    else:
+        display = (config.remitente_nombre or "").strip() or "Sistema"
+    return formataddr((display, config.remitente_email))
+
 
 # Rutas relativas al backend/app para assets de correo (logo e icono) adjuntos como CID
 EMAIL_ASSETS_DIR = Path(__file__).resolve().parent.parent / "static" / "email_assets"
@@ -104,6 +121,24 @@ class EmailService:
     """Servicio para envío de correos electrónicos"""
 
     @staticmethod
+    def nombre_display_remitente_usuario(usuario: Any) -> Optional[str]:
+        """Nombre para mostrar en From cuando el envío lo hace un usuario logueado."""
+        if not usuario:
+            return None
+        try:
+            raw = getattr(usuario, "full_name", None)
+            if callable(raw):
+                raw = raw()
+        except Exception:
+            raw = None
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        correo = getattr(usuario, "correo", None) or getattr(usuario, "email", None)
+        if correo and str(correo).strip():
+            return str(correo).strip()
+        return None
+
+    @staticmethod
     def test_smtp_connection(config: ConfiguracionSMTP) -> Tuple[bool, Optional[str]]:
         """
         Prueba la conexión SMTP
@@ -139,6 +174,7 @@ class EmailService:
         list_unsubscribe_one_click: bool = False,
         cc: Optional[List[str]] = None,
         cco: Optional[List[str]] = None,
+        remitente_nombre_override: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """
         Envía un correo electrónico de forma asíncrona
@@ -150,7 +186,7 @@ class EmailService:
             cc = cc or []
             cco = cco or []
             message = MIMEMultipart("alternative")
-            message["From"] = f"{config.remitente_nombre or 'Sistema'} <{config.remitente_email}>"
+            message["From"] = _build_from_header(config, remitente_nombre_override)
             message["To"] = ", ".join(destinatarios)
             if cc:
                 message["Cc"] = ", ".join(cc)
@@ -248,6 +284,7 @@ class EmailService:
         cc: Optional[List[str]] = None,
         cco: Optional[List[str]] = None,
         *,
+        remitente_nombre_override: Optional[str] = None,
         incluir_file_icon_solo_si_usa_plantilla: bool = True,
     ) -> Tuple[bool, Optional[str]]:
         """
@@ -262,7 +299,7 @@ class EmailService:
             cc = cc or []
             cco = cco or []
             message = MIMEMultipart("alternative")
-            message["From"] = f"{config.remitente_nombre or 'Sistema'} <{config.remitente_email}>"
+            message["From"] = _build_from_header(config, remitente_nombre_override)
             message["To"] = ", ".join(destinatarios)
             if cc:
                 message["Cc"] = ", ".join(cc)
@@ -714,6 +751,7 @@ class EmailService:
             firma_cid_bytes=firma_cid_bytes,
             logo_cid_bytes=logo_cid_bytes,
             file_icon_cid_bytes=file_icon_cid_bytes,
+            remitente_nombre_override=EmailService.nombre_display_remitente_usuario(current_user),
         )
         if not success:
             return False, error
@@ -826,6 +864,7 @@ class EmailService:
             firma_cid_bytes=firma_cid_bytes,
             logo_cid_bytes=logo_cid_bytes,
             file_icon_cid_bytes=file_icon_cid_bytes,
+            remitente_nombre_override=EmailService.nombre_display_remitente_usuario(current_user),
         )
         if not success:
             return False, error
@@ -916,6 +955,9 @@ class EmailService:
             logger.exception("Error renderizando plantilla de correo de asignación de área")
             return False, str(e)
 
+        remitente_nombre = EmailService.nombre_display_remitente_usuario(
+            usuario_asignador or current_user
+        )
         success, error = EmailService.send_email_sync(
             config_smtp,
             [correo_jefe],
@@ -925,6 +967,7 @@ class EmailService:
             firma_cid_bytes=firma_cid_bytes,
             logo_cid_bytes=logo_cid_bytes,
             file_icon_cid_bytes=file_icon_cid_bytes,
+            remitente_nombre_override=remitente_nombre,
         )
         if not success:
             return False, error

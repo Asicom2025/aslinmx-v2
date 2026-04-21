@@ -15,6 +15,7 @@ export type TipoCampo =
   | "email"
   | "tel"
   | "textarea"
+  | "html"
   | "select";
 
 export type TamanoCampo = "full" | "half" | "third";
@@ -35,6 +36,7 @@ export interface CampoFormulario {
 const TIPOS_CAMPO: { value: TipoCampo; label: string }[] = [
   { value: "text",     label: "Texto corto" },
   { value: "textarea", label: "Texto largo" },
+  { value: "html",     label: "Texto enriquecido (HTML)" },
   { value: "number",   label: "Número" },
   { value: "currency", label: "Moneda ($)" },
   { value: "date",     label: "Fecha" },

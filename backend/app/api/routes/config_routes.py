@@ -237,7 +237,7 @@ async def probar_configuracion_smtp(
     cuerpo_html = f"<p>{test_request.mensaje}</p>"
     _, firma_cid_bytes = EmailService.get_firma_for_template(db, current_user)
 
-    # Enviar correo de prueba
+    # Enviar correo de prueba (nombre visible = usuario que prueba)
     success, error = EmailService.send_email_sync(
         config=config,
         destinatarios=[test_request.destinatario],
@@ -245,6 +245,7 @@ async def probar_configuracion_smtp(
         cuerpo_html=cuerpo_html,
         cuerpo_texto=test_request.mensaje,
         firma_cid_bytes=firma_cid_bytes,
+        remitente_nombre_override=EmailService.nombre_display_remitente_usuario(current_user),
     )
 
     if not success:
@@ -429,6 +430,8 @@ async def enviar_correo(
     cc_list = [str(e) for e in (request_data.cc or [])]
     cco_list = [str(e) for e in (request_data.cco or [])]
 
+    nombre_remitente_usuario = EmailService.nombre_display_remitente_usuario(current_user)
+
     # Enviar correo a cada destinatario principal; CC/CCO se incluyen como copia en cada envío
     resultados = []
     for destinatario in request_data.destinatarios:
@@ -447,6 +450,7 @@ async def enviar_correo(
             list_unsubscribe_one_click=True,
             cc=cc_list,
             cco=cco_list,
+            remitente_nombre_override=nombre_remitente_usuario,
         )
 
         estado = "enviado" if success else "fallido"
@@ -655,6 +659,7 @@ async def enviar_archivo_correo(
         list_unsubscribe_one_click=True,
         cc=cc_list,
         cco=cco_list,
+        remitente_nombre_override=EmailService.nombre_display_remitente_usuario(current_user),
     )
 
     estado = "enviado" if success else "fallido"

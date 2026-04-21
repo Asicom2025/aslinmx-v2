@@ -4,9 +4,25 @@ import { useState, useEffect } from "react";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
+import JoditEditor from "@/components/ui/JoditEditor";
 import apiService from "@/lib/apiService";
 import { formatCurrency, parseCurrency } from "@/lib/formatUtils";
 import type { CampoFormulario, TipoCampo, TamanoCampo } from "./FormularioDesigner";
+
+/** Contenido vacío típico de Jodit/HTML (p. ej. `<p><br></p>`). */
+function isCampoRequeridoVacio(campo: CampoFormulario, raw: string | number | undefined): boolean {
+  if (campo.tipo === "html") {
+    const s = raw !== undefined && raw !== null ? String(raw) : "";
+    const plain = s
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\u00a0/g, " ")
+      .trim();
+    return plain.length === 0;
+  }
+  if (raw === undefined || raw === null) return true;
+  return String(raw).trim() === "";
+}
 
 interface FormularioContinuacionModalProps {
   open: boolean;
@@ -85,10 +101,10 @@ export default function FormularioContinuacionModal({
     const requeridos = campos.filter((c) => c.requerido);
     for (const c of requeridos) {
       const v = valores[c.clave];
-      if (v === undefined || v === null || String(v).trim() === "") {
+      if (isCampoRequeridoVacio(c, v)) {
         setError(`El campo "${c.titulo}" es obligatorio.`);
         return;
-        }
+      }
     }
 
     setSaving(true);
@@ -199,6 +215,18 @@ export default function FormularioContinuacionModal({
               onChange={(e) => onChange(e.target.value)}
               rows={3}
               required={!!campo.requerido}
+            />
+          </div>
+        );
+      case "html":
+        return (
+          <div key={campo.clave} className="space-y-1 min-w-0">
+            <JoditEditor
+              label={`${campo.titulo}${campo.requerido ? " *" : ""}`}
+              value={valStr}
+              onChange={(v) => onChange(v)}
+              placeholder={campo.placeholder || "Escribe el contenido…"}
+              height={300}
             />
           </div>
         );
