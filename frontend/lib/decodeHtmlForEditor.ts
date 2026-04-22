@@ -11,11 +11,17 @@ const PCT = /%[0-9A-Fa-f]{2}/i;
 
 function looksLikeUrlEncodedHtml(s: string): boolean {
   if (!PCT.test(s)) return false;
-  const t = s.trim().slice(0, 512);
-  if (/^(%[0-9A-Fa-f]{2}){2,}/i.test(t)) return true;
-  const encLt = t.search(/%3C|%3c/i);
+  const t = s.trim();
+  if (/^<[a-z?!]/i.test(t) || /^<!DOCTYPE/i.test(t)) return false;
+  // No limitar a 512 iniciales: muchos informes traen relleno (%0A, +, etc.) y el
+  // primer %3C (equiv. a "<") queda a miles de caracteres; sin esto nunca se decodifica
+  // y Jodit muestra literalmente %3Cp%3E... (el PDF a veces tolera otra ruta de decode).
   const rawLt = t.indexOf("<");
+  const encLt = t.search(/%3C/i);
   if (encLt !== -1 && (rawLt === -1 || encLt < rawLt)) return true;
+  // Bloques largos al inicio solo con secuencias %XX (p. ej. %0A%0A%0A) sin aún abrir < real
+  const start512 = t.slice(0, 512);
+  if (/^(%[0-9A-Fa-f]{2}){2,}/i.test(start512)) return true;
   return false;
 }
 
