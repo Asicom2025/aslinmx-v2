@@ -838,6 +838,45 @@ export default function SiniestroDetailPage() {
     return combinados;
   };
 
+  /**
+   * Localiza el documento de la etapa para el flujo y área actuales.
+   * No reutiliza un informe de otra área: si en esta área no hay registro, devuelve null
+   * (aunque exista el mismo flujo/etapa con contenido en otra área).
+   */
+  const resolverDocumentoParaEtapaYContexto = (
+    listaDocumentos: any[],
+    etapaId: string,
+    flujoTrabajoIdActual: string | undefined,
+    areaIdContexto: string | undefined,
+  ): any | null => {
+    const documentosEtapa = listaDocumentos.filter(
+      (doc: any) => doc && doc.etapa_flujo_id === etapaId,
+    );
+
+    const coincideArea = (doc: any) => {
+      if (areaIdContexto && String(areaIdContexto).length > 0) {
+        return String(doc?.area_id ?? "") === String(areaIdContexto);
+      }
+      const aid = doc?.area_id;
+      return aid == null || aid === "";
+    };
+
+    if (flujoTrabajoIdActual) {
+      const delMismoFlujo = documentosEtapa.filter(
+        (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual,
+      );
+      const encontrado = delMismoFlujo.find((doc) => coincideArea(doc));
+      return encontrado ?? null;
+    }
+
+    const candidatos = documentosEtapa.filter((doc) => coincideArea(doc));
+    if (candidatos.length === 0) return null;
+    return candidatos.sort(
+      (a: any, b: any) =>
+        new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime(),
+    )[0];
+  };
+
   // Cargar documentos y bitácoras cuando cambia el área o flujo activo
   useEffect(() => {
     if (!activeFlujoTab) return;
@@ -2149,34 +2188,12 @@ export default function SiniestroDetailPage() {
         setDocumentosExistentes(listaDocumentos);
       }
 
-      // Buscar documentos de esta etapa
-      const documentosEtapa = listaDocumentos.filter(
-        (doc: any) => doc.etapa_flujo_id === etapa.id,
+      const docExistente = resolverDocumentoParaEtapaYContexto(
+        listaDocumentos,
+        etapa.id,
+        flujoTrabajoIdActual,
+        areaIdActual,
       );
-
-      // Buscar documento del flujo actual (debe coincidir exactamente)
-      // Si no hay flujo específico activo, usar el más reciente
-      let docExistente: any = null;
-      if (flujoTrabajoIdActual) {
-        // Si hay flujo específico, solo buscar documentos de ese flujo
-        docExistente =
-          documentosEtapa.find(
-            (doc: any) =>
-              doc.flujo_trabajo_id === flujoTrabajoIdActual &&
-              (!!areaIdActual ? doc.area_id === areaIdActual : true),
-          ) ||
-          documentosEtapa.find(
-            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual,
-          );
-      } else {
-        // Si no hay flujo específico, usar el más reciente
-        if (documentosEtapa.length > 0) {
-          docExistente = documentosEtapa.sort(
-            (a: any, b: any) =>
-              new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime(),
-          )[0];
-        }
-      }
 
       if (
         !docExistente ||
@@ -3159,36 +3176,13 @@ export default function SiniestroDetailPage() {
         setDocumentosExistentes(listaDocumentos);
       }
 
-      // Buscar si ya existe un documento para esta etapa
-      // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
-      // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
-      const documentosEtapa = listaDocumentos.filter(
-        (doc: any) => doc.etapa_flujo_id === etapa.id,
+      // Misma regla de área que en la timeline: nunca reutilizar el informe de otra área
+      const docExistente = resolverDocumentoParaEtapaYContexto(
+        listaDocumentos,
+        etapa.id,
+        flujoTrabajoIdActual,
+        areaIdActual,
       );
-
-      // Buscar documento del flujo actual (debe coincidir exactamente)
-      // Si no hay flujo específico activo, usar el más reciente
-      let docExistente: any = null;
-      if (flujoTrabajoIdActual) {
-        // Si hay flujo específico, solo buscar documentos de ese flujo
-        docExistente =
-          documentosEtapa.find(
-            (doc: any) =>
-              doc.flujo_trabajo_id === flujoTrabajoIdActual &&
-              (!!areaIdActual ? doc.area_id === areaIdActual : true),
-          ) ||
-          documentosEtapa.find(
-            (doc: any) => doc.flujo_trabajo_id === flujoTrabajoIdActual,
-          );
-      } else {
-        // Si no hay flujo específico, usar el más reciente
-        if (documentosEtapa.length > 0) {
-          docExistente = documentosEtapa.sort(
-            (a: any, b: any) =>
-              new Date(b.creado_en).getTime() - new Date(a.creado_en).getTime(),
-          )[0];
-        }
-      }
 
       const expedienteEliminado = !!siniestro?.eliminado;
       const puedeUsarVersionGuardada =
