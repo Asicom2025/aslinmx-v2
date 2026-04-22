@@ -1,5 +1,6 @@
 """
-Servicio para auditoría y logging de acciones
+Servicio para auditoría y logging de acciones.
+Incluye sanitización central para payloads sensibles y helper contextual HTTP.
 """
 
 from typing import Optional, Dict, Any
@@ -10,6 +11,49 @@ from app.models.config import Auditoria
 from app.models.user import User
 from datetime import datetime, date
 from uuid import UUID
+from fastapi import Request
+
+from app.core.trace_context import get_trace_id
+
+
+_SENSITIVE_KEY_FRAGMENTS: tuple[str, ...] = (
+    "password",
+    "pass",
+    "pwd",
+    "token",
+    "secret",
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "api_key",
+    "apikey",
+    "smtp",
+    "hashed_password",
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    k = (key or "").strip().lower()
+    return any(fragment in k for fragment in _SENSITIVE_KEY_FRAGMENTS)
+
+
+def _mask_sensitive_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for k, v in value.items():
+            key = str(k)
+            if _is_sensitive_key(key):
+                out[key] = "[REDACTED]"
+            else:
+                out[key] = _mask_sensitive_payload(v)
+        return out
+    if isinstance(value, list):
+        return [_mask_sensitive_payload(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_mask_sensitive_payload(v) for v in value)
+    if isinstance(value, set):
+        return {_mask_sensitive_payload(v) for v in value}
+    return value
 
 
 def _sanitize_for_json(value: Any) -> Any:
@@ -40,8 +84,54 @@ def _sanitize_for_json(value: Any) -> Any:
     return str(value)
 
 
+def _truncate_payload(value: Any, *, max_chars: int) -> Any:
+    if value is None:
+        return None
+    text = str(value)
+    if len(text) <= max_chars:
+        return value
+    return {
+        "_truncated": True,
+        "_preview": text[:max_chars],
+        "_original_length": len(text),
+    }
+
+
 class AuditoriaService:
     """Servicio para registrar y consultar auditoría"""
+
+    @staticmethod
+    def sanitize_audit_payload(value: Any) -> Any:
+        """Enmascara sensibles y convierte a tipos JSON-compatibles."""
+        return _sanitize_for_json(_mask_sensitive_payload(value))
+
+    @staticmethod
+    def request_context(request: Optional[Request]) -> Dict[str, Any]:
+        """
+        Extrae contexto HTTP estándar para auditoría.
+        Retorna valores vacíos si no existe request.
+        """
+        if not request:
+            return {
+                "ip_address": None,
+                "user_agent": None,
+                "route": None,
+                "method": None,
+                "trace_id": get_trace_id(),
+            }
+        route_path = None
+        try:
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", None) if route else None
+        except Exception:
+            route_path = None
+        return {
+            "ip_address": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent"),
+            "route": route_path or str(request.url.path),
+            "method": request.method,
+            "trace_id": request.headers.get("x-trace-id") or get_trace_id(),
+        }
 
     @staticmethod
     def registrar_accion(
@@ -62,9 +152,15 @@ class AuditoriaService:
         Registra una acción en el log de auditoría
         """
         datos_anteriores_clean = (
-            _sanitize_for_json(datos_anteriores) if datos_anteriores is not None else None
+            AuditoriaService.sanitize_audit_payload(datos_anteriores)
+            if datos_anteriores is not None
+            else None
         )
-        datos_nuevos_clean = _sanitize_for_json(datos_nuevos) if datos_nuevos is not None else None
+        datos_nuevos_clean = (
+            AuditoriaService.sanitize_audit_payload(datos_nuevos)
+            if datos_nuevos is not None
+            else None
+        )
 
         auditoria = Auditoria(
             usuario_id=usuario_id,
@@ -85,6 +181,52 @@ class AuditoriaService:
         return auditoria
 
     @staticmethod
+    def registrar_evento_http(
+        db: Session,
+        *,
+        request: Optional[Request],
+        user: Optional[User],
+        accion: str,
+        modulo: str,
+        tabla: str,
+        registro_id: Optional[UUID] = None,
+        datos_anteriores: Optional[Dict[str, Any]] = None,
+        datos_nuevos: Optional[Dict[str, Any]] = None,
+        descripcion: Optional[str] = None,
+        status: str = "success",
+        error_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> Auditoria:
+        """
+        Registro homogéneo de auditoría usando contexto HTTP y metadatos de resultado.
+        No agrega columnas nuevas: guarda metadatos en `_audit_meta`.
+        """
+        ctx = AuditoriaService.request_context(request)
+        nuevos = dict(datos_nuevos or {})
+        nuevos["_audit_meta"] = {
+            "status": status,
+            "error_code": error_code,
+            "error_message": (error_message or "")[:2000] or None,
+            "route": ctx.get("route"),
+            "method": ctx.get("method"),
+            "trace_id": ctx.get("trace_id"),
+        }
+        return AuditoriaService.registrar_accion(
+            db=db,
+            usuario_id=getattr(user, "id", None),
+            empresa_id=getattr(user, "empresa_id", None),
+            accion=accion,
+            modulo=modulo,
+            tabla=tabla,
+            registro_id=registro_id,
+            datos_anteriores=datos_anteriores,
+            datos_nuevos=nuevos,
+            ip_address=ctx.get("ip_address"),
+            user_agent=ctx.get("user_agent"),
+            descripcion=descripcion,
+        )
+
+    @staticmethod
     def obtener_auditoria(
         db: Session,
         empresa_id: Optional[UUID] = None,
@@ -95,7 +237,8 @@ class AuditoriaService:
         fecha_desde: Optional[datetime] = None,
         fecha_hasta: Optional[datetime] = None,
         limit: int = 100,
-        offset: int = 0
+        offset: int = 0,
+        max_payload_chars: int = 12000,
     ) -> tuple[list[Auditoria], int]:
         """
         Obtiene registros de auditoría con filtros
@@ -120,8 +263,24 @@ class AuditoriaService:
         if fecha_hasta:
             query = query.filter(Auditoria.creado_en <= fecha_hasta)
 
+        safe_limit = max(1, min(limit or 100, 1000))
         total = query.count()
-        registros = query.order_by(desc(Auditoria.creado_en)).offset(offset).limit(limit).all()
+        registros = (
+            query.order_by(desc(Auditoria.creado_en))
+            .offset(max(0, offset or 0))
+            .limit(safe_limit)
+            .all()
+        )
+        payload_limit = max(500, min(max_payload_chars or 12000, 100000))
+        for r in registros:
+            if r.datos_anteriores is not None:
+                r.datos_anteriores = _truncate_payload(
+                    r.datos_anteriores, max_chars=payload_limit
+                )
+            if r.datos_nuevos is not None:
+                r.datos_nuevos = _truncate_payload(
+                    r.datos_nuevos, max_chars=payload_limit
+                )
 
         return registros, total
 

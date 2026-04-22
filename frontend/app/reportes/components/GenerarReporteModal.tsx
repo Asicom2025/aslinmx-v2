@@ -6,15 +6,19 @@
 
 import { useState, useEffect } from "react";
 import { ReporteDisponible, ReporteRequest, ReporteFiltros } from "@/types/reportes";
-import { FiX, FiDownload, FiCalendar, FiCheckSquare, FiSquare, FiSave } from "react-icons/fi";
+import { FiDownload, FiCalendar, FiCheckSquare, FiSquare, FiSave } from "react-icons/fi";
+import apiService from "@/lib/apiService";
+import CustomSelect, { SelectOption } from "@/components/ui/Select";
+import Modal from "@/components/ui/Modal";
 
 interface GenerarReporteModalProps {
   modulo: string;
   reporteDisponible: ReporteDisponible;
-  onClose: () => void;
+  onClose?: () => void;
   onGenerar: (request: ReporteRequest) => void;
   generando: boolean;
   onGuardarConfiguracion?: (nombre: string, request: ReporteRequest) => void;
+  embedded?: boolean;
 }
 
 export default function GenerarReporteModal({
@@ -24,6 +28,7 @@ export default function GenerarReporteModal({
   onGenerar,
   generando,
   onGuardarConfiguracion,
+  embedded = false,
 }: GenerarReporteModalProps) {
   const [formato, setFormato] = useState<"excel" | "csv" | "pdf">("excel");
   const [filtros, setFiltros] = useState<ReporteFiltros>({});
@@ -35,6 +40,17 @@ export default function GenerarReporteModal({
   const [filtrosAdicionales, setFiltrosAdicionales] = useState<Record<string, any>>({});
   const [mostrarGuardar, setMostrarGuardar] = useState(false);
   const [nombreConfiguracion, setNombreConfiguracion] = useState("");
+  const [catalogos, setCatalogos] = useState({
+    instituciones: [] as any[],
+    autoridades: [] as any[],
+    areas: [] as any[],
+    provenientes: [] as any[],
+    asegurados: [] as any[],
+    calificaciones: [] as any[],
+    estados: [] as any[],
+    usuarios: [] as any[],
+    entidadesFederativas: [] as string[],
+  });
 
   // Inicializar todas las columnas seleccionadas por defecto
   useEffect(() => {
@@ -42,6 +58,55 @@ export default function GenerarReporteModal({
       setColumnasSeleccionadas([...reporteDisponible.columnas_disponibles]);
     }
   }, [reporteDisponible]);
+
+  useEffect(() => {
+    if (modulo !== "siniestros") return;
+    const loadCatalogos = async () => {
+      try {
+        const [
+          instituciones,
+          autoridades,
+          areas,
+          provenientes,
+          asegurados,
+          calificaciones,
+          estados,
+          usuarios,
+        ] = await Promise.all([
+          apiService.getInstituciones(true),
+          apiService.getAutoridades(true),
+          apiService.getAreas(true),
+          apiService.getProvenientes(true),
+          apiService.getAsegurados(true),
+          apiService.getCalificacionesSiniestro(true),
+          apiService.getEstadosSiniestro(true),
+          apiService.getUsers(0, 1000),
+        ]);
+
+        const estadosRaw = (asegurados || [])
+          .map((a: any) => (a?.estado || "").trim())
+          .filter(Boolean) as string[];
+        const estadosAsegurados: string[] = Array.from(
+          new Set<string>(estadosRaw),
+        ).sort((a: string, b: string) => a.localeCompare(b, "es"));
+
+        setCatalogos({
+          instituciones: instituciones || [],
+          autoridades: autoridades || [],
+          areas: areas || [],
+          provenientes: provenientes || [],
+          asegurados: asegurados || [],
+          calificaciones: calificaciones || [],
+          estados: estados || [],
+          usuarios: usuarios || [],
+          entidadesFederativas: estadosAsegurados,
+        });
+      } catch {
+        // Si falla algún catálogo, el usuario puede seguir exportando con otros filtros.
+      }
+    };
+    loadCatalogos();
+  }, [modulo]);
 
   const handleToggleColumna = (columna: string) => {
     setColumnasSeleccionadas((prev) => {
@@ -108,6 +173,35 @@ export default function GenerarReporteModal({
     onGenerar(request);
   };
 
+  const setFiltroAdicional = (key: string, value: string) => {
+    setFiltrosAdicionales((prev) => {
+      const next = { ...prev };
+      if (!value) {
+        delete next[key];
+      } else {
+        next[key] = value;
+      }
+      return next;
+    });
+  };
+
+  const filtroAdicional = (key: string): string => String(filtrosAdicionales[key] || "");
+  const buildSimpleOptions = (
+    items: any[],
+    labelBuilder: (item: any) => string,
+  ): SelectOption[] =>
+    (items || [])
+      .filter((item) => item?.id)
+      .map((item) => ({
+        value: String(item.id),
+        label: labelBuilder(item),
+      }));
+
+  const orderOptions: SelectOption[] = [
+    { value: "asc", label: "Ascendente" },
+    { value: "desc", label: "Descendente" },
+  ];
+
   const handleGuardarConfiguracion = () => {
     if (!nombreConfiguracion.trim()) {
       alert("Por favor, ingresa un nombre para la configuración");
@@ -147,25 +241,9 @@ export default function GenerarReporteModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Generar Reporte</h2>
-            <p className="text-sm text-gray-600 mt-1">{reporteDisponible.nombre}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <FiX className="w-6 h-6" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 space-y-6">
+  const content = (
+      <div className="space-y-6">
+        <p className="text-sm text-gray-600">{reporteDisponible.nombre}</p>
           {/* Formato */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -263,6 +341,187 @@ export default function GenerarReporteModal({
             </div>
           )}
 
+          {/* Filtros de negocio para exportar siniestros */}
+          {modulo === "siniestros" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {reporteDisponible.filtros_disponibles.includes("entidad_federativa") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Entidad Federativa</label>
+                  <CustomSelect
+                    name="filtro_entidad_federativa"
+                    value={filtroAdicional("entidad_federativa")}
+                    onChange={(value) => setFiltroAdicional("entidad_federativa", String(value || ""))}
+                    options={[
+                      { value: "", label: "Todas" },
+                      ...catalogos.entidadesFederativas.map((estado) => ({ value: estado, label: estado })),
+                    ]}
+                    placeholder="Todas"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("institucion_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Institución</label>
+                  <CustomSelect
+                    name="filtro_institucion"
+                    value={filtroAdicional("institucion_id")}
+                    onChange={(value) => setFiltroAdicional("institucion_id", String(value || ""))}
+                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.instituciones, (item) => item.nombre || "Sin nombre")]}
+                    placeholder="Todas"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("autoridad_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Autoridad</label>
+                  <CustomSelect
+                    name="filtro_autoridad"
+                    value={filtroAdicional("autoridad_id")}
+                    onChange={(value) => setFiltroAdicional("autoridad_id", String(value || ""))}
+                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.autoridades, (item) => item.nombre || "Sin nombre")]}
+                    placeholder="Todas"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("area_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Área</label>
+                  <CustomSelect
+                    name="filtro_area"
+                    value={filtroAdicional("area_id")}
+                    onChange={(value) => setFiltroAdicional("area_id", String(value || ""))}
+                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.areas, (item) => item.nombre || "Sin nombre")]}
+                    placeholder="Todas"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("proveniente_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Proveniente</label>
+                  <CustomSelect
+                    name="filtro_proveniente"
+                    value={filtroAdicional("proveniente_id")}
+                    onChange={(value) => setFiltroAdicional("proveniente_id", String(value || ""))}
+                    options={[{ value: "", label: "Todos" }, ...buildSimpleOptions(catalogos.provenientes, (item) => item.nombre || "Sin nombre")]}
+                    placeholder="Todos"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("asegurado_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Asegurado</label>
+                  <CustomSelect
+                    name="filtro_asegurado"
+                    value={filtroAdicional("asegurado_id")}
+                    onChange={(value) => setFiltroAdicional("asegurado_id", String(value || ""))}
+                    options={[
+                      { value: "", label: "Todos" },
+                      ...buildSimpleOptions(
+                        catalogos.asegurados,
+                        (item) =>
+                          [item.nombre, item.apellido_paterno, item.apellido_materno]
+                            .filter(Boolean)
+                            .join(" ") || "Sin nombre",
+                      ),
+                    ]}
+                    placeholder="Todos"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("calificacion_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Calificación</label>
+                  <CustomSelect
+                    name="filtro_calificacion"
+                    value={filtroAdicional("calificacion_id")}
+                    onChange={(value) => setFiltroAdicional("calificacion_id", String(value || ""))}
+                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.calificaciones, (item) => item.nombre || "Sin nombre")]}
+                    placeholder="Todas"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("estado_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Estatus</label>
+                  <CustomSelect
+                    name="filtro_estado"
+                    value={filtroAdicional("estado_id")}
+                    onChange={(value) => setFiltroAdicional("estado_id", String(value || ""))}
+                    options={[{ value: "", label: "Todos" }, ...buildSimpleOptions(catalogos.estados, (item) => item.nombre || "Sin nombre")]}
+                    placeholder="Todos"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("prioridad") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Prioridad</label>
+                  <CustomSelect
+                    name="filtro_prioridad"
+                    value={filtroAdicional("prioridad")}
+                    onChange={(value) => setFiltroAdicional("prioridad", String(value || ""))}
+                    options={[
+                      { value: "", label: "Todas" },
+                      { value: "baja", label: "Baja" },
+                      { value: "media", label: "Media" },
+                      { value: "alta", label: "Alta" },
+                      { value: "critica", label: "Crítica" },
+                    ]}
+                    placeholder="Todas"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("fecha_reporte_mes") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Fecha de Reporte (Mes)</label>
+                  <input
+                    type="month"
+                    value={filtroAdicional("fecha_reporte_mes")}
+                    onChange={(e) => setFiltroAdicional("fecha_reporte_mes", e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("usuario_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Usuario</label>
+                  <CustomSelect
+                    name="filtro_usuario"
+                    value={filtroAdicional("usuario_id")}
+                    onChange={(value) => setFiltroAdicional("usuario_id", String(value || ""))}
+                    options={[
+                      { value: "", label: "Todos" },
+                      ...buildSimpleOptions(
+                        catalogos.usuarios,
+                        (item) => item.full_name || item.email || item.username || "Usuario",
+                      ),
+                    ]}
+                    placeholder="Todos"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Columnas */}
           <div>
             <div className="flex justify-between items-center mb-2">
@@ -278,7 +537,7 @@ export default function GenerarReporteModal({
                   : "Seleccionar todas"}
               </button>
             </div>
-            <div className="border border-gray-200 rounded-md p-4 max-h-96 overflow-y-auto">
+            <div className="border border-gray-200 rounded-md p-4 max-h-96 min-h-40 overflow-y-auto">
               {(() => {
                 // Agrupar columnas por categoría
                 const columnasAgrupadas: Record<string, string[]> = {
@@ -391,29 +650,27 @@ export default function GenerarReporteModal({
             <div className="space-y-2">
               {reporteDisponible.columnas_disponibles.slice(0, 3).map((columna) => (
                 <div key={columna} className="flex items-center gap-2">
-                  <select
-                    value={ordenamiento[columna] || ""}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value) {
-                        setOrdenamiento((prev) => ({
-                          ...prev,
-                          [columna]: value as "asc" | "desc",
-                        }));
-                      } else {
-                        setOrdenamiento((prev) => {
-                          const newOrd = { ...prev };
-                          delete newOrd[columna];
-                          return newOrd;
-                        });
-                      }
-                    }}
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="">Sin ordenar</option>
-                    <option value="asc">Ascendente</option>
-                    <option value="desc">Descendente</option>
-                  </select>
+                  <div className="flex-1">
+                    <CustomSelect
+                      name={`ordenamiento_${columna}`}
+                      value={ordenamiento[columna] || ""}
+                      onChange={(value) => {
+                        const v = String(value || "");
+                        if (v === "asc" || v === "desc") {
+                          setOrdenamiento((prev) => ({ ...prev, [columna]: v }));
+                        } else {
+                          setOrdenamiento((prev) => {
+                            const next = { ...prev };
+                            delete next[columna];
+                            return next;
+                          });
+                        }
+                      }}
+                      options={[{ value: "", label: "Sin ordenar" }, ...orderOptions]}
+                      placeholder="Sin ordenar"
+                      usePortal={false}
+                    />
+                  </div>
                   <span className="text-sm text-gray-600 w-32">
                     {columna.replace(/_/g, " ")}
                   </span>
@@ -421,14 +678,14 @@ export default function GenerarReporteModal({
               ))}
             </div>
           </div>
-        </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+        <div className="border-t border-gray-200 pt-4 flex justify-end gap-3">
           <button
             onClick={onClose}
             className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
             disabled={generando}
+            style={{ display: embedded ? "none" : undefined }}
           >
             Cancelar
           </button>
@@ -451,6 +708,21 @@ export default function GenerarReporteModal({
           </button>
         </div>
       </div>
-    </div>
+  );
+
+  if (embedded) {
+    return <div className="rounded-lg border border-gray-200 bg-white p-4 sm:p-6">{content}</div>;
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose || (() => {})}
+      title="Generar Reporte"
+      maxWidthClass="max-w-4xl"
+      maxHeightClass="h-[min(90dvh,calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-2rem))]"
+    >
+      {content}
+    </Modal>
   );
 }

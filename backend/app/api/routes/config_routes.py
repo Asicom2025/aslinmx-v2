@@ -99,18 +99,17 @@ async def crear_configuracion_smtp(
     db.refresh(nueva_config)
 
     # Registrar en auditoría
-    AuditoriaService.registrar_accion(
+    AuditoriaService.registrar_evento_http(
         db=db,
-        usuario_id=current_user.id,
-        empresa_id=current_user.empresa_id,
-        accion="CREATE",
+        request=request,
+        user=current_user,
+        accion="config.smtp_create",
         modulo="configuracion",
         tabla="configuracion_smtp",
         registro_id=nueva_config.id,
         datos_nuevos=config.model_dump(exclude={"password"}),
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-        descripcion=f"Configuración SMTP '{config.nombre}' creada"
+        descripcion=f"Configuración SMTP '{config.nombre}' creada",
+        status="success",
     )
 
     return nueva_config
@@ -164,19 +163,18 @@ async def actualizar_configuracion_smtp(
     db.refresh(config)
 
     # Registrar en auditoría
-    AuditoriaService.registrar_accion(
+    AuditoriaService.registrar_evento_http(
         db=db,
-        usuario_id=current_user.id,
-        empresa_id=current_user.empresa_id,
-        accion="UPDATE",
+        request=request,
+        user=current_user,
+        accion="config.smtp_update",
         modulo="configuracion",
         tabla="configuracion_smtp",
         registro_id=config.id,
         datos_anteriores=datos_anteriores,
         datos_nuevos=update_data,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-        descripcion=f"Configuración SMTP '{config.nombre}' actualizada"
+        descripcion=f"Configuración SMTP '{config.nombre}' actualizada",
+        status="success",
     )
 
     return config
@@ -202,17 +200,16 @@ async def eliminar_configuracion_smtp(
     db.commit()
 
     # Registrar en auditoría
-    AuditoriaService.registrar_accion(
+    AuditoriaService.registrar_evento_http(
         db=db,
-        usuario_id=current_user.id,
-        empresa_id=current_user.empresa_id,
-        accion="DELETE",
+        request=request,
+        user=current_user,
+        accion="config.smtp_delete",
         modulo="configuracion",
         tabla="configuracion_smtp",
         registro_id=config_id,
-        ip_address=request.client.host if request.client else None,
-        user_agent=request.headers.get("user-agent"),
-        descripcion=f"Configuración SMTP '{nombre}' eliminada"
+        descripcion=f"Configuración SMTP '{nombre}' eliminada",
+        status="success",
     )
 
 
@@ -289,6 +286,7 @@ async def listar_plantillas_correo(
 @router.post("/plantillas-correo", response_model=PlantillaCorreoResponse, status_code=201)
 async def crear_plantilla_correo(
     plantilla: PlantillaCorreoCreate,
+    request: Request,
     current_user: User = _cfg_create,
     db: Session = Depends(get_db)
 ):
@@ -300,6 +298,18 @@ async def crear_plantilla_correo(
     db.add(nueva_plantilla)
     db.commit()
     db.refresh(nueva_plantilla)
+    AuditoriaService.registrar_evento_http(
+        db=db,
+        request=request,
+        user=current_user,
+        accion="config.template_create",
+        modulo="configuracion",
+        tabla="plantillas_correo",
+        registro_id=nueva_plantilla.id,
+        datos_nuevos=plantilla.model_dump(),
+        descripcion=f"Plantilla '{nueva_plantilla.nombre}' creada",
+        status="success",
+    )
     return nueva_plantilla
 
 
@@ -323,6 +333,7 @@ async def obtener_plantilla_correo(
 async def actualizar_plantilla_correo(
     plantilla_id: UUID,
     plantilla_update: PlantillaCorreoUpdate,
+    request: Request,
     current_user: User = _cfg_update,
     db: Session = Depends(get_db)
 ):
@@ -334,18 +345,40 @@ async def actualizar_plantilla_correo(
     if not plantilla:
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
 
+    datos_anteriores = {
+        "nombre": plantilla.nombre,
+        "asunto": plantilla.asunto,
+        "cuerpo_html": plantilla.cuerpo_html,
+        "cuerpo_texto": plantilla.cuerpo_texto,
+        "variables_disponibles": plantilla.variables_disponibles,
+        "activo": plantilla.activo,
+    }
     update_data = plantilla_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(plantilla, field, value)
 
     db.commit()
     db.refresh(plantilla)
+    AuditoriaService.registrar_evento_http(
+        db=db,
+        request=request,
+        user=current_user,
+        accion="config.template_update",
+        modulo="configuracion",
+        tabla="plantillas_correo",
+        registro_id=plantilla.id,
+        datos_anteriores=datos_anteriores,
+        datos_nuevos=update_data,
+        descripcion=f"Plantilla '{plantilla.nombre}' actualizada",
+        status="success",
+    )
     return plantilla
 
 
 @router.delete("/plantillas-correo/{plantilla_id}", status_code=204)
 async def eliminar_plantilla_correo(
     plantilla_id: UUID,
+    request: Request,
     current_user: User = _cfg_delete,
     db: Session = Depends(get_db)
 ):
@@ -357,8 +390,20 @@ async def eliminar_plantilla_correo(
     if not plantilla:
         raise HTTPException(status_code=404, detail="Plantilla no encontrada")
 
+    nombre = plantilla.nombre
     db.delete(plantilla)
     db.commit()
+    AuditoriaService.registrar_evento_http(
+        db=db,
+        request=request,
+        user=current_user,
+        accion="config.template_delete",
+        modulo="configuracion",
+        tabla="plantillas_correo",
+        registro_id=plantilla_id,
+        descripcion=f"Plantilla '{nombre}' eliminada",
+        status="success",
+    )
 
 
 @router.post("/enviar-correo")

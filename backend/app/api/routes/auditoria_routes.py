@@ -36,7 +36,8 @@ async def listar_auditoria(
         fecha_desde=filtros.fecha_desde,
         fecha_hasta=filtros.fecha_hasta,
         limit=filtros.limit,
-        offset=filtros.offset
+        offset=filtros.offset,
+        max_payload_chars=filtros.max_payload_chars,
     )
     return registros
 
@@ -75,7 +76,8 @@ async def exportar_auditoria_excel(
         fecha_desde=filtros.fecha_desde,
         fecha_hasta=filtros.fecha_hasta,
         limit=10000,  # Límite alto para exportación
-        offset=0
+        offset=0,
+        max_payload_chars=100000,
     )
 
     # Convertir a diccionarios

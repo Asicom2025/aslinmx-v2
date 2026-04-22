@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import apiService from "@/lib/apiService";
 import { ReporteDisponible, ReporteRequest } from "@/types/reportes";
-import { FiFileText, FiDownload, FiSettings, FiFilter, FiBarChart2, FiRefreshCw } from "react-icons/fi";
+import { FiFileText, FiRefreshCw } from "react-icons/fi";
 import GenerarReporteModal from "./components/GenerarReporteModal";
 import ConfiguracionesGuardadas from "./components/ConfiguracionesGuardadas";
 
@@ -19,8 +19,6 @@ export default function ReportesPage() {
   const { user, loading } = useUser();
   const [reportesDisponibles, setReportesDisponibles] = useState<ReporteDisponible[]>([]);
   const [loadingReportes, setLoadingReportes] = useState(true);
-  const [selectedModulo, setSelectedModulo] = useState<string | null>(null);
-  const [showGenerarModal, setShowGenerarModal] = useState(false);
   const [generando, setGenerando] = useState(false);
 
   useEffect(() => {
@@ -48,16 +46,10 @@ export default function ReportesPage() {
     }
   };
 
-  const handleGenerarReporte = (modulo: string) => {
-    setSelectedModulo(modulo);
-    setShowGenerarModal(true);
-  };
-
   const handleDescargarReporte = async (request: ReporteRequest) => {
     try {
       setGenerando(true);
       await apiService.descargarReporte(request);
-      setShowGenerarModal(false);
     } catch (error: any) {
       console.error("Error al generar reporte:", error);
       alert("Error al generar el reporte. Por favor, intenta nuevamente.");
@@ -101,6 +93,8 @@ export default function ReportesPage() {
     );
   }
 
+  const reporteSiniestros = reportesDisponibles.find((r) => r.modulo === "siniestros");
+
   return (
     <div className="min-h-screen w-full bg-gray-50">
       <div className="w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-6 space-y-4 lg:space-y-6">
@@ -111,7 +105,7 @@ export default function ReportesPage() {
               Reportes
             </h1>
             <p className="mt-1 text-sm text-gray-600">
-              Genera y descarga reportes de los diferentes módulos del sistema
+              Exporta siniestros aplicando filtros de negocio
             </p>
           </div>
           <button
@@ -132,54 +126,21 @@ export default function ReportesPage() {
           </h2>
         </div>
         <div className="p-4 sm:p-6">
-          {reportesDisponibles.length === 0 ? (
+          {!reporteSiniestros ? (
             <div className="text-center py-12">
               <FiFileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <p className="text-gray-500">No hay reportes disponibles</p>
+              <p className="text-gray-500">No hay configuración de reporte de siniestros disponible</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {reportesDisponibles.map((reporte) => (
-                <div
-                  key={reporte.modulo}
-                  className="border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow"
-                >
-                  <div className="mb-3 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                        {reporte.nombre}
-                      </h3>
-                      <p className="text-sm text-gray-600 mb-3">{reporte.descripcion}</p>
-                    </div>
-                    <div className="shrink-0 self-start rounded-full bg-primary-100 p-2 text-primary-600 sm:self-auto">
-                      <FiBarChart2 className="w-5 h-5" />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <FiFilter className="w-3 h-3" />
-                      <span>
-                        {reporte.filtros_disponibles.length} filtros disponibles
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <FiSettings className="w-3 h-3" />
-                      <span>
-                        {reporte.columnas_disponibles.length} columnas disponibles
-                      </span>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => handleGenerarReporte(reporte.modulo)}
-                    className="w-full px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
-                  >
-                    <FiDownload className="w-4 h-4" />
-                    Generar Reporte
-                  </button>
-                </div>
-              ))}
+            <div id="reporte-siniestros-parametros">
+              <GenerarReporteModal
+                embedded
+                modulo={reporteSiniestros.modulo}
+                reporteDisponible={reporteSiniestros}
+                onGenerar={handleDescargarReporte}
+                generando={generando}
+                onGuardarConfiguracion={handleGuardarConfiguracion}
+              />
             </div>
           )}
         </div>
@@ -188,28 +149,11 @@ export default function ReportesPage() {
         {/* Configuraciones Guardadas */}
         <ConfiguracionesGuardadas
           onGenerarReporte={handleDescargarReporte}
-          onAbrirModal={(modulo) => {
-            setSelectedModulo(modulo);
-            setShowGenerarModal(true);
+          onAbrirModal={() => {
+            const target = document.getElementById("reporte-siniestros-parametros");
+            if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
         />
-
-        {/* Modal para Generar Reporte */}
-        {showGenerarModal && selectedModulo && (
-          <GenerarReporteModal
-            modulo={selectedModulo}
-            reporteDisponible={
-              reportesDisponibles.find((r) => r.modulo === selectedModulo)!
-            }
-            onClose={() => {
-              setShowGenerarModal(false);
-              setSelectedModulo(null);
-            }}
-            onGenerar={handleDescargarReporte}
-            generando={generando}
-            onGuardarConfiguracion={handleGuardarConfiguracion}
-          />
-        )}
       </div>
     </div>
   );

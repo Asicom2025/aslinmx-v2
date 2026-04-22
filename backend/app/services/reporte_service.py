@@ -75,7 +75,7 @@ class ReporteService:
 
         # Aplicar filtros
         if filtros:
-            query = ReporteService._aplicar_filtros(query, Modelo, filtros)
+            query = ReporteService._aplicar_filtros(query, Modelo, filtros, modulo)
 
         # Aplicar ordenamiento
         if ordenamiento:
@@ -104,8 +104,11 @@ class ReporteService:
         return datos
 
     @staticmethod
-    def _aplicar_filtros(query, Modelo, filtros: Dict[str, Any]):
+    def _aplicar_filtros(query, Modelo, filtros: Dict[str, Any], modulo: str):
         """Aplica filtros a una query"""
+        if modulo == "siniestros":
+            return ReporteService._aplicar_filtros_siniestros(query, filtros)
+
         if filtros.get("activo") is not None and hasattr(Modelo, "activo"):
             query = query.filter(Modelo.activo == filtros["activo"])
 
@@ -169,6 +172,103 @@ class ReporteService:
                     query = query.filter(col == valor)
 
         return query
+
+    @staticmethod
+    def _aplicar_filtros_siniestros(query, filtros: Dict[str, Any]):
+        """Aplica filtros de negocio para exportar siniestros."""
+        if filtros.get("activo") is not None:
+            query = query.filter(Siniestro.activo == filtros["activo"])
+
+        fecha_desde = filtros.get("fecha_desde")
+        if fecha_desde:
+            if isinstance(fecha_desde, str):
+                try:
+                    fecha_desde = datetime.fromisoformat(fecha_desde.replace("Z", "+00:00"))
+                except ValueError:
+                    try:
+                        fecha_desde = datetime.strptime(fecha_desde, "%Y-%m-%d")
+                    except ValueError:
+                        fecha_desde = None
+            if fecha_desde:
+                query = query.filter(Siniestro.fecha_reporte >= fecha_desde)
+
+        fecha_hasta = filtros.get("fecha_hasta")
+        if fecha_hasta:
+            if isinstance(fecha_hasta, str):
+                try:
+                    fecha_hasta = datetime.fromisoformat(fecha_hasta.replace("Z", "+00:00"))
+                except ValueError:
+                    try:
+                        fecha_hasta = datetime.strptime(fecha_hasta, "%Y-%m-%d")
+                        fecha_hasta = fecha_hasta.replace(hour=23, minute=59, second=59)
+                    except ValueError:
+                        fecha_hasta = None
+            if fecha_hasta:
+                query = query.filter(Siniestro.fecha_reporte <= fecha_hasta)
+
+        adicionales = filtros.get("filtros_adicionales", {}) or {}
+
+        if adicionales.get("institucion_id"):
+            query = query.filter(Siniestro.institucion_id == adicionales["institucion_id"])
+        if adicionales.get("autoridad_id"):
+            query = query.filter(Siniestro.autoridad_id == adicionales["autoridad_id"])
+        if adicionales.get("proveniente_id"):
+            query = query.filter(Siniestro.proveniente_id == adicionales["proveniente_id"])
+        if adicionales.get("asegurado_id"):
+            query = query.filter(Siniestro.asegurado_id == adicionales["asegurado_id"])
+        if adicionales.get("calificacion_id"):
+            query = query.filter(Siniestro.calificacion_id == adicionales["calificacion_id"])
+        if adicionales.get("estado_id"):
+            query = query.filter(Siniestro.estado_id == adicionales["estado_id"])
+        if adicionales.get("prioridad"):
+            query = query.filter(Siniestro.prioridad == adicionales["prioridad"])
+
+        if adicionales.get("area_id"):
+            query = query.join(
+                SiniestroArea,
+                and_(
+                    SiniestroArea.siniestro_id == Siniestro.id,
+                    SiniestroArea.activo == True,
+                ),
+            ).filter(SiniestroArea.area_id == adicionales["area_id"])
+
+        if adicionales.get("usuario_id"):
+            usuario_id = adicionales["usuario_id"]
+            query = query.outerjoin(
+                SiniestroUsuario,
+                and_(
+                    SiniestroUsuario.siniestro_id == Siniestro.id,
+                    SiniestroUsuario.activo == True,
+                ),
+            ).filter(
+                or_(
+                    Siniestro.creado_por == usuario_id,
+                    SiniestroUsuario.usuario_id == usuario_id,
+                )
+            )
+
+        if adicionales.get("entidad_federativa"):
+            estado_asegurado = str(adicionales["entidad_federativa"]).strip()
+            if estado_asegurado:
+                query = query.join(
+                    Asegurado, Asegurado.id == Siniestro.asegurado_id
+                ).filter(func.lower(Asegurado.estado) == estado_asegurado.lower())
+
+        if adicionales.get("fecha_reporte_mes"):
+            mes = str(adicionales["fecha_reporte_mes"]).strip()
+            try:
+                year_str, month_str = mes.split("-")
+                year = int(year_str)
+                month = int(month_str)
+                if 1 <= month <= 12:
+                    query = query.filter(
+                        func.extract("year", Siniestro.fecha_reporte) == year,
+                        func.extract("month", Siniestro.fecha_reporte) == month,
+                    )
+            except Exception:
+                pass
+
+        return query.distinct()
 
     @staticmethod
     def _modelo_a_dict(registro, columnas: Optional[List[str]] = None) -> Dict[str, Any]:
@@ -276,7 +376,7 @@ class ReporteService:
 
             # Autoridad
             if registro.autoridad_id:
-                autoridad = db.query(Institucion).filter(Institucion.id == registro.autoridad_id).first()
+                autoridad = db.query(Autoridad).filter(Autoridad.id == registro.autoridad_id).first()
                 if autoridad:
                     resultado["autoridad_nombre"] = autoridad.nombre
                     resultado["autoridad_codigo"] = autoridad.codigo
@@ -473,7 +573,7 @@ class ReporteService:
             query = query.filter(Modelo.empresa_id == empresa_id)
 
         if filtros:
-            query = ReporteService._aplicar_filtros(query, Modelo, filtros)
+            query = ReporteService._aplicar_filtros(query, Modelo, filtros, modulo)
 
         total = query.count()
 

@@ -353,6 +353,7 @@ export default function SiniestroDetailPage() {
   const canAsignarAreas = can("siniestros", "asignar_areas");
   const canEditarStatusSiniestro = can("siniestros", "editar_status");
   const canCalificacionSiniestro = can("siniestros", "editar_calificacion");
+  const canEditarPolizaSiniestro = can("siniestros", "editar_poliza");
   const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
 
@@ -4694,7 +4695,7 @@ export default function SiniestroDetailPage() {
                     className="w-5 h-5"
                     style={{ color: empresaColors.primary }}
                   />
-                  {canActualizarSiniestro && (
+                  {(canActualizarSiniestro || canEditarPolizaSiniestro) && (
                     <button
                       onClick={handleOpenPolizaModal}
                       className="p-1 text-blue-600 hover:text-blue-800 transition-colors"

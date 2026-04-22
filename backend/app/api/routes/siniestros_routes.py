@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
-from app.core.permisos import assert_permiso_actualizar_siniestro, require_permiso
+from app.core.permisos import (
+    assert_permiso_actualizar_siniestro,
+    require_permiso,
+    CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO,
+)
 from app.models.user import User
 from app.schemas.legal_schema import (
     SiniestroCreate, SiniestroUpdate, SiniestroResponse,
@@ -22,14 +26,14 @@ from app.services.siniestro_acceso_service import (
     usuario_puede_editar_siniestro,
     usuario_puede_eliminar_siniestro,
 )
-
-
-def _actualizacion_solo_estado_o_calificacion(campos: set[str]) -> bool:
-    """True si el body solo toca estado_id y/o calificacion_id (permisos granulares)."""
-    return bool(campos) and campos.issubset({"estado_id", "calificacion_id"})
 from app.core.nivel_acceso import get_nivel_rol
 
 logger = logging.getLogger(__name__)
+
+
+def _actualizacion_solo_campos_granulares(campos: set[str]) -> bool:
+    """True si el body solo toca estado_id, calificacion_id y/o polizas (permisos granulares)."""
+    return bool(campos) and campos.issubset(CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO)
 
 router = APIRouter(prefix="/siniestros", tags=["Siniestros"])
 
@@ -163,15 +167,16 @@ def update_siniestro(
     Actualiza un siniestro existente.
     Valida que pertenezca a la empresa del usuario.
     Permisos: siniestros.update para cambios generales; solo estado_id requiere editar_status;
-    solo calificacion_id requiere editar_calificacion; ambos pueden combinarse sin update.
+    solo calificacion_id requiere editar_calificacion; solo polizas requiere editar_poliza;
+    esas claves pueden combinarse entre sí sin update.
     Si se actualiza descripcion_hechos, crea una nueva versión automáticamente.
     """
     campos = set(payload.model_dump(exclude_unset=True).keys())
     assert_permiso_actualizar_siniestro(db, current_user, campos)
 
-    # Cambiar solo estado/calificación: basta con poder ver el siniestro + permisos granulares (ya validados arriba).
+    # Cambiar solo estado/calificación/pólizas: basta con poder ver el siniestro + permisos granulares (ya validados arriba).
     # El resto de campos sigue exigiendo la regla estricta de edición (nivel / responsable principal).
-    if _actualizacion_solo_estado_o_calificacion(campos):
+    if _actualizacion_solo_campos_granulares(campos):
         if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

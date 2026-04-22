@@ -34,6 +34,8 @@ export const ACCION = {
   editar_status: "editar_status",
   /** Cambiar solo calificacion_id del siniestro */
   editar_calificacion: "editar_calificacion",
+  /** Cambiar solo el arreglo polizas del siniestro (sin siniestros.update completo) */
+  editar_poliza: "editar_poliza",
   ver_bitacora: "ver_bitacora",
   ver_documentos: "ver_documentos",
   subir_archivo: "subir_archivo",
