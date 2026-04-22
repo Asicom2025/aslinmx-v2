@@ -161,6 +161,7 @@ class AuditoriaFiltros(BaseModel):
     fecha_hasta: Optional[datetime] = None
     limit: int = Field(100, ge=1, le=1000)
     offset: int = Field(0, ge=0)
+    max_payload_chars: int = Field(12000, ge=500, le=100000)
 
 
 # ========== Configuración de Reportes ==========

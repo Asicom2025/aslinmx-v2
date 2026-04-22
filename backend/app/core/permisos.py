@@ -39,6 +39,11 @@ def _tiene_permiso(db: Session, rol_id: UUID, modulo_tecnico: str, accion_tecnic
     return existe is not None
 
 
+CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO = frozenset(
+    {"estado_id", "calificacion_id", "polizas"}
+)
+
+
 def assert_permiso_actualizar_siniestro(
     db: Session,
     current_user: User,
@@ -46,9 +51,10 @@ def assert_permiso_actualizar_siniestro(
 ) -> None:
     """
     Permisos para PUT /siniestros/{id} según los campos enviados (model_dump exclude_unset).
-    - Cualquier campo distinto de estado_id o calificacion_id exige siniestros.update.
+    - Cualquier campo distinto de estado_id, calificacion_id o polizas exige siniestros.update.
     - estado_id exige siniestros.update o siniestros.editar_status.
     - calificacion_id exige siniestros.update o siniestros.editar_calificacion.
+    - polizas exige siniestros.update o siniestros.editar_poliza.
     """
     if not campos:
         raise HTTPException(
@@ -67,7 +73,7 @@ def assert_permiso_actualizar_siniestro(
     if _tiene_permiso(db, rid, "siniestros", "update"):
         return
 
-    otros = campos - {"estado_id", "calificacion_id"}
+    otros = campos - CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO
     if otros:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -83,6 +89,11 @@ def assert_permiso_actualizar_siniestro(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tiene permiso siniestros.editar_calificacion",
+        )
+    if "polizas" in campos and not _tiene_permiso(db, rid, "siniestros", "editar_poliza"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso siniestros.editar_poliza",
         )
 
 

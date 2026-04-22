@@ -67,6 +67,36 @@ from app.services.storage_service import (
 router = APIRouter()
 
 
+def _audit_auth(
+    db: Session,
+    *,
+    request: Optional[Request],
+    user: Optional[User],
+    accion: str,
+    descripcion: str,
+    status_result: str,
+    error_code: Optional[str] = None,
+    error_message: Optional[str] = None,
+    datos_nuevos: Optional[dict] = None,
+) -> None:
+    try:
+        AuditoriaService.registrar_evento_http(
+            db=db,
+            request=request,
+            user=user,
+            accion=accion,
+            modulo="auth",
+            tabla="sesion",
+            descripcion=descripcion,
+            status=status_result,
+            error_code=error_code,
+            error_message=error_message,
+            datos_nuevos=datos_nuevos or {},
+        )
+    except Exception:
+        pass
+
+
 def _require_nivel_1_administrador(db: Session, current_user: User) -> None:
     if get_nivel_rol(db, current_user) not in (NIVEL_SUPERADMIN, NIVEL_ADMIN):
         raise HTTPException(
@@ -145,6 +175,17 @@ async def login(
             detail_msg = "Verificación de reCAPTCHA fallida. Por favor, intenta nuevamente."
             if reasons:
                 detail_msg += f" Razones: {', '.join(reasons)}"
+            _audit_auth(
+                db,
+                request=request,
+                user=None,
+                accion="auth.login_failed",
+                descripcion="Login fallido por validación reCAPTCHA",
+                status_result="failure",
+                error_code="RECAPTCHA_FAILED",
+                error_message=detail_msg,
+                datos_nuevos={"username": credentials.username},
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=detail_msg
@@ -154,6 +195,17 @@ async def login(
 
     user = result.get("user") if result else None
     if not user:
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.login_failed",
+            descripcion="Login fallido por credenciales inválidas",
+            status_result="failure",
+            error_code="INVALID_CREDENTIALS",
+            error_message="Credenciales incorrectas",
+            datos_nuevos={"username": credentials.username},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas",
@@ -161,12 +213,30 @@ async def login(
         )
     
     if not user.is_active:
+        _audit_auth(
+            db,
+            request=request,
+            user=user,
+            accion="auth.login_failed",
+            descripcion="Login fallido de usuario inactivo",
+            status_result="failure",
+            error_code="USER_INACTIVE",
+            error_message="Usuario inactivo",
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Usuario inactivo"
         )
 
     if result.get("requires_2fa"):
+        _audit_auth(
+            db,
+            request=request,
+            user=user,
+            accion="auth.login_requires_2fa",
+            descripcion="Login válido, pendiente de segundo factor",
+            status_result="success",
+        )
         return {"requires_2fa": True, "temp_token": result.get("temp_token")}
     else:
         access_token = result.get("access_token")
@@ -181,6 +251,14 @@ async def login(
             samesite="lax",
             max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
             path="/",
+        )
+        _audit_auth(
+            db,
+            request=request,
+            user=user,
+            accion="auth.login_success",
+            descripcion="Login exitoso",
+            status_result="success",
         )
         return response
 
@@ -206,6 +284,17 @@ async def mobile_login(
             detail_msg = "Verificación de reCAPTCHA fallida. Por favor, intenta nuevamente."
             if reasons:
                 detail_msg += f" Razones: {', '.join(reasons)}"
+            _audit_auth(
+                db,
+                request=request,
+                user=None,
+                accion="auth.login_mobile_failed",
+                descripcion="Login móvil fallido por validación reCAPTCHA",
+                status_result="failure",
+                error_code="RECAPTCHA_FAILED",
+                error_message=detail_msg,
+                datos_nuevos={"username": credentials.username},
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=detail_msg
@@ -214,19 +303,56 @@ async def mobile_login(
     result = UserService.start_login(db, credentials.username, credentials.password)
     user = result.get("user") if result else None
     if not user:
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.login_mobile_failed",
+            descripcion="Login móvil fallido por credenciales inválidas",
+            status_result="failure",
+            error_code="INVALID_CREDENTIALS",
+            error_message="Credenciales incorrectas",
+            datos_nuevos={"username": credentials.username},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Credenciales incorrectas",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_active:
+        _audit_auth(
+            db,
+            request=request,
+            user=user,
+            accion="auth.login_mobile_failed",
+            descripcion="Login móvil fallido de usuario inactivo",
+            status_result="failure",
+            error_code="USER_INACTIVE",
+            error_message="Usuario inactivo",
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Usuario inactivo")
 
     if result.get("requires_2fa"):
+        _audit_auth(
+            db,
+            request=request,
+            user=user,
+            accion="auth.login_mobile_requires_2fa",
+            descripcion="Login móvil válido, pendiente de segundo factor",
+            status_result="success",
+        )
         return {"requires_2fa": True, "temp_token": result.get("temp_token")}
 
     access_token = result.get("access_token")
     refresh_token = create_refresh_token({"sub": str(user.id)})
+    _audit_auth(
+        db,
+        request=request,
+        user=user,
+        accion="auth.login_mobile_success",
+        descripcion="Login móvil exitoso",
+        status_result="success",
+    )
     return {
         "requires_2fa": False,
         "access_token": access_token,
@@ -245,12 +371,32 @@ def verify_2fa(
     """
     token = UserService.verify_2fa_and_issue_token(db, payload.temp_token, payload.code)
     if not token:
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.2fa_verify_failed",
+            descripcion="Verificación 2FA fallida",
+            status_result="failure",
+            error_code="INVALID_2FA",
+            error_message="Código 2FA inválido o token expirado",
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código 2FA inválido o token expirado")
 
     # Crear refresh token desde el temp_token (sub)
     temp_payload = decode_access_token(payload.temp_token)
     user_id = temp_payload.get("sub") if temp_payload else None
     if not user_id:
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.2fa_verify_failed",
+            descripcion="Verificación 2FA fallida por temp token inválido",
+            status_result="failure",
+            error_code="INVALID_TEMP_TOKEN",
+            error_message="Temp token inválido o expirado",
+        )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Temp token inválido o expirado")
 
     refresh_token = create_refresh_token({"sub": str(user_id)})
@@ -263,6 +409,19 @@ def verify_2fa(
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
+    )
+    try:
+        actor_id = uuid_lib.UUID(str(user_id))
+    except Exception:
+        actor_id = None
+    actor = db.query(User).filter(User.id == actor_id).first() if actor_id else None
+    _audit_auth(
+        db,
+        request=request,
+        user=actor,
+        accion="auth.2fa_verify_success",
+        descripcion="Verificación 2FA exitosa",
+        status_result="success",
     )
     return response
 
@@ -298,6 +457,16 @@ def refresh_access_token(
     """
     refresh_token = request.cookies.get(settings.REFRESH_TOKEN_COOKIE_NAME)
     if not refresh_token:
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.refresh_failed",
+            descripcion="Refresh fallido por cookie ausente",
+            status_result="failure",
+            error_code="MISSING_REFRESH_TOKEN",
+            error_message="Sesión expirada",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Sesión expirada",
@@ -305,6 +474,16 @@ def refresh_access_token(
         )
 
     if not is_refresh_token(refresh_token):
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.refresh_failed",
+            descripcion="Refresh fallido por token inválido",
+            status_result="failure",
+            error_code="INVALID_REFRESH_TOKEN",
+            error_message="Refresh token inválido",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token inválido",
@@ -314,6 +493,16 @@ def refresh_access_token(
     payload = decode_access_token(refresh_token) or {}
     sub = payload.get("sub")
     if not sub:
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.refresh_failed",
+            descripcion="Refresh fallido por token sin subject",
+            status_result="failure",
+            error_code="INVALID_REFRESH_TOKEN",
+            error_message="Refresh token inválido",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token inválido",
@@ -327,6 +516,16 @@ def refresh_access_token(
 
     user = db.query(User).filter(User.id == user_uuid).first()
     if not user or not user.is_active:
+        _audit_auth(
+            db,
+            request=request,
+            user=None,
+            accion="auth.refresh_failed",
+            descripcion="Refresh fallido por sesión expirada",
+            status_result="failure",
+            error_code="SESSION_EXPIRED",
+            error_message="Sesión expirada",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Sesión expirada",
@@ -352,6 +551,14 @@ def refresh_access_token(
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
+    )
+    _audit_auth(
+        db,
+        request=request,
+        user=user,
+        accion="auth.refresh_success",
+        descripcion="Refresh de sesión exitoso",
+        status_result="success",
     )
     return response
 
@@ -412,12 +619,34 @@ def refresh_access_token_mobile(
 @router.post("/logout")
 def logout_session(
     request: Request,
+    db: Session = Depends(get_db),
 ):
     """
     Cierra la sesión limpiando refresh_token en cookie (no invalida tokens ya emitidos).
     """
     response = JSONResponse({"success": True})
     response.delete_cookie(settings.REFRESH_TOKEN_COOKIE_NAME, path="/")
+    try:
+        token = request.headers.get("authorization", "").replace("Bearer ", "").strip()
+        payload = decode_access_token(token) if token else {}
+        sub = (payload or {}).get("sub")
+    except Exception:
+        sub = None
+    actor = None
+    if sub:
+        try:
+            actor = db.query(User).filter(User.id == uuid_lib.UUID(str(sub))).first()
+        except Exception:
+            actor = None
+    _audit_auth(
+        db=db,
+        request=request,
+        user=actor,
+        accion="auth.logout",
+        descripcion="Logout solicitado",
+        status_result="success",
+        datos_nuevos={"subject": sub},
+    )
     return response
 
 
