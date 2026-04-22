@@ -10,7 +10,7 @@ import base64
 import re
 import secrets
 from sqlalchemy import or_
-from sqlalchemy.orm import Session, selectinload, joinedload
+from sqlalchemy.orm import Session, selectinload, joinedload, noload
 from fastapi import HTTPException, status
 
 from app.models.user import (
@@ -246,18 +246,24 @@ class UserService:
         skip: int = 0,
         limit: int = 100
     ) -> List[User]:
-        """Obtiene lista de usuarios con paginaci?n"""
+        """
+        Listado de usuarios con paginación.
+        Excluye contactos/dirección (no se usan en tablas) y carga 2FA para columnas
+        de estado sin N+1. Empresa/rol usan join en el modelo; áreas/empresas en batch.
+        """
         return (
             db.query(User)
             .options(
+                noload(User.contactos),
+                noload(User.direccion),
                 selectinload(User.perfil),
-                selectinload(User.contactos),
-                selectinload(User.direccion),
                 selectinload(User.areas),
-                selectinload(User.rol),
+                selectinload(User.empresas),
+                selectinload(User.dosfa),
             )
-            .offset(skip)
-            .limit(limit)
+            .order_by(User.correo.asc())
+            .offset(max(0, skip))
+            .limit(min(max(1, limit), 1000))
             .all()
         )
     

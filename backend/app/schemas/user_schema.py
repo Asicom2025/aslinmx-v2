@@ -136,6 +136,27 @@ class UserResponse(UserBase):
         from_attributes = True
 
 
+class UserListItemResponse(UserBase):
+    """
+    Listado de usuarios: sin contactos/dirección/permisos para evitar carga y N+1.
+    No se incluyen data URLs de foto/firma; el listado devuelve rutas tal cual en BD.
+    """
+    id: UUID
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    empresa: Optional[EmpresaResponse] = None
+    empresas: Optional[List[EmpresaResponse]] = None
+    rol: Optional[RolResponse] = None
+    perfil: Optional[UsuarioPerfilResponse] = None
+    areas: Optional[List[AreaSummary]] = None
+    two_factor_enabled: Optional[bool] = None
+    two_factor_verified_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class UserLogin(BaseModel):
     """Schema para login"""
     username: str
