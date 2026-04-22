@@ -19,6 +19,7 @@ from app.services.permiso_service import RolPermisoService
 from app.schemas.user_schema import (
     UserCreate,
     UserUpdate,
+    UserListItemResponse,
     UserResponse,
     UserLogin,
     Token,
@@ -1103,7 +1104,7 @@ def issue_impersonation_token(
     )
 
 
-@router.get("", response_model=List[UserResponse])
+@router.get("", response_model=List[UserListItemResponse])
 def get_users(
     skip: int = 0,
     limit: int = 100,
@@ -1111,16 +1112,12 @@ def get_users(
     current_user: User = Depends(require_permiso("usuarios", "read")),
 ):
     """
-    Obtener lista de usuarios (requiere autenticación)
+    Obtener lista de usuarios (requiere autenticación).
+    No descarga archivos de perfil/firma desde almacenamiento: las rutas van tal cual
+    (la inlining a data URL es solo en GET de un usuario o /users/me, por rendimiento).
     """
     users = UserService.get_users(db, skip=skip, limit=limit)
-    out: List[UserResponse] = []
-    for u in users:
-        list(u.areas)
-        payload = UserResponse.model_validate(u).model_dump()
-        _inline_user_profile_assets_data(payload)
-        out.append(UserResponse.model_validate(payload))
-    return out
+    return [UserListItemResponse.model_validate(u) for u in users]
 
 
 @router.get("/{user_id}/2fa/otpauth")
