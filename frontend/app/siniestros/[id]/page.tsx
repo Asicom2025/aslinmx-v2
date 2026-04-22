@@ -796,6 +796,7 @@ export default function SiniestroDetailPage() {
     const otros: any[] = [];
 
     for (const doc of documentos) {
+      if (!doc || doc.eliminado === true) continue;
       const esInforme = !!doc.contenido && !!doc.plantilla_documento_id;
       if (!esInforme) {
         otros.push(doc);
@@ -2124,6 +2125,12 @@ export default function SiniestroDetailPage() {
     setPdfBase64(null);
 
     try {
+      if (siniestro?.eliminado) {
+        swalError("El expediente no está disponible para mostrar este documento.");
+        setShowPdfModal(false);
+        return;
+      }
+
       // Determinar el flujo_trabajo_id actual basado en el tab activo
       let flujoTrabajoIdActual: string | undefined = undefined;
       const areaIdActual: string | undefined = activeAreaTab || undefined;
@@ -2133,14 +2140,19 @@ export default function SiniestroDetailPage() {
         flujoTrabajoIdActual = activeFlujoTab.replace("area-", "");
       }
 
+      let listaDocumentos = documentosExistentes;
+      if (canVerDocumentos && siniestroId) {
+        const documentosRaw = await apiService.getDocumentosSiniestro(siniestroId, {
+          activo: true,
+        });
+        listaDocumentos = getUltimasVersionesDocumentos(documentosRaw);
+        setDocumentosExistentes(listaDocumentos);
+      }
+
       // Buscar documentos de esta etapa
-      const documentosEtapa = documentosExistentes.filter(
+      const documentosEtapa = listaDocumentos.filter(
         (doc: any) => doc.etapa_flujo_id === etapa.id,
       );
-
-      console.log("documentosEtapa", documentosEtapa);
-      console.log("flujoTrabajoIdActual", flujoTrabajoIdActual);
-      console.log("areaIdActual", areaIdActual);
 
       // Buscar documento del flujo actual (debe coincidir exactamente)
       // Si no hay flujo específico activo, usar el más reciente
@@ -2166,7 +2178,11 @@ export default function SiniestroDetailPage() {
         }
       }
 
-      if (!docExistente || !docExistente.contenido) {
+      if (
+        !docExistente ||
+        docExistente.eliminado === true ||
+        !docExistente.contenido
+      ) {
         swalError("No hay contenido del documento para mostrar");
         setShowPdfModal(false);
         return;
@@ -2268,6 +2284,13 @@ export default function SiniestroDetailPage() {
     setPdfFilename(documento.nombre_archivo || "documento");
 
     try {
+      if (siniestro?.eliminado || documento?.eliminado === true) {
+        swalError("El documento no está disponible.");
+        setShowPdfModal(false);
+        setDocumentoEnVistaPrevia(null);
+        return;
+      }
+
       // Informe con HTML (plantilla)
       if (documento.contenido) {
         const areaNombre =
@@ -2651,6 +2674,10 @@ export default function SiniestroDetailPage() {
 
   // Función para editar un documento directamente (desde la lista de documentos)
   const handleEditDocumento = async (documento: any) => {
+    if (siniestro?.eliminado || documento?.eliminado === true) {
+      swalError("Este documento no está disponible para editar.");
+      return;
+    }
     // Obtener la etapa relacionada si existe
     if (!documento.etapa_flujo_id) {
       swalError("No se puede editar este documento sin una etapa asociada");
@@ -2711,6 +2738,10 @@ export default function SiniestroDetailPage() {
   const handleDownloadInforme = async (documento: any) => {
     try {
       if (!siniestro) return;
+      if (siniestro.eliminado || documento?.eliminado === true) {
+        swalError("No se puede descargar: el documento no está disponible.");
+        return;
+      }
       if (!documento?.contenido || !documento?.plantilla_documento_id) {
         swalError(
           "No se puede descargar: el documento no tiene contenido de informe.",
@@ -3118,10 +3149,20 @@ export default function SiniestroDetailPage() {
         flujoTrabajoIdActual = activeFlujoTab.replace("area-", "");
       }
 
+      // Datos al día (evita mostrar HTML guardado tras eliminar documento o usar caché obsoleta)
+      let listaDocumentos = documentosExistentes;
+      if (canVerDocumentos && siniestroId) {
+        const documentosRaw = await apiService.getDocumentosSiniestro(siniestroId, {
+          activo: true,
+        });
+        listaDocumentos = getUltimasVersionesDocumentos(documentosRaw);
+        setDocumentosExistentes(listaDocumentos);
+      }
+
       // Buscar si ya existe un documento para esta etapa
       // Si el documento tiene flujo_trabajo_id, debe coincidir con el flujo actual
       // Si no tiene flujo_trabajo_id (documentos antiguos), se muestra para compatibilidad
-      const documentosEtapa = documentosExistentes.filter(
+      const documentosEtapa = listaDocumentos.filter(
         (doc: any) => doc.etapa_flujo_id === etapa.id,
       );
 
@@ -3149,7 +3190,13 @@ export default function SiniestroDetailPage() {
         }
       }
 
-      if (docExistente) {
+      const expedienteEliminado = !!siniestro?.eliminado;
+      const puedeUsarVersionGuardada =
+        !!docExistente &&
+        !expedienteEliminado &&
+        docExistente.eliminado !== true;
+
+      if (puedeUsarVersionGuardada) {
         // Si existe: decodificar y volver a aplicar placeholders del sistema (p. ej. {{id}})
         // para alinear con PDF / id_formato aunque el HTML guardado tenga valor antiguo o placeholders sin resolver.
         setDocumentoExistente(docExistente);
@@ -3224,6 +3271,11 @@ export default function SiniestroDetailPage() {
     setSavingDocument(true);
 
     try {
+      if (siniestro.eliminado) {
+        swalError("No se puede guardar: el expediente no está activo.");
+        return;
+      }
+
       const fecha = new Date().toISOString().split("T")[0];
       const nombreArchivo = `${currentEtapa.nombre.replace(
         /\s+/g,

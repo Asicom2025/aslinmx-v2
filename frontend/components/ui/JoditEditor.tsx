@@ -77,11 +77,12 @@ export default function JoditEditorComponent({
     textIcons: false,
     usePopup: true,
     
-    // Pega de contenido
+    // Pega de contenido (imágenes desde portapapeles: el uploader inserta base64; no filtrar <img> con listas vacías)
     askBeforePasteHTML: false,
     askBeforePasteFromWord: false,
     defaultActionOnPaste: "insert_as_html" as const,
     processPasteFromWord: true,
+    processPasteHTML: true,
     removeEmptyElements: true,
     
     // Pantalla completa - Configuración corregida
@@ -104,6 +105,7 @@ export default function JoditEditorComponent({
       "font",
       "fontsize",
       "paragraph",
+      "lineHeight",
       "|",
       "align",
       "|",
@@ -169,6 +171,7 @@ export default function JoditEditorComponent({
       "|",
       "ul",
       "ol",
+      "lineHeight",
       "|",
       "link",
       "image",
@@ -190,6 +193,7 @@ export default function JoditEditorComponent({
       "|",
       "ul",
       "ol",
+      "lineHeight",
       "|",
       "link",
       "image",
@@ -412,6 +416,7 @@ export default function JoditEditorComponent({
         "Font": "Fuente",
         "Font Size": "Tamaño de Fuente",
         "Paragraph": "Párrafo",
+        "Line height": "Interlineado",
         "Align": "Alinear",
         "Align Left": "Izquierda",
         "Align Center": "Centro",
@@ -502,6 +507,8 @@ export default function JoditEditorComponent({
     allowTabNavigation: true,
     
     // Limpieza de HTML
+    // No usar allowTags/allowAttributes vacíos a nivel raíz: en Jodit implica “no dejar ninguna etiqueta”
+    // y elimina <img> al pegar aunque uploader.insertImageAsBase64URI esté en true.
     cleanHTML: {
       removeEmptyElements: true,
       fillEmptyParagraph: true,
@@ -515,24 +522,6 @@ export default function JoditEditorComponent({
       removeTags: [],
       replace: [],
     },
-    
-    // Atributos permitidos
-    allowAttributes: [],
-    
-    // Tags permitidos
-    allowTags: [],
-    
-    // Tags prohibidos
-    denyTags: [],
-    
-    // Atributos prohibidos
-    denyAttributes: [],
-    
-    // Estilos prohibidos
-    denyStyles: [],
-    
-    // Clases prohibidas
-    denyClasses: [],
   }), [disabled, placeholder, height]);
 
   if (!mounted) {

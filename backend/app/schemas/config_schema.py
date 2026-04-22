@@ -131,6 +131,34 @@ class EnviarArchivoCorreoRequest(BaseModel):
 
 
 # ========== Auditoría ==========
+class UsuarioAuditoriaResumen(BaseModel):
+    """Ligero para listado de auditoría (evita N+1 y carga de perfil)."""
+    id: UUID
+    correo: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AuditoriaResumenResponse(BaseModel):
+    """Listado: sin columnas JSONB (muy pesadas en PostgreSQL). El detalle va en GET /auditoria/fila/{id}."""
+    id: UUID
+    empresa_id: Optional[UUID]
+    usuario_id: Optional[UUID]
+    usuario: Optional[UsuarioAuditoriaResumen] = None
+    accion: str
+    modulo: str
+    tabla: str
+    registro_id: Optional[UUID]
+    ip_address: Optional[str]
+    user_agent: Optional[str]
+    descripcion: Optional[str]
+    creado_en: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class AuditoriaResponse(BaseModel):
     id: UUID
     empresa_id: Optional[UUID]

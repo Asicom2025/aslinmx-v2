@@ -11,7 +11,11 @@ from uuid import UUID
 from app.db.session import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.schemas.config_schema import AuditoriaResponse, AuditoriaFiltros
+from app.schemas.config_schema import (
+    AuditoriaResponse,
+    AuditoriaResumenResponse,
+    AuditoriaFiltros,
+)
 from app.services.auditoria_service import AuditoriaService
 from app.services.export_service import ExportService
 import io
@@ -19,14 +23,33 @@ import io
 router = APIRouter()
 
 
-@router.get("", response_model=List[AuditoriaResponse])
+@router.get("/fila/{auditoria_id}", response_model=AuditoriaResponse)
+async def obtener_auditoria_detalle(
+    auditoria_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    max_payload_chars: int = 200_000,
+):
+    """Un registro con JSON (datos_anteriores / datos_nuevos) para el detalle en UI."""
+    r = AuditoriaService.obtener_auditoria_por_id(
+        db=db,
+        auditoria_id=auditoria_id,
+        empresa_id=current_user.empresa_id,
+        max_payload_chars=max_payload_chars,
+    )
+    if not r:
+        raise HTTPException(status_code=404, detail="Registro de auditoría no encontrado")
+    return r
+
+
+@router.get("", response_model=List[AuditoriaResumenResponse])
 async def listar_auditoria(
     filtros: AuditoriaFiltros = Depends(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Lista registros de auditoría con filtros"""
-    registros, total = AuditoriaService.obtener_auditoria(
+    """Lista registros de auditoría (sin columnas JSONB para rendimiento)."""
+    return AuditoriaService.obtener_auditoria(
         db=db,
         empresa_id=current_user.empresa_id if filtros.empresa_id is None else filtros.empresa_id,
         usuario_id=filtros.usuario_id,
@@ -38,8 +61,8 @@ async def listar_auditoria(
         limit=filtros.limit,
         offset=filtros.offset,
         max_payload_chars=filtros.max_payload_chars,
+        incluir_json_payloads=False,
     )
-    return registros
 
 
 @router.get("/registro/{tabla}/{registro_id}", response_model=List[AuditoriaResponse])
@@ -66,7 +89,7 @@ async def exportar_auditoria_excel(
     db: Session = Depends(get_db)
 ):
     """Exporta registros de auditoría a Excel"""
-    registros, total = AuditoriaService.obtener_auditoria(
+    registros = AuditoriaService.obtener_auditoria(
         db=db,
         empresa_id=current_user.empresa_id if filtros.empresa_id is None else filtros.empresa_id,
         usuario_id=filtros.usuario_id,
@@ -78,6 +101,7 @@ async def exportar_auditoria_excel(
         limit=10000,  # Límite alto para exportación
         offset=0,
         max_payload_chars=100000,
+        incluir_json_payloads=False,
     )
 
     # Convertir a diccionarios

@@ -51,14 +51,19 @@ type FiltrosAuditoria = {
   fecha_hasta: string;
 };
 
-const FILTROS_INICIALES: FiltrosAuditoria = {
-  usuario_id: "",
-  accion: "",
-  modulo: "",
-  tabla: "",
-  fecha_desde: "",
-  fecha_hasta: "",
-};
+function filtrosDefault(): FiltrosAuditoria {
+  const hasta = new Date();
+  const desde = new Date();
+  desde.setDate(desde.getDate() - 30);
+  return {
+    usuario_id: "",
+    accion: "",
+    modulo: "",
+    tabla: "",
+    fecha_desde: desde.toISOString().slice(0, 10),
+    fecha_hasta: hasta.toISOString().slice(0, 10),
+  };
+}
 
 function formatDate(value?: string | null): string {
   if (!value) return "-";
@@ -88,9 +93,10 @@ export default function HistoricoPage() {
 
   const [rows, setRows] = useState<AuditoriaRegistro[]>([]);
   const [loadingRows, setLoadingRows] = useState(false);
-  const [filtros, setFiltros] = useState<FiltrosAuditoria>(FILTROS_INICIALES);
+  const [filtros, setFiltros] = useState<FiltrosAuditoria>(filtrosDefault);
   const [usersOptions, setUsersOptions] = useState<SelectOption[]>([]);
   const [selected, setSelected] = useState<AuditoriaRegistro | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [errorText, setErrorText] = useState<string>("");
 
   useEffect(() => {
@@ -106,7 +112,7 @@ export default function HistoricoPage() {
 
   const loadUsers = useCallback(async () => {
     try {
-      const users = await apiService.getUsers(0, 1000);
+      const users = await apiService.getUsers(0, 300);
       const opts = (users || []).map((u: any) => ({
         value: String(u.id),
         label: u.full_name || u.email || u.username || "Usuario",
@@ -121,7 +127,7 @@ export default function HistoricoPage() {
     try {
       setLoadingRows(true);
       setErrorText("");
-      const params: Record<string, unknown> = { limit: 500, offset: 0 };
+      const params: Record<string, unknown> = { limit: 200, offset: 0 };
       if (filtros.usuario_id) params.usuario_id = filtros.usuario_id;
       if (filtros.accion) params.accion = filtros.accion;
       if (filtros.modulo) params.modulo = filtros.modulo;
@@ -140,8 +146,7 @@ export default function HistoricoPage() {
 
   useEffect(() => {
     if (!user || !accesoHistorico) return;
-    loadUsers();
-    loadAuditoria();
+    void Promise.all([loadUsers(), loadAuditoria()]);
   }, [user, accesoHistorico, loadUsers, loadAuditoria]);
 
   const opcionesAccion = useMemo<SelectOption[]>(() => {
@@ -200,7 +205,20 @@ export default function HistoricoPage() {
             type="button"
             className="inline-flex items-center justify-center rounded-md border border-gray-300 p-1.5 text-gray-700 hover:bg-gray-50"
             title="Ver detalle"
-            onClick={() => setSelected(row.original)}
+            onClick={async () => {
+              setLoadingDetail(true);
+              setErrorText("");
+              setSelected({ ...row.original, datos_anteriores: null, datos_nuevos: null });
+              try {
+                const full = await apiService.getAuditoriaFila(String(row.original.id));
+                setSelected(full);
+              } catch {
+                setErrorText("No se pudo cargar el detalle de este registro.");
+                setSelected(null);
+              } finally {
+                setLoadingDetail(false);
+              }
+            }}
           >
             <FiEye className="h-4 w-4" />
           </button>
@@ -216,10 +234,19 @@ export default function HistoricoPage() {
         accessorKey: "usuario",
         header: "Usuario",
         cell: ({ row }) => {
-          const u = row.original.usuario;
+          const u = row.original.usuario as
+            | { full_name?: string; email?: string; correo?: string | null }
+            | null
+            | undefined;
           return (
             <TruncatedText
-              text={u?.full_name || u?.email || u?.correo || row.original.usuario_id || "-"}
+              text={
+                u?.full_name ||
+                (u as { email?: string } | undefined)?.email ||
+                u?.correo ||
+                row.original.usuario_id ||
+                "-"
+              }
               maxLength={40}
             />
           );
@@ -355,7 +382,7 @@ export default function HistoricoPage() {
           <button
             type="button"
             onClick={() => {
-              setFiltros(FILTROS_INICIALES);
+              setFiltros(filtrosDefault());
               setTimeout(() => loadAuditoria(), 0);
             }}
             className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -391,9 +418,20 @@ export default function HistoricoPage() {
       >
         {selected ? (
           <div className="space-y-4">
+            {loadingDetail ? (
+              <p className="text-sm text-gray-500">Cargando cuerpos JSON del registro…</p>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
               <p><span className="font-semibold">Fecha:</span> {formatDate(selected.creado_en)}</p>
-              <p><span className="font-semibold">Usuario:</span> {selected.usuario?.full_name || selected.usuario?.email || selected.usuario_id || "-"}</p>
+              <p>
+                <span className="font-semibold">Usuario:</span>{" "}
+                {(selected.usuario as { full_name?: string; email?: string; correo?: string } | null | undefined)
+                  ?.full_name ||
+                  (selected.usuario as { email?: string } | null | undefined)?.email ||
+                  (selected.usuario as { correo?: string } | null | undefined)?.correo ||
+                  selected.usuario_id ||
+                  "-"}
+              </p>
               <p><span className="font-semibold">Acción:</span> {selected.accion || "-"}</p>
               <p><span className="font-semibold">Módulo:</span> {selected.modulo || "-"}</p>
               <p><span className="font-semibold">Tabla:</span> {selected.tabla || "-"}</p>

@@ -1902,6 +1902,11 @@ const auditoriaService = {
     const response = await api.get("/auditoria", { params: filtros });
     return response.data;
   },
+  /** Un registro con datos_anteriores / datos_nuevos (listado en ligero) */
+  getAuditoriaFila: async (auditoriaId: string) => {
+    const response = await api.get(`/auditoria/fila/${auditoriaId}`);
+    return response.data;
+  },
   getHistorialRegistro: async (tabla: string, registroId: string) => {
     const response = await api.get(`/auditoria/registro/${tabla}/${registroId}`);
     return response.data;
