@@ -70,6 +70,22 @@ class UsuarioPerfilResponse(BaseModel):
         from_attributes = True
 
 
+class UsuarioPerfilListResponse(BaseModel):
+    """
+    Perfil en listados GET /users: solo datos de texto para nombres en tablas/selects.
+    Omite foto/firma (suelen ser rutas largas o r2://); ahí estaba el costo al inlinkear desde storage.
+    """
+
+    nombre: Optional[str] = None
+    apellido_paterno: Optional[str] = None
+    apellido_materno: Optional[str] = None
+    titulo: Optional[str] = None
+    cedula_profesional: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class UsuarioContactosResponse(BaseModel):
     telefono: Optional[str] = None
     celular: Optional[str] = None
@@ -139,7 +155,7 @@ class UserResponse(UserBase):
 class UserListItemResponse(UserBase):
     """
     Listado de usuarios: sin contactos/dirección/permisos para evitar carga y N+1.
-    No se incluyen data URLs de foto/firma; el listado devuelve rutas tal cual en BD.
+    El perfil no incluye foto ni firmas (suelen existir solo en firma/firma_digital y disparaban lecturas a storage).
     """
     id: UUID
     is_active: bool
@@ -148,7 +164,7 @@ class UserListItemResponse(UserBase):
     empresa: Optional[EmpresaResponse] = None
     empresas: Optional[List[EmpresaResponse]] = None
     rol: Optional[RolResponse] = None
-    perfil: Optional[UsuarioPerfilResponse] = None
+    perfil: Optional[UsuarioPerfilListResponse] = None
     areas: Optional[List[AreaSummary]] = None
     two_factor_enabled: Optional[bool] = None
     two_factor_verified_at: Optional[datetime] = None

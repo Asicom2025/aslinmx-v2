@@ -5,7 +5,7 @@ Incluye sanitización central para payloads sensibles y helper contextual HTTP.
 
 from typing import Optional, Dict, Any
 from decimal import Decimal
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only, noload, selectinload
 from sqlalchemy import desc
 from app.models.config import Auditoria
 from app.models.user import User
@@ -239,12 +239,13 @@ class AuditoriaService:
         limit: int = 100,
         offset: int = 0,
         max_payload_chars: int = 12000,
-    ) -> tuple[list[Auditoria], int]:
+        incluir_json_payloads: bool = False,
+    ) -> list[Auditoria]:
         """
-        Obtiene registros de auditoría con filtros
-        
-        Returns:
-            (registros, total)
+        Registros de auditoría con filtros.
+        Por defecto **no** trae `datos_anteriores` / `datos_nuevos` (JSONB pesados) para
+        evitar timeouts; usar `incluir_json_payloads=True` solo para un registro completo
+        o escenarios puntuales.
         """
         query = db.query(Auditoria)
 
@@ -264,25 +265,79 @@ class AuditoriaService:
             query = query.filter(Auditoria.creado_en <= fecha_hasta)
 
         safe_limit = max(1, min(limit or 100, 1000))
-        total = query.count()
+        if not incluir_json_payloads:
+            query = query.options(
+                noload(Auditoria.empresa),
+                load_only(
+                    Auditoria.id,
+                    Auditoria.empresa_id,
+                    Auditoria.usuario_id,
+                    Auditoria.accion,
+                    Auditoria.modulo,
+                    Auditoria.tabla,
+                    Auditoria.registro_id,
+                    Auditoria.ip_address,
+                    Auditoria.user_agent,
+                    Auditoria.descripcion,
+                    Auditoria.creado_en,
+                ),
+                joinedload(Auditoria.usuario).load_only(User.id, User.correo),
+            )
+        else:
+            query = query.options(joinedload(Auditoria.usuario))
+
         registros = (
             query.order_by(desc(Auditoria.creado_en))
             .offset(max(0, offset or 0))
             .limit(safe_limit)
             .all()
         )
-        payload_limit = max(500, min(max_payload_chars or 12000, 100000))
-        for r in registros:
-            if r.datos_anteriores is not None:
-                r.datos_anteriores = _truncate_payload(
-                    r.datos_anteriores, max_chars=payload_limit
-                )
-            if r.datos_nuevos is not None:
-                r.datos_nuevos = _truncate_payload(
-                    r.datos_nuevos, max_chars=payload_limit
-                )
 
-        return registros, total
+        if incluir_json_payloads:
+            payload_limit = max(500, min(max_payload_chars or 12000, 100000))
+            for r in registros:
+                if r.datos_anteriores is not None:
+                    r.datos_anteriores = _truncate_payload(
+                        r.datos_anteriores, max_chars=payload_limit
+                    )
+                if r.datos_nuevos is not None:
+                    r.datos_nuevos = _truncate_payload(
+                        r.datos_nuevos, max_chars=payload_limit
+                    )
+
+        return registros
+
+    @staticmethod
+    def obtener_auditoria_por_id(
+        db: Session,
+        auditoria_id: UUID,
+        empresa_id: Optional[UUID],
+        *,
+        max_payload_chars: int = 200_000,
+    ) -> Optional[Auditoria]:
+        """Una fila con JSON completos (detalle) y usuario cargado para la respuesta."""
+        q = (
+            db.query(Auditoria)
+            .filter(Auditoria.id == auditoria_id)
+        )
+        if empresa_id is not None:
+            q = q.filter(Auditoria.empresa_id == empresa_id)
+        r = q.options(
+            noload(Auditoria.empresa),
+            joinedload(Auditoria.usuario).options(selectinload(User.perfil)),
+        ).first()
+        if r is None:
+            return None
+        payload_limit = max(2000, min(max_payload_chars, 500_000))
+        if r.datos_anteriores is not None:
+            r.datos_anteriores = _truncate_payload(
+                r.datos_anteriores, max_chars=payload_limit
+            )
+        if r.datos_nuevos is not None:
+            r.datos_nuevos = _truncate_payload(
+                r.datos_nuevos, max_chars=payload_limit
+            )
+        return r
 
     @staticmethod
     def obtener_historial_registro(
