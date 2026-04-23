@@ -596,6 +596,11 @@ function SiniestrosPageContent() {
     }
     initialExtended.especificos = {
       ...initialExtended.especificos,
+      tipo_intervencion: (siniestro as any).tipo_intervencion || "",
+      tercero: (siniestro as any).tercero || "",
+      nicho: (siniestro as any).nicho || "",
+      materia: (siniestro as any).materia || "",
+      expediente: (siniestro as any).expediente || "",
       descripcion_html: siniestro.descripcion_hechos || "",
     };
     // Navegar a la página de edición cuando esté disponible
@@ -677,6 +682,11 @@ function SiniestrosPageContent() {
           extendedForm.generales.calificacion
         ),
         forma_contacto: extendedForm.asegurado.formaContacto || null,
+        tipo_intervencion: extendedForm.especificos.tipo_intervencion?.trim() || null,
+        tercero: extendedForm.especificos.tercero?.trim() || null,
+        nicho: extendedForm.especificos.nicho?.trim() || null,
+        materia: extendedForm.especificos.materia?.trim() || null,
+        expediente: extendedForm.especificos.expediente?.trim() || null,
       };
 
       let siniestroId: string;

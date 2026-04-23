@@ -14,6 +14,13 @@ export interface Siniestro {
   fecha_reporte?: string | null;
   fecha_asignacion?: string | null;
   ubicacion?: string;
+  /** Datos específicos (misma sección que nicho/materia/expediente en UI). */
+  tipo_intervencion?: string | null;
+  /** Nombre o referencia del tercero involucrado (texto libre). */
+  tercero?: string | null;
+  nicho?: string | null;
+  materia?: string | null;
+  expediente?: string | null;
   descripcion_hechos: string;
 
   /** Pólizas en `siniestro_polizas` (API las devuelve anidadas). */
@@ -68,6 +75,11 @@ export interface SiniestroCreate {
   fecha_asignacion?: string;
   fecha_siniestro?: string;
   ubicacion?: string;
+  tipo_intervencion?: string | null;
+  tercero?: string | null;
+  nicho?: string | null;
+  materia?: string | null;
+  expediente?: string | null;
   descripcion_hechos: string;
 
   polizas?: SiniestroPolizaPayload[];
@@ -95,6 +107,11 @@ export interface SiniestroUpdate {
   fecha_asignacion?: string;
   fecha_siniestro?: string;
   ubicacion?: string;
+  tipo_intervencion?: string | null;
+  tercero?: string | null;
+  nicho?: string | null;
+  materia?: string | null;
+  expediente?: string | null;
   descripcion_hechos?: string;
 
   polizas?: SiniestroPolizaPayload[];

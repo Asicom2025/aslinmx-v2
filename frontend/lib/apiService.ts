@@ -1076,6 +1076,11 @@ const siniestroService = {
     fecha_asignacion?: string;
     fecha_siniestro?: string;
     ubicacion?: string;
+    tipo_intervencion?: string | null;
+    tercero?: string | null;
+    nicho?: string | null;
+    materia?: string | null;
+    expediente?: string | null;
     descripcion_hechos: string;
     polizas?: Array<{
       id?: string;
@@ -1112,6 +1117,11 @@ const siniestroService = {
     fecha_asignacion?: string;
     fecha_siniestro?: string;
     ubicacion?: string;
+    tipo_intervencion?: string | null;
+    tercero?: string | null;
+    nicho?: string | null;
+    materia?: string | null;
+    expediente?: string | null;
     descripcion_hechos?: string;
     polizas?: Array<{
       id?: string;
