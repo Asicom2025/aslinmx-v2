@@ -63,7 +63,11 @@ function resolveSessionRenewal(renew: boolean) {
 // Interceptor para agregar token a las peticiones
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("token");
+    // Normalizar: espacios / cadena vacía no deben ir como "Bearer " (el backend
+    // trata distinto 401 de auth y 403 de permisos; un token inválido evita
+    // respuestas confusas y condiciones de carrera en el primer request).
+    const raw = localStorage.getItem("token");
+    const token = raw && String(raw).trim() ? String(raw).trim() : null;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -113,7 +117,8 @@ api.interceptors.response.use(
 
     // Si el access token expiró, mostramos modal y pausamos requests hasta decisión del usuario
     if (status === 401) {
-      const hadToken = !!localStorage.getItem("token");
+      const t0 = localStorage.getItem("token");
+      const hadToken = !!(t0 && String(t0).trim());
       if (hadToken && !isAuthRoute) {
         const originalConfig = error.config;
         if (originalConfig && !(originalConfig as any).__sessionRenewalRetried) {
@@ -122,7 +127,8 @@ api.interceptors.response.use(
           if (!shouldRenew) return Promise.reject(error);
 
           // Reintentar con el nuevo token (modal ya lo actualizó)
-          const token = localStorage.getItem("token");
+          const rawT = localStorage.getItem("token");
+          const token = rawT && String(rawT).trim() ? String(rawT).trim() : null;
           if (token) {
             originalConfig.headers = originalConfig.headers || {};
             originalConfig.headers.Authorization = `Bearer ${token}`;

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
-from app.models.user import User
+from app.models.user import User, Rol
 from app.models.permiso import Modulo, Accion, RolPermiso
 from app.core.nivel_acceso import usuario_bypass_permisos
 
@@ -21,13 +21,20 @@ from app.core.nivel_acceso import ROL_SUPER_ADMIN_ID  # noqa: F401
 
 def _tiene_permiso(db: Session, rol_id: UUID, modulo_tecnico: str, accion_tecnico: str) -> bool:
     """Comprueba si el rol tiene el permiso (modulo_tecnico, accion_tecnico)."""
+    # Exigir que el `Rol` siga activo y no esté eliminado: sin esto, filas
+    # huérfanas o desactivación del rol en catálogo podían dar resultados
+    # incoherentes (p. ej. permisos aún presentes mientras get_nivel_rol
+    # ve otro rol o ninguno) y sensación de 403 "intermitente".
     existe = (
         db.query(RolPermiso)
+        .join(Rol, Rol.id == RolPermiso.rol_id)
         .join(Modulo, RolPermiso.modulo_id == Modulo.id)
         .join(Accion, RolPermiso.accion_id == Accion.id)
         .filter(
             RolPermiso.rol_id == rol_id,
             RolPermiso.activo == True,
+            Rol.activo == True,
+            Rol.eliminado_en.is_(None),
             Modulo.nombre_tecnico == modulo_tecnico,
             Modulo.activo == True,
             Modulo.eliminado_en.is_(None),
