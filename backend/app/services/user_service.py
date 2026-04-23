@@ -10,7 +10,7 @@ import base64
 import re
 import secrets
 from sqlalchemy import or_
-from sqlalchemy.orm import Session, selectinload, joinedload, noload
+from sqlalchemy.orm import Session, selectinload, joinedload, noload, defer
 from fastapi import HTTPException, status
 
 from app.models.user import (
@@ -250,16 +250,37 @@ class UserService:
         Listado de usuarios con paginación.
         Excluye contactos/dirección (no se usan en tablas) y carga 2FA para columnas
         de estado sin N+1. Empresa/rol usan join en el modelo; áreas/empresas en batch.
+        Perfil: solo columnas de texto (omitir foto/firmas en BLOB/texto largo).
+        2FA: omitir secreto y códigos de recuperación (solo flags de estado en listado).
+        usuario_empresas: no hace falta si ya vienen empresas vía relación M2M.
         """
         return (
             db.query(User)
             .options(
+                defer(User.password_hash),
                 noload(User.contactos),
                 noload(User.direccion),
-                selectinload(User.perfil),
+                noload(User.usuario_empresas),
+                selectinload(User.perfil).load_only(
+                    UsuarioPerfil.usuario_id,
+                    UsuarioPerfil.nombre,
+                    UsuarioPerfil.apellido_paterno,
+                    UsuarioPerfil.apellido_materno,
+                    UsuarioPerfil.titulo,
+                    UsuarioPerfil.cedula_profesional,
+                ),
                 selectinload(User.areas),
-                selectinload(User.empresas),
-                selectinload(User.dosfa),
+                selectinload(User.empresas).load_only(
+                    Empresa.id,
+                    Empresa.nombre,
+                    Empresa.alias,
+                    Empresa.activo,
+                ),
+                selectinload(User.dosfa).load_only(
+                    Usuario2FA.usuario_id,
+                    Usuario2FA.habilitado,
+                    Usuario2FA.verificado_en,
+                ),
             )
             .order_by(User.correo.asc())
             .offset(max(0, skip))

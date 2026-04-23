@@ -36,6 +36,8 @@ export const ACCION = {
   editar_calificacion: "editar_calificacion",
   /** Cambiar solo el arreglo polizas del siniestro (sin siniestros.update completo) */
   editar_poliza: "editar_poliza",
+  /** Descripción de hechos y versiones (independiente de siniestros.update) */
+  editar_descripcion_de_hechos: "editar_descripcion_de_hechos",
   ver_bitacora: "ver_bitacora",
   ver_documentos: "ver_documentos",
   subir_archivo: "subir_archivo",
@@ -180,3 +182,7 @@ export const canCatalogoDocumentoEliminar = (can: CanFn) =>
   can(MODULO.configuracion, ACCION.delete) ||
   can(MODULO.parametros, ACCION.delete) ||
   can(MODULO.configuracion, ACCION.eliminar_tipos_de_documentos);
+
+/** Descripción de hechos / versiones (no usar siniestros.update como sustituto). */
+export const canSiniestroEditarDescripcionHechos = (can: CanFn) =>
+  can(MODULO.siniestros, ACCION.editar_descripcion_de_hechos);

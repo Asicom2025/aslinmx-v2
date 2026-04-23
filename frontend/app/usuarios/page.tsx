@@ -90,7 +90,7 @@ export default function UsuariosPage() {
     }
     loadUsuarios();
     if (puedeListarRoles) loadRoles();
-    loadEmpresas();
+    // Empresas: solo para el modal "Nuevo usuario"; se cargan al abrir (menos trabajo al entrar a la página).
   }, [user, loading, router, puedeListarRoles]);
 
   const loadUsuarios = async () => {
@@ -148,7 +148,16 @@ export default function UsuariosPage() {
     }
   };
 
-  const openCreateUsuario = () => {
+  const openCreateUsuario = async () => {
+    if (empresas.length === 0) {
+      try {
+        const data = await apiService.getEmpresas();
+        setEmpresas(data || []);
+      } catch (e: any) {
+        swalError(e.response?.data?.detail || "Error al cargar empresas");
+        return;
+      }
+    }
     setUsuarioForm({
       email: "",
       username: "",

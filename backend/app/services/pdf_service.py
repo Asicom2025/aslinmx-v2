@@ -95,6 +95,44 @@ class PDFService:
             background-color: #f2f2f2;
             font-weight: bold;
         }}
+
+        /* Calificación siniestro: cabecera azul cielo (#B8E4F9), texto #333 */
+        td.header-cell.text-center,
+        th.header-cell.text-center {{
+            border: 1px solid #000;
+            padding: 10px 8px;
+            text-align: center;
+            font-weight: bold;
+            text-transform: uppercase;
+            vertical-align: middle;
+            white-space: normal;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            line-height: 1.35;
+            min-width: 4.75rem;
+            background-color: #7de8ff;
+            color: #333;
+        }}
+        td.data-cell.text-center {{
+            border: 1px solid #000;
+            padding: 10px 8px;
+            text-align: center;
+            font-size: 13px;
+            vertical-align: middle;
+            white-space: normal;
+            min-width: 4.75rem;
+            line-height: 1.4;
+            background-color: #fff;
+            color: #333;
+        }}
+
+        table.calificaciones-siniestro-dinamica {{
+            width: 100%;
+            max-width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+            hyphens: auto;
+        }}
         
         /* Estilos para imágenes */
         img {{

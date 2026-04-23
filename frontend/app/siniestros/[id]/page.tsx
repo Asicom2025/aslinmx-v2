@@ -15,6 +15,8 @@ import { addRecentVisitedSiniestro } from "@/lib/recentSiniestrosStorage";
 import { swalError, swalSuccess, swalConfirm } from "@/lib/swal";
 import { buildSiniestroIdLegible } from "@/lib/siniestroIdDisplay";
 import { decodeHtmlForEditor } from "@/lib/decodeHtmlForEditor";
+import { buildCalificacionPlantillaVariables } from "@/lib/calificacionTablaPlaceholders";
+import { canSiniestroEditarDescripcionHechos } from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
 import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
@@ -349,6 +351,7 @@ export default function SiniestroDetailPage() {
   const canVerBitacora = can("siniestros", "ver_bitacora");
   const canGenerarPdf = can("siniestros", "generar_pdf");
   const canActualizarSiniestro = can("siniestros", "update");
+  const canEditarDescripcionHechos = canSiniestroEditarDescripcionHechos(can);
   const canAgregarAbogado = can("siniestros", "asignar_abogado");
   const canAsignarAreas = can("siniestros", "asignar_areas");
   const canEditarStatusSiniestro = can("siniestros", "editar_status");
@@ -621,6 +624,11 @@ export default function SiniestroDetailPage() {
     );
     const polizaPrincipalData = getDisplayPolizasFromSiniestro(siniestroData)[0];
 
+    const califVars = buildCalificacionPlantillaVariables(
+      calificacionesSiniestro,
+      (siniestroData as any)?.calificacion_id,
+    );
+
     const replacements: Record<string, string> = {
       // ── Fechas ──────────────────────────────────────────────────────────────
       fecha: formatoFecha(hoy),
@@ -637,6 +645,10 @@ export default function SiniestroDetailPage() {
       numero_poliza: polizaPrincipalData?.numero_poliza ?? "",
       // ── Estado y calificación ────────────────────────────────────────────────
       estado_siniestro: estadoNombre,
+      calificaciones_headers_html: califVars.calificaciones_headers_html,
+      calificaciones_marcas_html: califVars.calificaciones_marcas_html,
+      calificaciones_tabla_dos_filas_html:
+        califVars.calificaciones_tabla_dos_filas_html,
       // ── Asegurado ────────────────────────────────────────────────────────────
       nombre_asegurado: nombreAsegurado,
       asegurado: nombreAsegurado,
@@ -721,6 +733,11 @@ export default function SiniestroDetailPage() {
       )?.nombre ?? "";
     const polizaPrincipalData = getDisplayPolizasFromSiniestro(siniestroData)[0];
 
+    const califVarsPdf = buildCalificacionPlantillaVariables(
+      calificacionesSiniestro,
+      (siniestroData as any)?.calificacion_id,
+    );
+
     const firmaImg = buildFirmaPhysicalHtml(autorUsuario ?? {});
 
     return {
@@ -741,6 +758,10 @@ export default function SiniestroDetailPage() {
       numero_siniestro: siniestroData?.numero_siniestro ?? "",
       numero_poliza: polizaPrincipalData?.numero_poliza ?? "",
       estado_siniestro: estadoNombrePdf,
+      calificaciones_headers_html: califVarsPdf.calificaciones_headers_html,
+      calificaciones_marcas_html: califVarsPdf.calificaciones_marcas_html,
+      calificaciones_tabla_dos_filas_html:
+        califVarsPdf.calificaciones_tabla_dos_filas_html,
     };
   };
 
@@ -1013,14 +1034,23 @@ export default function SiniestroDetailPage() {
   };
 
   const handleOpenEditDescripcion = useCallback(() => {
+    if (!canEditarDescripcionHechos) return;
     if (!descripcionSeleccionada || !isDescripcionSeleccionadaUltima) return;
     setDescripcionEditHtml(
       decodeHtmlForEditor(descripcionSeleccionada.descripcion_html || ""),
     );
     setShowDescripcionModal(true);
-  }, [descripcionSeleccionada, isDescripcionSeleccionadaUltima]);
+  }, [
+    canEditarDescripcionHechos,
+    descripcionSeleccionada,
+    isDescripcionSeleccionadaUltima,
+  ]);
 
   const handleSaveDescripcionVersion = useCallback(async () => {
+    if (!canEditarDescripcionHechos) {
+      swalError("No tiene permiso para editar la descripción de hechos");
+      return;
+    }
     if (!descripcionActual) return;
     const html = descripcionEditHtml.trim();
     if (!html) {
@@ -1056,6 +1086,7 @@ export default function SiniestroDetailPage() {
       setSavingDescripcionVersion(false);
     }
   }, [
+    canEditarDescripcionHechos,
     descripcionActual,
     descripcionEditHtml,
     loadVersionesDescripcionHechos,
@@ -1319,7 +1350,7 @@ export default function SiniestroDetailPage() {
     try {
       setLoadingCalificaciones(true);
       // Cargar todas las calificaciones activas
-      const calificaciones = await apiService.getCalificacionesSiniestro(true);
+      const calificaciones = await apiService.getCalificacionesSiniestro();
       setCalificacionesSiniestro(calificaciones);
     } catch (error: any) {
       console.error("Error al cargar calificaciones de siniestro:", error);
@@ -3523,11 +3554,17 @@ export default function SiniestroDetailPage() {
                     : ""
                 }
                 onChange={handleUpdateCalificacion}
-                options={calificacionesSiniestro.map((calificacion) => ({
-                  value: String(calificacion.id),
-                  label: calificacion.nombre,
-                  color: calificacion.color,
-                }))}
+                options={calificacionesSiniestro
+                  .filter(
+                    (c) =>
+                      c.activo ||
+                      String(c.id) === String(siniestro.calificacion_id ?? ""),
+                  )
+                  .map((calificacion) => ({
+                    value: String(calificacion.id),
+                    label: calificacion.nombre,
+                    color: calificacion.color,
+                  }))}
                 placeholder="Seleccionar calificación"
                 disabled={
                   !canCalificacionSiniestro ||
@@ -4454,7 +4491,8 @@ export default function SiniestroDetailPage() {
                           isSearchable={false}
                           isClearable={false}
                         />
-                        {canActualizarSiniestro && isDescripcionSeleccionadaUltima && (
+                        {canEditarDescripcionHechos &&
+                          isDescripcionSeleccionadaUltima && (
                           <EmpresaButton
                             variant="secondary"
                             size="sm"
@@ -5777,7 +5815,7 @@ export default function SiniestroDetailPage() {
               variant="primary"
               onClick={handleSaveDescripcionVersion}
               loading={savingDescripcionVersion}
-              disabled={savingDescripcionVersion}
+              disabled={savingDescripcionVersion || !canEditarDescripcionHechos}
             >
               <FiSave className="w-4 h-4 mr-2" />
               Guardar como nueva versión
