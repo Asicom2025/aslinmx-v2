@@ -38,6 +38,7 @@ def subquery_siniestros_visibles(
                 base_empresa,
                 SiniestroArea.area_id.in_(area_ids),
                 SiniestroArea.activo == True,
+                SiniestroArea.eliminado == False,
             )
             .distinct()
         )
@@ -51,6 +52,7 @@ def subquery_siniestros_visibles(
                     db.query(SiniestroUsuario.siniestro_id).filter(
                         SiniestroUsuario.usuario_id == user.id,
                         SiniestroUsuario.activo == True,
+                        SiniestroUsuario.eliminado == False,
                     )
                 ),
             ),
@@ -113,6 +115,7 @@ def usuario_puede_editar_siniestro(db: Session, user, empresa_id: Optional[UUID]
             SiniestroUsuario.siniestro_id == siniestro_id,
             SiniestroUsuario.usuario_id == user.id,
             SiniestroUsuario.activo == True,
+            SiniestroUsuario.eliminado == False,
             SiniestroUsuario.es_principal == True,
         )
         .first()

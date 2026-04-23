@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     BACKEND_HOST: str
     BACKEND_PORT: int
     DEBUG: bool
+    # development | staging | production — usado p. ej. para ocultar /docs en producción
+    ENVIRONMENT: str = "development"
 
     # URL del frontend / backend (OBLIGATORIAS en entorno real).
     # Deben venir del .env; aquí no se fijan valores concretos.

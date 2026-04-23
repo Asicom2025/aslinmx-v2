@@ -75,8 +75,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("documentos", "requisito_documento_id")
-    op.drop_index("ix_req_doc_clave", table_name="etapa_flujo_requisitos_documento")
-    op.drop_index("ix_req_doc_flujo_trabajo_id", table_name="etapa_flujo_requisitos_documento")
-    op.drop_index("ix_req_doc_etapa_flujo_id", table_name="etapa_flujo_requisitos_documento")
-    op.drop_table("etapa_flujo_requisitos_documento")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    tables = set(inspector.get_table_names())
+
+    if "documentos" in tables:
+        columnas_documentos = {c["name"] for c in inspector.get_columns("documentos")}
+        if "requisito_documento_id" in columnas_documentos:
+            op.drop_column("documentos", "requisito_documento_id")
+
+    if "etapa_flujo_requisitos_documento" in tables:
+        indexes = {idx["name"] for idx in inspector.get_indexes("etapa_flujo_requisitos_documento")}
+        if "ix_req_doc_clave" in indexes:
+            op.drop_index("ix_req_doc_clave", table_name="etapa_flujo_requisitos_documento")
+        if "ix_req_doc_flujo_trabajo_id" in indexes:
+            op.drop_index("ix_req_doc_flujo_trabajo_id", table_name="etapa_flujo_requisitos_documento")
+        if "ix_req_doc_etapa_flujo_id" in indexes:
+            op.drop_index("ix_req_doc_etapa_flujo_id", table_name="etapa_flujo_requisitos_documento")
+        op.drop_table("etapa_flujo_requisitos_documento")

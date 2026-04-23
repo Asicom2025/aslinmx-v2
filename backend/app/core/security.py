@@ -166,8 +166,10 @@ async def get_current_user(
     if payload is None:
         raise credentials_exception
 
-    # No usar el token de canje de impersonación como Bearer de API
-    if payload.get("purpose") == "impersonate_exchange":
+    # Solo aceptar access tokens como Bearer de API.
+    # Rechazar refresh, pre_2fa e impersonation_exchange.
+    purpose = payload.get("purpose")
+    if purpose not in (None, "access"):
         raise credentials_exception
     
     user_id: str = payload.get("sub")

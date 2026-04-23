@@ -3,13 +3,14 @@ Rutas para auditoría y logs del sistema
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
 
 from app.db.session import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_active_user
 from app.models.user import User
 from app.schemas.config_schema import (
     AuditoriaResponse,
@@ -26,7 +27,7 @@ router = APIRouter()
 @router.get("/fila/{auditoria_id}", response_model=AuditoriaResponse)
 async def obtener_auditoria_detalle(
     auditoria_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
     max_payload_chars: int = 200_000,
 ):
@@ -45,13 +46,13 @@ async def obtener_auditoria_detalle(
 @router.get("", response_model=List[AuditoriaResumenResponse])
 async def listar_auditoria(
     filtros: AuditoriaFiltros = Depends(),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Lista registros de auditoría (sin columnas JSONB para rendimiento)."""
     return AuditoriaService.obtener_auditoria(
         db=db,
-        empresa_id=current_user.empresa_id if filtros.empresa_id is None else filtros.empresa_id,
+        empresa_id=current_user.empresa_id,
         usuario_id=filtros.usuario_id,
         accion=filtros.accion,
         modulo=filtros.modulo,
@@ -69,7 +70,7 @@ async def listar_auditoria(
 async def obtener_historial_registro(
     tabla: str,
     registro_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Obtiene el historial completo de cambios de un registro específico"""
@@ -85,13 +86,13 @@ async def obtener_historial_registro(
 @router.get("/exportar/excel")
 async def exportar_auditoria_excel(
     filtros: AuditoriaFiltros = Depends(),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Exporta registros de auditoría a Excel"""
     registros = AuditoriaService.obtener_auditoria(
         db=db,
-        empresa_id=current_user.empresa_id if filtros.empresa_id is None else filtros.empresa_id,
+        empresa_id=current_user.empresa_id,
         usuario_id=filtros.usuario_id,
         accion=filtros.accion,
         modulo=filtros.modulo,
@@ -140,7 +141,7 @@ async def exportar_auditoria_excel(
 async def obtener_estadisticas_auditoria(
     fecha_desde: Optional[datetime] = Query(None),
     fecha_hasta: Optional[datetime] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Obtiene estadísticas de auditoría"""

@@ -7,6 +7,11 @@ import axios from "axios";
 import { getApiErrorMessage } from "./parseApiError";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
+if (!API_URL) {
+  throw new Error(
+    "Falta NEXT_PUBLIC_API_URL. Configura esta variable de entorno para conectar al backend.",
+  );
+}
 
 /** Desenvuelve respuesta JSON homologada `{ success, data, trace_id, meta }` desde `/api/v1`. */
 export function unwrapApiResponseData<T>(raw: unknown): T {
@@ -41,7 +46,9 @@ function notifySessionRenewalNeeded(): Promise<boolean> {
   sessionRenewalPromise = new Promise<boolean>((resolve) => {
     sessionRenewalResolver = resolve;
   });
-  window.dispatchEvent(new Event("sessionRenewalNeeded"));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("sessionRenewalNeeded"));
+  }
   return sessionRenewalPromise;
 }
 
@@ -1037,6 +1044,7 @@ const siniestroService = {
     area_id?: string;
     usuario_asignado?: string;
     prioridad?: "baja" | "media" | "alta" | "critica";
+    calificacion_id?: string;
     asegurado_estado?: string;
     fecha_registro_mes?: string;
     busqueda_id?: string;
@@ -1052,6 +1060,7 @@ const siniestroService = {
     if (filters?.area_id) params.append("area_id", filters.area_id);
     if (filters?.usuario_asignado) params.append("usuario_asignado", filters.usuario_asignado);
     if (filters?.prioridad) params.append("prioridad", filters.prioridad);
+    if (filters?.calificacion_id) params.append("calificacion_id", filters.calificacion_id);
     if (filters?.asegurado_estado?.trim()) params.append("asegurado_estado", filters.asegurado_estado.trim());
     if (filters?.fecha_registro_mes?.trim()) params.append("fecha_registro_mes", filters.fecha_registro_mes.trim());
     if (filters?.busqueda_id?.trim()) params.append("busqueda_id", filters.busqueda_id.trim());
@@ -1989,6 +1998,7 @@ const apiService = {
   ...legacyDocumentMigrationService,
   ...bitacoraService,
   ...notificacionService,
+  ...evidenciaService,
   ...configService,
   ...reporteService,
   ...exportService,

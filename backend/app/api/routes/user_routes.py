@@ -143,11 +143,13 @@ def _inline_user_profile_assets_data(data: dict) -> None:
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def register_user(
     user: UserCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ):
     """
     Registrar un nuevo usuario
     """
+    _require_nivel_1_administrador(db, current_user)
     return UserService.create_user(db, user)
 
 

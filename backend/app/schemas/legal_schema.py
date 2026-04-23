@@ -184,7 +184,7 @@ class InstitucionCreate(InstitucionBase):
 
 class InstitucionUpdate(BaseModel):
     """Schema para actualizar institución"""
-    nombre: Optional[str] = Field(None, min_length=1, max_length=200)
+    nombre: Optional[str] = Field(None, min_length=1, max_length=500)
     codigo: Optional[str] = Field(None, max_length=50)
     email: Optional[str] = Field(None, max_length=100)
     activo: Optional[bool] = None
@@ -1030,8 +1030,10 @@ class SiniestroUsuarioResponse(SiniestroUsuarioBase):
     id: UUID
     siniestro_id: UUID
     usuario_id: UUID
+    eliminado: bool = False
     creado_en: datetime
     actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -1069,8 +1071,10 @@ class SiniestroAreaResponse(SiniestroAreaBase):
     siniestro_id: UUID
     area_id: UUID
     fecha_asignacion: datetime
+    eliminado: bool = False
     creado_en: datetime
     actualizado_en: datetime
+    eliminado_en: Optional[datetime] = None
 
     class Config:
         from_attributes = True

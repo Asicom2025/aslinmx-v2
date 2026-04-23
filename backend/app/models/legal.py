@@ -501,8 +501,10 @@ class SiniestroUsuario(Base):
     es_principal = Column(Boolean, default=False)
     observaciones = Column(Text, nullable=True)
     activo = Column(Boolean, nullable=False, default=True)
+    eliminado = Column(Boolean, nullable=False, default=False)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         CheckConstraint("tipo_relacion IN ('asegurado', 'proveniente', 'testigo', 'tercero')", name="check_tipo_relacion"),
@@ -519,8 +521,10 @@ class SiniestroArea(Base):
     fecha_asignacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     observaciones = Column(Text, nullable=True)
     activo = Column(Boolean, nullable=False, default=True)
+    eliminado = Column(Boolean, nullable=False, default=False)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)
 
 
 class VersionesDescripcionHechos(Base):
@@ -536,3 +540,4 @@ class VersionesDescripcionHechos(Base):
     observaciones = Column(Text, nullable=True)  # Notas sobre los cambios en esta versión
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    eliminado_en = Column(DateTime(timezone=True), nullable=True)

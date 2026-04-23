@@ -9,13 +9,13 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
-from starlette.types import ASGIApp, Message, Scope
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.core.api_envelope import (
     build_success_envelope,
@@ -70,6 +70,54 @@ def _client_ip(scope: Scope, request: Request) -> Optional[str]:
     return None
 
 
+def _safe_content_length(value: Optional[str]) -> int:
+    """Evita ValueError si el cliente envía Content-Length inválido (rompe el log post-error)."""
+    if not value or not str(value).strip():
+        return 0
+    try:
+        return int(str(value).strip().split(",")[0])
+    except (ValueError, TypeError):
+        return 0
+
+
+def _is_passthrough_response_start(message: dict) -> bool:
+    """
+    No acumular en memoria: chunked o respuestas muy grandes (misma idea que eximir StreamingResponse).
+    """
+    if message.get("type") != "http.response.start":
+        return False
+    raw = message.get("headers") or []
+    h = Headers(raw=raw)
+    te = (h.get("transfer-encoding") or "").lower()
+    if "chunked" in te:
+        return True
+    cl = h.get("content-length")
+    if cl:
+        n = _safe_content_length(str(cl))
+        if n > 5 * 1024 * 1024:
+            return True
+    return False
+
+
+def _captured_to_response(captured: List[dict]) -> Response:
+    if not captured:
+        raise ValueError("respuesta asgi vacía")
+    if captured[0].get("type") != "http.response.start":
+        raise ValueError("se esperaba http.response.start")
+    start = captured[0]
+    status = int(start.get("status", 200))
+    raw_headers = start.get("headers") or []
+    body = b""
+    for m in captured[1:]:
+        if m.get("type") == "http.response.body":
+            body += m.get("body") or b""
+    return Response(
+        content=body,
+        status_code=status,
+        headers=Headers(raw=raw_headers),
+    )
+
+
 def _multipart_summary(content_type: str, content_length: int) -> Dict[str, Any]:
     return {
         "kind": "multipart",
@@ -97,10 +145,16 @@ def _daily_log_path() -> Optional[str]:
 
 
 def _emit_log_line(payload: Dict[str, Any]) -> None:
-    line = json.dumps(payload, default=str, ensure_ascii=False)
+    try:
+        line = json.dumps(payload, default=str, ensure_ascii=False)
+    except Exception:
+        return
     target = getattr(settings, "STRUCTURED_LOG_TARGET", "stdout").lower()
     if target in ("stdout", "both"):
-        _structured_logger.info(line)
+        try:
+            _structured_logger.info(line)
+        except Exception:
+            pass
     if target in ("file", "both"):
         path = _daily_log_path()
         if path:
@@ -111,33 +165,43 @@ def _emit_log_line(payload: Dict[str, Any]) -> None:
                 pass
 
 
-class HttpTransactionMiddleware(BaseHTTPMiddleware):
-    """Envuelve respuestas JSON 2xx y emite un log estructurado por petición."""
+class HttpTransactionMiddleware:
+    """
+    ASGI puro: evita BaseHTTPMiddleware/call_next (errores con excepciones y Anyio/TaskGroup).
+    Misma lógica: envelope 2xx JSON, log estructurado, cuerpo reinyectado.
+    """
 
-    def __init__(self, app: ASGIApp):
-        super().__init__(app)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        trace_token = None
-        scope = request.scope
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
-        incoming = request.headers.get("x-request-id") or request.headers.get("x-trace-id")
-        trace_id = (incoming or "").strip() or str(uuid4())
+        # Headers (scope)
+        def _h(name: str) -> str:
+            want = name.lower().encode("latin-1")
+            for k, v in scope.get("headers") or []:
+                if k.lower() == want:
+                    return v.decode("latin-1", errors="replace")
+            return ""
+
+        trace_token = None
+        incoming = (_h("x-request-id") or _h("x-trace-id")).strip()
+        trace_id = incoming or str(uuid4())
         trace_token = set_trace_id(trace_id)
 
-        start = time.perf_counter()
         path = scope.get("path", "") or ""
         query = scope.get("query_string", b"").decode("latin-1", errors="replace")
-        method = request.method
-        content_type = (request.headers.get("content-type") or "").lower()
-        content_length = int(request.headers.get("content-length") or 0)
-
+        method = scope.get("method", "GET")
+        content_type = (_h("content-type") or "").lower()
+        content_length = _safe_content_length(_h("content-length"))
         max_body = int(getattr(settings, "HTTP_LOG_MAX_BODY_BYTES", 262144))
 
         request_body_log: Any = None
         body_bytes: bytes = b""
+        pre_read_body = False
 
         if _path_excluded(path):
             pass
@@ -150,8 +214,16 @@ class HttpTransactionMiddleware(BaseHTTPMiddleware):
                 "content_type": content_type[:200],
             }
         else:
+            pre_read_body = True
             try:
-                body_bytes = await request.body()
+                more = True
+                while more:
+                    msg = await receive()
+                    if msg["type"] == "http.request":
+                        body_bytes += msg.get("body") or b""
+                        more = bool(msg.get("more_body", False))
+                    elif msg["type"] == "http.disconnect":
+                        break
             except Exception:
                 body_bytes = b""
             parsed = _parse_json_body(body_bytes)
@@ -162,17 +234,86 @@ class HttpTransactionMiddleware(BaseHTTPMiddleware):
             else:
                 request_body_log = None
 
-        async def receive() -> Message:
-            return {"type": "http.request", "body": body_bytes, "more_body": False}
+        # Si no hicimos pre-lectura, la app debe ver el `receive` real (JSON/form en rutas reales)
+        if pre_read_body:
+            delivered = False
 
-        wrapped = Request(scope, receive)
+            async def receive_for_app() -> Message:
+                nonlocal delivered
+                if not delivered:
+                    delivered = True
+                    return {
+                        "type": "http.request",
+                        "body": body_bytes,
+                        "more_body": False,
+                    }
+                return {"type": "http.disconnect"}
+        else:
+            receive_for_app = receive
+
+        # Solo headers/scope en logs; nunca hace falta re-leer el cuerpo desde este Request
+        _log_done = False
+
+        async def receive_for_log_stub() -> Message:
+            nonlocal _log_done
+            if not _log_done:
+                _log_done = True
+                return {"type": "http.request", "body": b"", "more_body": False}
+            return {"type": "http.disconnect"}
+
+        log_request = Request(scope, receive_for_log_stub)
+        start = time.perf_counter()
+        forward = False
+        captured: List[dict] = []
+
+        async def capture_send(message: dict) -> None:
+            nonlocal forward
+            if message.get("type") == "http.response.start" and not forward and _is_passthrough_response_start(
+                message
+            ):
+                forward = True
+            if forward:
+                await send(message)
+            else:
+                captured.append(message)
 
         try:
-            response = await call_next(wrapped)
-            duration_ms = int((time.perf_counter() - start) * 1000)
-            response = await self._post_process_response(
-                request=wrapped,
-                response=response,
+            await self.app(scope, receive_for_app, capture_send)
+        finally:
+            if trace_token is not None:
+                reset_trace_id(trace_token)
+
+        if forward:
+            return
+
+        if not captured:
+            return
+
+        duration_ms = int((time.perf_counter() - start) * 1000)
+
+        try:
+            asgi_response = _captured_to_response(captured)
+        except Exception as exc:
+            _structured_logger.error(
+                json.dumps(
+                    {
+                        "event": "http_transaction_capture_parse_failed",
+                        "error": str(exc),
+                        "path": path,
+                    },
+                    default=str,
+                    ensure_ascii=False,
+                )
+            )
+            for m in captured:
+                await send(m)
+            return
+
+        # Post-proceso (misma capa de antes) y reenvío ASGI: sin BaseHTTPMiddleware
+        try:
+            out = await self._post_process_response(
+                request=log_request,
+                response=asgi_response,
                 path=path,
                 method=method,
                 query=query,
@@ -180,10 +321,42 @@ class HttpTransactionMiddleware(BaseHTTPMiddleware):
                 request_body_log=request_body_log,
                 trace_id=trace_id,
             )
-            return response
-        finally:
-            if trace_token is not None:
-                reset_trace_id(trace_token)
+        except Exception as exc:
+            _structured_logger.error(
+                json.dumps(
+                    {
+                        "event": "http_transaction_post_process_failed",
+                        "error": str(exc),
+                        "path": path,
+                        "method": method,
+                    },
+                    default=str,
+                    ensure_ascii=False,
+                )
+            )
+            for m in captured:
+                await send(m)
+            return
+
+        async def receive_done() -> Message:
+            return {"type": "http.disconnect"}
+
+        try:
+            await out(scope, receive_done, send)
+        except Exception as exc:
+            _structured_logger.error(
+                json.dumps(
+                    {
+                        "event": "http_transaction_send_final_failed",
+                        "error": str(exc),
+                        "path": path,
+                    },
+                    default=str,
+                    ensure_ascii=False,
+                )
+            )
+            for m in captured:
+                await send(m)
 
     async def _post_process_response(
         self,
@@ -241,8 +414,23 @@ class HttpTransactionMiddleware(BaseHTTPMiddleware):
             return response
 
         body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
+        try:
+            async for chunk in response.body_iterator:
+                body += chunk
+        except Exception as exc:
+            _structured_logger.error(
+                json.dumps(
+                    {
+                        "event": "http_transaction_body_read_failed",
+                        "error": str(exc),
+                        "path": path,
+                        "status_code": status_code,
+                    },
+                    default=str,
+                    ensure_ascii=False,
+                )
+            )
+            return response
 
         response_body_log: Any = None
         envelope_body = body
@@ -369,7 +557,7 @@ class HttpTransactionMiddleware(BaseHTTPMiddleware):
                 "duration_ms": duration_ms,
                 "client_ip": _client_ip(scope, request),
                 "user_agent": (request.headers.get("user-agent") or "")[:512],
-                "request_size_bytes": int(request.headers.get("content-length") or 0),
+                "request_size_bytes": _safe_content_length(request.headers.get("content-length")),
                 "response_size_bytes": response_size_bytes,
             },
             "user": user_block,

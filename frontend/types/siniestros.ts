@@ -145,9 +145,16 @@ export interface SiniestroUpdate {
 export interface SiniestroFilters {
   activo?: boolean;
   estado_id?: string;
+  calificacion_id?: string;
+  proveniente_id?: string;
   area_id?: string;
   usuario_asignado?: string;
   prioridad?: "baja" | "media" | "alta" | "critica";
+  asegurado_estado?: string;
+  fecha_registro_mes?: string;
+  busqueda_id?: string;
+  numero_siniestro?: string;
+  asegurado_nombre?: string;
   skip?: number;
   limit?: number;
 }

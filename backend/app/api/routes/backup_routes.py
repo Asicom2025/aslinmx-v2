@@ -8,7 +8,7 @@ from typing import List
 from uuid import UUID
 
 from app.db.session import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_active_user
 from app.models.user import User
 from app.models.backup import Backup, ConfiguracionBackup
 from app.schemas.backup_schema import (
@@ -28,7 +28,7 @@ router = APIRouter()
 async def listar_backups(
     tipo: str = None,
     estado: str = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Lista todos los backups de la empresa"""
@@ -45,7 +45,7 @@ async def listar_backups(
 @router.post("/backups", response_model=BackupResponse, status_code=201)
 async def crear_backup(
     backup_data: BackupCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Crea un nuevo backup manual"""
@@ -66,7 +66,7 @@ async def crear_backup(
 @router.get("/backups/{backup_id}", response_model=BackupResponse)
 async def obtener_backup(
     backup_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Obtiene información de un backup específico"""
@@ -82,7 +82,7 @@ async def obtener_backup(
 @router.delete("/backups/{backup_id}", status_code=204)
 async def eliminar_backup(
     backup_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Elimina un backup"""
@@ -108,7 +108,7 @@ async def eliminar_backup(
 async def restaurar_backup(
     backup_id: UUID,
     request: RestoreRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Restaura un backup (requiere confirmación)"""
@@ -132,7 +132,7 @@ async def restaurar_backup(
 
 @router.get("/configuracion-backup", response_model=ConfiguracionBackupResponse)
 async def obtener_configuracion_backup(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Obtiene la configuración de backups automáticos"""
@@ -147,7 +147,7 @@ async def obtener_configuracion_backup(
 @router.post("/configuracion-backup", response_model=ConfiguracionBackupResponse, status_code=201)
 async def crear_configuracion_backup(
     config: ConfiguracionBackupCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Crea una configuración de backups automáticos"""
@@ -172,7 +172,7 @@ async def crear_configuracion_backup(
 @router.put("/configuracion-backup", response_model=ConfiguracionBackupResponse)
 async def actualizar_configuracion_backup(
     config_update: ConfiguracionBackupUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Actualiza la configuración de backups automáticos"""
@@ -194,7 +194,7 @@ async def actualizar_configuracion_backup(
 @router.post("/limpiar-backups-antiguos")
 async def limpiar_backups_antiguos(
     dias_retener: int = 30,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Elimina backups más antiguos que el número de días especificado"""

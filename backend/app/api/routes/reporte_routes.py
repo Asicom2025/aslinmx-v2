@@ -9,7 +9,7 @@ from datetime import datetime
 import base64
 
 from app.db.session import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_active_user
 from app.models.user import User
 from app.schemas.reporte_schema import (
     ReporteRequest,
@@ -69,7 +69,7 @@ def _persist_report_response(
 
 @router.get("/disponibles", response_model=List[ReporteDisponible])
 async def listar_reportes_disponibles(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Lista todos los módulos disponibles para reportes"""
@@ -128,7 +128,7 @@ async def listar_reportes_disponibles(
 @router.post("/generar", response_model=ReporteResponse)
 async def generar_reporte(
     request: ReporteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Genera un reporte en el formato especificado"""
@@ -190,7 +190,7 @@ async def generar_reporte(
 async def descargar_reporte(
     http_request: Request,
     request: ReporteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Genera y descarga un reporte directamente"""
@@ -253,7 +253,7 @@ async def descargar_reporte(
 async def obtener_estadisticas_modulo(
     modulo: str,
     filtros: ReporteFiltros = Depends(),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Obtiene estadísticas agregadas de un módulo"""

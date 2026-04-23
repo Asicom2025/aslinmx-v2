@@ -340,6 +340,7 @@ def _get_siniestro_asegurado_variables(
         .filter(
             SiniestroArea.siniestro_id == siniestro_id,
             SiniestroArea.activo == True,  # noqa: E712
+            SiniestroArea.eliminado == False,  # noqa: E712
         )
         .order_by(SiniestroArea.fecha_asignacion.desc())
         .first()
@@ -551,6 +552,7 @@ def _variables_plantilla_alineadas_frontend(
                 SiniestroArea.siniestro_id == siniestro.id,
                 SiniestroArea.area_id == doc.area_id,
                 SiniestroArea.activo == True,  # noqa: E712
+                SiniestroArea.eliminado == False,  # noqa: E712
             )
             .order_by(SiniestroArea.fecha_asignacion.desc())
             .first()
@@ -562,6 +564,7 @@ def _variables_plantilla_alineadas_frontend(
             .filter(
                 SiniestroArea.siniestro_id == siniestro.id,
                 SiniestroArea.activo == True,  # noqa: E712
+                SiniestroArea.eliminado == False,  # noqa: E712
             )
             .order_by(SiniestroArea.fecha_asignacion.desc())
             .first()

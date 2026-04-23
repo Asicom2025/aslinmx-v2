@@ -673,6 +673,7 @@ class EmailService:
         areas_rel = db.query(SiniestroArea).filter(
             SiniestroArea.siniestro_id == siniestro.id,
             SiniestroArea.activo == True,
+            SiniestroArea.eliminado == False,
         ).all()
         area_ids = [r.area_id for r in areas_rel if r.area_id]
         areas_nombres = []
@@ -802,6 +803,7 @@ class EmailService:
         areas_rel = db.query(SiniestroArea).filter(
             SiniestroArea.siniestro_id == siniestro.id,
             SiniestroArea.activo == True,
+            SiniestroArea.eliminado == False,
         ).all()
         area_ids = [r.area_id for r in areas_rel if r.area_id]
         areas_nombres = [

@@ -17,6 +17,7 @@ from app.schemas.legal_schema import (
 from app.services.legal_service import SiniestroUsuarioService, SiniestroAreaService, SiniestroService
 from app.services.email_service import EmailService
 from app.services.auditoria_service import AuditoriaService
+from app.services.siniestro_acceso_service import usuario_puede_ver_siniestro
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ def list_involucrados(
     current_user: User = Depends(get_current_active_user),
 ):
     """Lista involucrados de un siniestro"""
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
     return SiniestroUsuarioService.list(db, siniestro_id, activo)
 
 
@@ -44,6 +47,8 @@ def add_involucrado(
 ):
     """Agrega un involucrado a un siniestro. Envía correo al involucrado si existe plantilla 'Nuevo involucrado'."""
     payload.siniestro_id = siniestro_id
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
     try:
         relacion = SiniestroUsuarioService.create(db, payload, current_user.id)
     except HTTPException:
@@ -89,6 +94,11 @@ def update_involucrado(
     current_user: User = Depends(get_current_active_user),
 ):
     """Actualiza un involucrado"""
+    existente = SiniestroUsuarioService.get_by_id(db, relacion_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Involucrado no encontrado")
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(status_code=404, detail="Involucrado no encontrado")
     relacion = SiniestroUsuarioService.update(db, relacion_id, payload)
     if not relacion:
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
@@ -102,6 +112,11 @@ def remove_involucrado(
     current_user: User = Depends(get_current_active_user),
 ):
     """Elimina un involucrado de un siniestro"""
+    existente = SiniestroUsuarioService.get_by_id(db, relacion_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Involucrado no encontrado")
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(status_code=404, detail="Involucrado no encontrado")
     ok = SiniestroUsuarioService.delete(db, relacion_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
@@ -117,6 +132,8 @@ def list_areas_adicionales(
     current_user: User = Depends(get_current_active_user),
 ):
     """Lista áreas adicionales de un siniestro"""
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
     return SiniestroAreaService.list(db, siniestro_id, activo)
 
 
@@ -134,6 +151,8 @@ def add_area_adicional(
     payload_dict = payload.model_dump()
     payload_dict['siniestro_id'] = siniestro_id  # Asignar el siniestro_id de la URL
     payload_with_siniestro = SiniestroAreaCreate(**payload_dict)
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
     
     try:
         return SiniestroAreaService.create(db, payload_with_siniestro, current_user.id)
@@ -168,6 +187,11 @@ def update_area_adicional(
     current_user: User = Depends(get_current_active_user),
 ):
     """Actualiza un área adicional"""
+    existente = SiniestroAreaService.get_by_id(db, relacion_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Área adicional no encontrada")
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(status_code=404, detail="Área adicional no encontrada")
     relacion = SiniestroAreaService.update(db, relacion_id, payload, current_user.id)
     if not relacion:
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
@@ -181,6 +205,11 @@ def remove_area_adicional(
     current_user: User = Depends(get_current_active_user),
 ):
     """Elimina un área adicional de un siniestro"""
+    existente = SiniestroAreaService.get_by_id(db, relacion_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Área adicional no encontrada")
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(status_code=404, detail="Área adicional no encontrada")
     ok = SiniestroAreaService.delete(db, relacion_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")

@@ -12,8 +12,10 @@ export interface SiniestroUsuario {
   es_principal: boolean;
   observaciones?: string;
   activo: boolean;
+  eliminado: boolean;
   creado_en: string;
   actualizado_en: string;
+  eliminado_en?: string | null;
 }
 
 export interface SiniestroUsuarioCreate {
@@ -40,8 +42,10 @@ export interface SiniestroArea {
   fecha_asignacion: string;
   observaciones?: string;
   activo: boolean;
+  eliminado: boolean;
   creado_en: string;
   actualizado_en: string;
+  eliminado_en?: string | null;
 }
 
 export interface SiniestroAreaCreate {
