@@ -16,6 +16,7 @@ from app.schemas.legal_schema import (
 from app.services.legal_service import BitacoraActividadService
 from app.services.auditoria_service import AuditoriaService
 from app.models.legal import Siniestro
+from app.services.siniestro_acceso_service import usuario_puede_ver_siniestro
 
 router = APIRouter(prefix="/bitacora", tags=["Bitácora"])
 
@@ -33,6 +34,13 @@ def list_bitacora_siniestro(
     current_user: User = Depends(require_permiso("siniestros", "ver_bitacora")),
 ):
     """Lista actividades de bitácora de un siniestro, opcionalmente filtradas por área y flujo"""
+    if not usuario_puede_ver_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        siniestro_id,
+    ):
+        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
     return BitacoraActividadService.list(
         db=db,
         siniestro_id=siniestro_id,
@@ -55,6 +63,13 @@ def get_bitacora_actividad(
     actividad = BitacoraActividadService.get_by_id(db, actividad_id)
     if not actividad:
         raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    if not usuario_puede_ver_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        actividad.siniestro_id,
+    ):
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
     return actividad
 
 
@@ -68,6 +83,13 @@ def create_bitacora_actividad(
     # Si no se especifica usuario_id, usar el usuario actual
     if not payload.usuario_id:
         payload.usuario_id = current_user.id
+    if not usuario_puede_ver_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        payload.siniestro_id,
+    ):
+        raise HTTPException(status_code=404, detail="Siniestro no encontrado")
 
     actividad = BitacoraActividadService.create(db, payload)
 
@@ -97,6 +119,16 @@ def update_bitacora_actividad(
     current_user: User = Depends(get_current_active_user),
 ):
     """Actualiza una actividad de bitácora"""
+    existente = BitacoraActividadService.get_by_id(db, actividad_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    if not usuario_puede_ver_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        existente.siniestro_id,
+    ):
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
     actividad = BitacoraActividadService.update(db, actividad_id, payload)
     if not actividad:
         raise HTTPException(status_code=404, detail="Actividad no encontrada")
@@ -126,6 +158,16 @@ def delete_bitacora_actividad(
     current_user: User = Depends(get_current_active_user),
 ):
     """Elimina una actividad de bitácora"""
+    existente = BitacoraActividadService.get_by_id(db, actividad_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    if not usuario_puede_ver_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        existente.siniestro_id,
+    ):
+        raise HTTPException(status_code=404, detail="Actividad no encontrada")
     ok = BitacoraActividadService.delete(db, actividad_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Actividad no encontrada")

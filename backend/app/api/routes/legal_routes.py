@@ -186,7 +186,7 @@ def update_area(
     db: Session = Depends(get_db),
     current_user: User = _dep_area_update,
 ):
-    area = AreaService.update(db, area_id, payload)
+    area = AreaService.update(db, area_id, current_user.empresa_id, payload)
     if not area:
         raise HTTPException(status_code=404, detail="Área no encontrada")
     return _area_to_response(area)
@@ -198,7 +198,7 @@ def delete_area(
     db: Session = Depends(get_db),
     current_user: User = _dep_area_delete,
 ):
-    ok = AreaService.delete(db, area_id)
+    ok = AreaService.delete(db, area_id, current_user.empresa_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Área no encontrada")
     return None
@@ -231,7 +231,7 @@ def update_estado_siniestro(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    es = EstadoSiniestroService.update(db, estado_id, payload)
+    es = EstadoSiniestroService.update(db, estado_id, current_user.empresa_id, payload)
     if not es:
         raise HTTPException(status_code=404, detail="Estado de siniestro no encontrado")
     return es
@@ -243,7 +243,7 @@ def delete_estado_siniestro(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    ok = EstadoSiniestroService.delete(db, estado_id)
+    ok = EstadoSiniestroService.delete(db, estado_id, current_user.empresa_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Estado de siniestro no encontrado")
     return None
@@ -275,7 +275,12 @@ def update_calificacion_siniestro(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    calificacion = CalificacionSiniestroService.update(db, calificacion_id, payload)
+    calificacion = CalificacionSiniestroService.update(
+        db,
+        calificacion_id,
+        current_user.empresa_id,
+        payload,
+    )
     if not calificacion:
         raise HTTPException(status_code=404, detail="Calificación no encontrada")
     return calificacion
@@ -287,7 +292,7 @@ def delete_calificacion_siniestro(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    ok = CalificacionSiniestroService.delete(db, calificacion_id)
+    ok = CalificacionSiniestroService.delete(db, calificacion_id, current_user.empresa_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Calificación no encontrada")
     return None
@@ -329,7 +334,7 @@ def update_entidad(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    entidad = EntidadService.update(db, entidad_id, payload)
+    entidad = EntidadService.update(db, entidad_id, current_user.empresa_id, payload)
     if not entidad:
         raise HTTPException(status_code=404, detail="Entidad no encontrada")
     return entidad
@@ -341,7 +346,7 @@ def delete_entidad(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    ok = EntidadService.delete(db, entidad_id)
+    ok = EntidadService.delete(db, entidad_id, current_user.empresa_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Entidad no encontrada")
     return None
@@ -450,7 +455,7 @@ def update_institucion(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    inst = InstitucionService.update(db, institucion_id, payload)
+    inst = InstitucionService.update(db, institucion_id, current_user.empresa_id, payload)
     if not inst:
         raise HTTPException(status_code=404, detail="Institución no encontrada")
     return inst
@@ -462,7 +467,7 @@ def delete_institucion(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    ok = InstitucionService.delete(db, institucion_id)
+    ok = InstitucionService.delete(db, institucion_id, current_user.empresa_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Institución no encontrada")
     return None
@@ -556,7 +561,12 @@ def update_autoridad(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    autoridad = AutoridadService.update(db, autoridad_id, payload)
+    autoridad = AutoridadService.update(
+        db,
+        autoridad_id,
+        current_user.empresa_id,
+        payload,
+    )
     if not autoridad:
         raise HTTPException(status_code=404, detail="Autoridad no encontrada")
     return autoridad
@@ -568,7 +578,7 @@ def delete_autoridad(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    ok = AutoridadService.delete(db, autoridad_id)
+    ok = AutoridadService.delete(db, autoridad_id, current_user.empresa_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Autoridad no encontrada")
     return None
@@ -717,7 +727,12 @@ def update_proveniente(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    proveniente = ProvenienteService.update(db, proveniente_id, payload)
+    proveniente = ProvenienteService.update(
+        db,
+        proveniente_id,
+        current_user.empresa_id,
+        payload,
+    )
     if not proveniente:
         raise HTTPException(status_code=404, detail="Proveniente no encontrado")
     return proveniente
@@ -729,7 +744,7 @@ def delete_proveniente(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    ok = ProvenienteService.delete(db, proveniente_id)
+    ok = ProvenienteService.delete(db, proveniente_id, current_user.empresa_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Proveniente no encontrado")
     return None

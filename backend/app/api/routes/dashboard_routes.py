@@ -143,7 +143,8 @@ def get_dashboard_stats(
             ).filter(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False,
-                SiniestroArea.activo == True
+                SiniestroArea.activo == True,
+                SiniestroArea.eliminado == False,
             )
             if alcance is not None:
                 q_area = q_area.filter(Siniestro.id.in_(alcance))
@@ -261,7 +262,8 @@ def get_recent_siniestros(
                 SiniestroArea.area_id
             ).filter(
                 SiniestroArea.siniestro_id.in_(siniestro_ids),
-                SiniestroArea.activo == True
+                SiniestroArea.activo == True,
+                SiniestroArea.eliminado == False,
             ).order_by(SiniestroArea.creado_en).all()
             
             # Crear mapa de siniestro_id -> primera area_id

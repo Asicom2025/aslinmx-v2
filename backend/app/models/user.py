@@ -141,7 +141,7 @@ class Usuario(Base):
         return None
 
     @property
-    def full_name(self) -> str:
+    def full_name(self) -> str | None:
         if self.perfil:
             nombres = [self.perfil.nombre, self.perfil.apellido_paterno, self.perfil.apellido_materno]
             return " ".join([p for p in nombres if p])

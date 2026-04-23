@@ -229,6 +229,7 @@ class ReporteService:
                 and_(
                     SiniestroArea.siniestro_id == Siniestro.id,
                     SiniestroArea.activo == True,
+                    SiniestroArea.eliminado == False,
                 ),
             ).filter(SiniestroArea.area_id == adicionales["area_id"])
 
@@ -239,6 +240,7 @@ class ReporteService:
                 and_(
                     SiniestroUsuario.siniestro_id == Siniestro.id,
                     SiniestroUsuario.activo == True,
+                    SiniestroUsuario.eliminado == False,
                 ),
             ).filter(
                 or_(
@@ -393,7 +395,8 @@ class ReporteService:
                 SiniestroArea, SiniestroArea.area_id == Area.id
             ).filter(
                 SiniestroArea.siniestro_id == registro.id,
-                SiniestroArea.activo == True
+                SiniestroArea.activo == True,
+                SiniestroArea.eliminado == False,
             ).all()
             if areas_relacionadas:
                 resultado["areas_nombres"] = ", ".join([area.nombre for area in areas_relacionadas])
@@ -405,7 +408,8 @@ class ReporteService:
                 SiniestroUsuario, SiniestroUsuario.usuario_id == User.id
             ).filter(
                 SiniestroUsuario.siniestro_id == registro.id,
-                SiniestroUsuario.activo == True
+                SiniestroUsuario.activo == True,
+                SiniestroUsuario.eliminado == False,
             ).all()
             if usuarios_relacionados:
                 resultado["usuarios_involucrados"] = ", ".join([user.full_name for user in usuarios_relacionados])

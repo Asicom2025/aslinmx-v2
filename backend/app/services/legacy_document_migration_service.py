@@ -782,6 +782,7 @@ class LegacyDocumentMigrationService:
             for (area_id,) in db.query(SiniestroArea.area_id).filter(
                 SiniestroArea.siniestro_id == siniestro.id,
                 SiniestroArea.activo == True,
+                SiniestroArea.eliminado == False,
             ).all()
             if area_id
         }
@@ -1046,6 +1047,7 @@ class LegacyDocumentMigrationService:
             for (aid,) in db.query(SiniestroArea.area_id).filter(
                 SiniestroArea.siniestro_id == siniestro.id,
                 SiniestroArea.activo == True,
+                SiniestroArea.eliminado == False,
             ).all()
             if aid
         }

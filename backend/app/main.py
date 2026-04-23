@@ -30,8 +30,8 @@ app = FastAPI(
     title="Aslin 2.0 API",
     description="API REST para sistema de gestión administrativa",
     version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if settings.ENVIRONMENT == "production" else "/docs",
+    redoc_url=None if settings.ENVIRONMENT == "production" else "/redoc",
     redirect_slashes=False,
 )
 
@@ -148,18 +148,6 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.on_event("startup")
 async def startup_event():
-    """
-    En Docker, la BD se inicializa en init_db.py (antes de los workers).
-    En desarrollo local sin init_db, create_all se ejecuta aquí.
-    """
-    try:
-        from app.db.session import engine
-        from app.db.base import Base
-
-        Base.metadata.create_all(bind=engine)
-    except Exception as e:
-        logger.debug("Startup create_all: %s", e)
-
     if settings.STORAGE_VALIDATE_ON_STARTUP:
         try:
             StorageOpsService.ensure_runtime_ready()

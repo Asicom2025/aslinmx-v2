@@ -367,24 +367,6 @@ function SiniestrosPageContent() {
       if (limit) params.limit = limit;
 
       const data = await apiService.getSiniestros(params);
-      // Debug: verificar si el código está presente en los datos
-      if (data && data.length > 0) {
-        console.log(
-          "Siniestros cargados:",
-          data.map((s: any) => ({
-            id: s.id,
-            codigo: s.codigo,
-            numero_siniestro: s.numero_siniestro,
-            asegurado_id: s.asegurado_id,
-          }))
-        );
-        // Verificar si hay asegurados con IDs
-        const siniestrosConAsegurado = data.filter((s: any) => s.asegurado_id);
-        if (siniestrosConAsegurado.length > 0) {
-          console.log("Siniestros con asegurado_id:", siniestrosConAsegurado.map((s: any) => s.asegurado_id));
-          console.log("Asegurados disponibles en catálogo:", aseguradosCatalogo.map((a: any) => a.id));
-        }
-      }
       setSiniestros(data);
     } catch (e: any) {
       if (e.response?.status === 401) {
@@ -1526,7 +1508,9 @@ function SiniestrosPageContent() {
                 : "text-sm truncate block max-w-[100px]"
             }
           >
-            {new Date(row.original.creado_en).toLocaleDateString("es-MX")}
+            {row.original.creado_en
+              ? new Date(row.original.creado_en).toLocaleDateString("es-MX")
+              : "-"}
           </span>
         );
       },
@@ -1754,10 +1738,12 @@ function SiniestrosPageContent() {
                 : "text-sm truncate block max-w-[100px]"
             }
           >
-            {new Date(row.original.actualizado_en).toLocaleString("es-MX", {
-              dateStyle: "short",
-              timeStyle: "short",
-            })}
+            {row.original.actualizado_en
+              ? new Date(row.original.actualizado_en).toLocaleString("es-MX", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })
+              : "-"}
           </span>
         );
       },

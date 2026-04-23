@@ -40,28 +40,13 @@ class EmpresaService:
         Returns:
             Lista de empresas
         """
-        # Debug: verificar todas las empresas en la BD (sin filtros)
-        total_empresas = db.query(Empresa).count()
-        print(f"DEBUG EmpresaService: Total empresas en BD (sin filtros): {total_empresas}")
-        
-        todas_empresas = db.query(Empresa).all()
-        for emp in todas_empresas:
-            print(f"  - {emp.nombre} (id={emp.id}, activo={emp.activo}, eliminado_en={emp.eliminado_en})")
-        
         # Aplicar filtros
         query = db.query(Empresa).filter(Empresa.eliminado_en.is_(None))
         
         if activo is not None:
             query = query.filter(Empresa.activo == activo)
         
-        result = query.order_by(Empresa.nombre).offset(skip).limit(limit).all()
-        
-        # Debug: verificar qué se está devolviendo después de filtros
-        print(f"DEBUG EmpresaService: Empresas encontradas después de filtros: {len(result)}")
-        for emp in result:
-            print(f"  - {emp.nombre} (id={emp.id}, activo={emp.activo}, eliminado_en={emp.eliminado_en})")
-        
-        return result
+        return query.order_by(Empresa.nombre).offset(skip).limit(limit).all()
     
     @staticmethod
     def create_empresa(db: Session, empresa: EmpresaCreate) -> Empresa:

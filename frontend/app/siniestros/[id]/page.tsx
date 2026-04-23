@@ -6,7 +6,7 @@
 
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
@@ -344,6 +344,8 @@ export default function SiniestroDetailPage() {
   const [bitacorasFiltradas, setBitacorasFiltradas] = useState<any[]>([]);
   const [loadingDocumentos, setLoadingDocumentos] = useState(false);
   const [loadingBitacoras, setLoadingBitacoras] = useState(false);
+  const documentosRequestIdRef = useRef(0);
+  const bitacorasRequestIdRef = useRef(0);
 
   const { can } = usePermisos();
   const canVerDocumentos = can("siniestros", "ver_documentos");
@@ -1121,17 +1123,20 @@ export default function SiniestroDetailPage() {
           );
           setAseguradoInfo(asegurado);
         } catch (e: any) {
-          // Cualquier fallo (404 = ID de usuario antiguo, 500, red, etc.): mostrar "Sin asegurado" y limpiar
+          // Solo limpiar asegurado_id cuando el backend confirme 404 (referencia inválida).
+          // Errores transitorios (red/5xx) no deben alterar datos persistidos.
           setAseguradoInfo(null);
-          try {
-            await apiService.updateSiniestro(siniestroData.id, {
-              asegurado_id: null as any,
-            });
-            setSiniestro((prev) =>
-              prev ? { ...prev, asegurado_id: undefined } : null,
-            );
-          } catch (_) {
-            // Si falla el update (ej. permisos), al menos la UI ya muestra "Sin asegurado"
+          if (e?.response?.status === 404) {
+            try {
+              await apiService.updateSiniestro(siniestroData.id, {
+                asegurado_id: null as any,
+              });
+              setSiniestro((prev) =>
+                prev ? { ...prev, asegurado_id: undefined } : null,
+              );
+            } catch (_) {
+              // Si falla el update (ej. permisos), al menos la UI ya muestra "Sin asegurado"
+            }
           }
         }
       } else {
@@ -1273,12 +1278,14 @@ export default function SiniestroDetailPage() {
       return;
     }
     try {
+      const requestId = ++documentosRequestIdRef.current;
       setLoadingDocumentos(true);
       const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
         activo: true,
         area_id: areaId,
         flujo_trabajo_id: flujoTrabajoId,
       });
+      if (requestId !== documentosRequestIdRef.current) return;
       setDocumentosFiltrados(getUltimasVersionesDocumentos(documentos));
     } catch (error: any) {
       console.error("Error al cargar documentos filtrados:", error);
@@ -1297,11 +1304,13 @@ export default function SiniestroDetailPage() {
       return;
     }
     try {
+      const requestId = ++bitacorasRequestIdRef.current;
       setLoadingBitacoras(true);
       const bitacoras = await apiService.getBitacoraSiniestro(siniestroId, {
         area_id: areaId,
         flujo_trabajo_id: flujoTrabajoId,
       });
+      if (requestId !== bitacorasRequestIdRef.current) return;
       setBitacorasFiltradas(bitacoras);
     } catch (error: any) {
       console.error("Error al cargar bitácoras filtradas:", error);
@@ -1779,7 +1788,7 @@ export default function SiniestroDetailPage() {
     if (!siniestroId) return;
     try {
       setLoadingAreas(true);
-      const areas = await apiService.getAreasAdicionales(siniestroId, true);
+      const areas = await apiService.getAreasAdicionales(siniestroId);
       setAreasAdicionales(areas);
 
       // Cargar todas las áreas disponibles si no están cargadas
@@ -1815,18 +1824,30 @@ export default function SiniestroDetailPage() {
   const handleRemoveArea = async (relacionId: string) => {
     try {
       const confirmed = await swalConfirm(
-        "¿Estás seguro de eliminar esta área?",
-        "Esta acción no se puede deshacer",
+        "¿Estás seguro de desactivar esta área?",
+        "Podrás reactivarla más adelante",
       );
       if (!confirmed) return;
 
-      await apiService.removeAreaAdicional(relacionId);
+      await apiService.updateAreaAdicional(relacionId, { activo: false });
       await loadAreasAdicionales();
       await loadFlujosPorAreas(); // Recargar flujos para reflejar cambios
       await loadLogsAuditoria();
-      swalSuccess("Área eliminada correctamente");
+      swalSuccess("Área desactivada correctamente");
     } catch (error: any) {
-      swalError(error.response?.data?.detail || "Error al eliminar área");
+      swalError(error.response?.data?.detail || "Error al desactivar área");
+    }
+  };
+
+  const handleReactivateArea = async (relacionId: string) => {
+    try {
+      await apiService.updateAreaAdicional(relacionId, { activo: true });
+      await loadAreasAdicionales();
+      await loadFlujosPorAreas();
+      await loadLogsAuditoria();
+      swalSuccess("Área reactivada correctamente");
+    } catch (error: any) {
+      swalError(error.response?.data?.detail || "Error al reactivar área");
     }
   };
 
@@ -1835,10 +1856,7 @@ export default function SiniestroDetailPage() {
     if (!siniestroId) return;
     try {
       setLoadingInvolucrados(true);
-      const involucradosData = await apiService.getInvolucrados(
-        siniestroId,
-        true,
-      );
+      const involucradosData = await apiService.getInvolucrados(siniestroId);
       setInvolucrados(involucradosData);
 
       // Cargar todos los usuarios disponibles si no están cargados
@@ -1876,18 +1894,31 @@ export default function SiniestroDetailPage() {
   const handleRemoveInvolucrado = async (relacionId: string) => {
     try {
       const confirmed = await swalConfirm(
-        "¿Estás seguro de eliminar este involucrado?",
-        "Esta acción no se puede deshacer",
+        "¿Estás seguro de desactivar este involucrado?",
+        "Podrás reactivarlo más adelante",
       );
       if (!confirmed) return;
 
-      await apiService.removeInvolucrado(relacionId);
+      await apiService.updateInvolucrado(relacionId, { activo: false });
       await loadInvolucrados();
       await loadLogsAuditoria();
-      swalSuccess("Involucrado eliminado correctamente");
+      swalSuccess("Involucrado desactivado correctamente");
     } catch (error: any) {
       swalError(
-        error.response?.data?.detail || "Error al eliminar involucrado",
+        error.response?.data?.detail || "Error al desactivar involucrado",
+      );
+    }
+  };
+
+  const handleReactivateInvolucrado = async (relacionId: string) => {
+    try {
+      await apiService.updateInvolucrado(relacionId, { activo: true });
+      await loadInvolucrados();
+      await loadLogsAuditoria();
+      swalSuccess("Involucrado reactivado correctamente");
+    } catch (error: any) {
+      swalError(
+        error.response?.data?.detail || "Error al reactivar involucrado",
       );
     }
   };
@@ -4574,22 +4605,44 @@ export default function SiniestroDetailPage() {
                         return (
                           <div
                             key={areaRelacion.id}
-                            className="flex items-center justify-between p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                            className={`flex items-center justify-between p-2 rounded-lg transition-colors ${
+                              areaRelacion.activo
+                                ? "bg-gray-50 hover:bg-gray-100"
+                                : "border border-red-300 bg-red-50"
+                            }`}
                           >
-                            <span className="text-sm font-medium text-gray-700 flex-1">
-                              {area?.nombre || "Área desconocida"}
-                            </span>
-                            {canAsignarAreas && (
-                              <button
-                                onClick={() =>
-                                  handleRemoveArea(areaRelacion.id)
-                                }
-                                className="p-1 text-red-600 hover:text-red-800 transition-colors"
-                                title="Eliminar área"
-                              >
-                                <FiTrash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <span className="text-sm font-medium text-gray-700 truncate">
+                                {area?.nombre || "Área desconocida"}
+                              </span>
+                              {!areaRelacion.activo && (
+                                <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                  Inactiva
+                                </span>
+                              )}
+                            </div>
+                            {canAsignarAreas &&
+                              (areaRelacion.activo ? (
+                                <button
+                                  onClick={() =>
+                                    handleRemoveArea(areaRelacion.id)
+                                  }
+                                  className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                                  title="Desactivar área"
+                                >
+                                  <FiTrash2 className="w-4 h-4" />
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() =>
+                                    handleReactivateArea(areaRelacion.id)
+                                  }
+                                  className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+                                  title="Reactivar área"
+                                >
+                                  Reactivar
+                                </button>
+                              ))}
                           </div>
                         );
                       })
@@ -4672,7 +4725,11 @@ export default function SiniestroDetailPage() {
                           return (
                             <div
                               key={involucrado.id}
-                              className="p-2 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                              className={`p-2 rounded-lg transition-colors ${
+                                involucrado.activo
+                                  ? "bg-gray-50 hover:bg-gray-100"
+                                  : "border border-red-300 bg-red-50"
+                              }`}
                             >
                               <div className="flex items-start justify-between">
                                 <div className="flex-1 min-w-0">
@@ -4689,18 +4746,37 @@ export default function SiniestroDetailPage() {
                                         Principal
                                       </span>
                                     )}
+                                    {!involucrado.activo && (
+                                      <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs">
+                                        Inactivo
+                                      </span>
+                                    )}
                                   </p>
                                 </div>
                                 {canActualizarSiniestro && (
-                                  <button
-                                    onClick={() =>
-                                      handleRemoveInvolucrado(involucrado.id)
-                                    }
-                                    className="p-1 text-red-600 hover:text-red-800 transition-colors ml-2 flex-shrink-0"
-                                    title="Eliminar involucrado"
-                                  >
-                                    <FiTrash2 className="w-4 h-4" />
-                                  </button>
+                                  involucrado.activo ? (
+                                    <button
+                                      onClick={() =>
+                                        handleRemoveInvolucrado(involucrado.id)
+                                      }
+                                      className="p-1 text-red-600 hover:text-red-800 transition-colors ml-2 flex-shrink-0"
+                                      title="Desactivar involucrado"
+                                    >
+                                      <FiTrash2 className="w-4 h-4" />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() =>
+                                        handleReactivateInvolucrado(
+                                          involucrado.id,
+                                        )
+                                      }
+                                      className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors ml-2 flex-shrink-0"
+                                      title="Reactivar involucrado"
+                                    >
+                                      Reactivar
+                                    </button>
+                                  )
                                 )}
                               </div>
                             </div>

@@ -8,7 +8,7 @@ from typing import Optional, List, Literal
 from datetime import datetime
 
 from app.db.session import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_active_user
 from app.models.user import User
 from app.schemas.storage_schema import GeneratedFileAccessResponse
 from app.services.generated_file_service import (
@@ -69,7 +69,7 @@ async def exportar_datos(
     formato: Literal["excel", "csv"] = Query("excel"),
     columnas: Optional[List[str]] = Query(None),
     filtros: Optional[dict] = None,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
@@ -130,7 +130,7 @@ async def exportar_excel(
     modulo: str,
     columnas: Optional[List[str]] = Query(None),
     activo: Optional[bool] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Exporta datos a Excel - Endpoint simplificado"""
@@ -155,7 +155,7 @@ async def exportar_csv(
     modulo: str,
     columnas: Optional[List[str]] = Query(None),
     activo: Optional[bool] = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Exporta datos a CSV - Endpoint simplificado"""
