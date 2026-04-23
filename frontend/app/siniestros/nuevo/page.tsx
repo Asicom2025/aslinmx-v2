@@ -743,6 +743,11 @@ export default function NuevoSiniestroPage() {
         numero_reporte: extendedForm.generales.numero_reporte || null,
         calificacion_id: getCalificacionIdFromNombre(extendedForm.generales.calificacion),
         forma_contacto: extendedForm.asegurado.formaContacto || null,
+        tipo_intervencion: extendedForm.especificos.tipo_intervencion?.trim() || null,
+        tercero: extendedForm.especificos.tercero?.trim() || null,
+        nicho: extendedForm.especificos.nicho?.trim() || null,
+        materia: extendedForm.especificos.materia?.trim() || null,
+        expediente: extendedForm.especificos.expediente?.trim() || null,
       };
 
       const nuevoSiniestro = await apiService.createSiniestro(payload as any);

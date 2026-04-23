@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 def _actualizacion_solo_campos_granulares(campos: set[str]) -> bool:
-    """True si el body solo toca estado_id, calificacion_id y/o polizas (permisos granulares)."""
+    """True si el body solo toca campos con permiso granular (estado, calificación, pólizas, descripción hechos)."""
     return bool(campos) and campos.issubset(CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO)
 
 router = APIRouter(prefix="/siniestros", tags=["Siniestros"])
@@ -168,6 +168,7 @@ def update_siniestro(
     Valida que pertenezca a la empresa del usuario.
     Permisos: siniestros.update para cambios generales; solo estado_id requiere editar_status;
     solo calificacion_id requiere editar_calificacion; solo polizas requiere editar_poliza;
+    solo descripcion_hechos requiere editar_descripcion_de_hechos;
     esas claves pueden combinarse entre sí sin update.
     Si se actualiza descripcion_hechos, crea una nueva versión automáticamente.
     """

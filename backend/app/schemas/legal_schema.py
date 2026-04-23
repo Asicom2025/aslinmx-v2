@@ -597,6 +597,11 @@ class SiniestroBase(BaseModel):
     fecha_reporte: Optional[datetime] = None
     fecha_asignacion: Optional[datetime] = None
     ubicacion: Optional[str] = None
+    tipo_intervencion: Optional[str] = None
+    tercero: Optional[str] = None
+    nicho: Optional[str] = Field(None, max_length=200)
+    materia: Optional[str] = Field(None, max_length=200)
+    expediente: Optional[str] = Field(None, max_length=200)
     descripcion_hechos: Optional[str] = Field(None, min_length=1)  # Opcional, se maneja en versiones
 
     # Datos de póliza(s): solo en `siniestro_polizas` vía esta lista
@@ -684,6 +689,11 @@ class SiniestroUpdate(BaseModel):
     fecha_asignacion: Optional[datetime] = None
     fecha_registro: Optional[datetime] = None
     ubicacion: Optional[str] = None
+    tipo_intervencion: Optional[str] = None
+    tercero: Optional[str] = None
+    nicho: Optional[str] = Field(None, max_length=200)
+    materia: Optional[str] = Field(None, max_length=200)
+    expediente: Optional[str] = Field(None, max_length=200)
     descripcion_hechos: Optional[str] = Field(None, min_length=1)
 
     polizas: Optional[List[SiniestroPolizaPayload]] = None

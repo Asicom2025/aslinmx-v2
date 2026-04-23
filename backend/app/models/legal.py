@@ -298,6 +298,12 @@ class Siniestro(Base):
     fecha_reporte = Column(DateTime(timezone=True), nullable=True)
     fecha_asignacion = Column(DateTime(timezone=True), nullable=True)
     ubicacion = Column(Text)
+    # Datos específicos (formulario Nuevo siniestro / edición)
+    tipo_intervencion = Column(Text, nullable=True)
+    tercero = Column(Text, nullable=True)  # nombre del tercero involucrado (texto libre)
+    nicho = Column(String(200), nullable=True)
+    materia = Column(String(200), nullable=True)
+    expediente = Column(String(200), nullable=True)  # número de expediente administrativo/judicial
     # descripcion_hechos removida - se maneja en versiones_descripcion_hechos
     
     # Usuario que creó el siniestro

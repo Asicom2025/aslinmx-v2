@@ -37,6 +37,7 @@ from app.models.legal import (
     Autoridad,
     EstadoSiniestro,
     RespuestaFormularioPlantilla,
+    CalificacionSiniestro,
 )
 from typing import Optional, Any, Dict, Tuple
 from datetime import datetime as dt
@@ -45,6 +46,7 @@ import os
 import re
 import io
 import base64
+import html
 import logging
 from urllib.parse import unquote_plus
 from pathlib import Path
@@ -192,6 +194,106 @@ def _get_poliza_principal(siniestro: Any) -> Optional[Any]:
     return polizas[0] if polizas else None
 
 
+# Tabla completa (table/tbody). table-layout:auto + salto de línea para títulos largos.
+# Alineado con frontend/calificacionTablaPlaceholders.ts
+_CALIF_TABLE_CLASS = "calificaciones-siniestro-dinamica"
+_CALIF_TABLE_STYLE = (
+    "width:100%;max-width:100%;border-collapse:collapse;table-layout:auto;"
+    "margin:0.75em 0;border:1px solid #000;"
+)
+_CALIF_HEADER_BG = "#7de8ff"
+_CALIF_TD_HEADER_BASE = (
+    "border:1px solid #000;padding:10px 8px;text-align:center;"
+    "font-weight:bold;text-transform:uppercase;vertical-align:middle;box-sizing:border-box;"
+    "white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.35;"
+    f"min-width:4.75rem;background-color:{_CALIF_HEADER_BG};color:#333;"
+)
+_CALIF_TD_DATA_BASE = (
+    "border:1px solid #000;padding:10px 8px;text-align:center;font-size:13px;"
+    "vertical-align:middle;box-sizing:border-box;white-space:normal;"
+    "min-width:4.75rem;line-height:1.4;background-color:#fff;color:#333;"
+)
+
+
+def _calif_header_font_px(n: int) -> int:
+    if n > 8:
+        return 9
+    if n > 5:
+        return 10
+    return 11
+
+
+def _merge_calificacion_placeholders(
+    db: Session,
+    empresa_id: Optional[PyUUID],
+    calificacion_siniestro_id: Any,
+) -> Dict[str, str]:
+    """
+    Catálogo: una celda por calificación no eliminada (orden + nombre).
+    (X) solo en la columna cuyo id coincide con la calificación del siniestro.
+    {{calificaciones_tabla_dos_filas_html}} inserta **tabla completa** (table/tbody/2 tr).
+    Preferir solo ese placeholder (funciona aunque quede dentro de un &lt;p&gt; del editor).
+
+    {{calificaciones_headers_html}} / {{calificaciones_marcas_html}} = solo &lt;td&gt;…
+    (úsalos solo dentro de un &lt;tr&gt; de **tu** tabla; si no, el texto se concatena).
+    """
+    out: Dict[str, str] = {}
+    sid: Optional[PyUUID] = None
+    if calificacion_siniestro_id is not None:
+        try:
+            sid = (
+                calificacion_siniestro_id
+                if isinstance(calificacion_siniestro_id, PyUUID)
+                else PyUUID(str(calificacion_siniestro_id))
+            )
+        except (ValueError, TypeError):
+            sid = None
+
+    headers: list[str] = []
+    marks: list[str] = []
+    rows: list = []
+    if empresa_id:
+        rows = (
+            db.query(CalificacionSiniestro)
+            .filter(
+                CalificacionSiniestro.empresa_id == empresa_id,
+                CalificacionSiniestro.eliminado_en.is_(None),
+            )
+            .order_by(
+                CalificacionSiniestro.orden.asc(),
+                CalificacionSiniestro.nombre.asc(),
+            )
+            .all()
+        )
+    n = len(rows)
+    fpx = _calif_header_font_px(n)
+    for cal in rows:
+        nombre_raw = str(cal.nombre or "").strip().upper()
+        nombre = html.escape(nombre_raw)
+        st_h = f"{_CALIF_TD_HEADER_BASE}font-size:{fpx}px;"
+        headers.append(
+            f'<td class="header-cell text-center" colspan="1" style="{st_h}">{nombre}</td>'
+        )
+        mark = "(X)" if sid and cal.id == sid else ""
+        st_d = _CALIF_TD_DATA_BASE
+        marks.append(
+            f'<td class="data-cell text-center" colspan="1" style="{st_d}">{mark}</td>'
+        )
+    h_inner = "".join(headers)
+    m_inner = "".join(marks)
+    out["calificaciones_headers_html"] = h_inner
+    out["calificaciones_marcas_html"] = m_inner
+    inner_rows = f"<tr>\n{h_inner}\n</tr>\n<tr>\n{m_inner}\n</tr>"
+    if n == 0:
+        out["calificaciones_tabla_dos_filas_html"] = ""
+    else:
+        out["calificaciones_tabla_dos_filas_html"] = (
+            f'<table lang="es" class="{_CALIF_TABLE_CLASS}" style="{_CALIF_TABLE_STYLE}">'
+            f"<tbody>{inner_rows}</tbody></table>"
+        )
+    return out
+
+
 def _get_siniestro_asegurado_variables(
     db: Session, siniestro_id: PyUUID, empresa_id: Optional[PyUUID]
 ) -> Dict[str, Any]:
@@ -292,6 +394,12 @@ def _get_siniestro_asegurado_variables(
     # Fecha del siniestro
     fecha_sin = getattr(siniestro, "fecha_siniestro", None)
     out["fecha_siniestro"] = _fecha_pdf_corta(fecha_sin)
+
+    out.update(
+        _merge_calificacion_placeholders(
+            db, empresa_id, getattr(siniestro, "calificacion_id", None)
+        )
+    )
 
     return out
 
@@ -499,6 +607,11 @@ def _variables_plantilla_alineadas_frontend(
             "estado_siniestro": estado_nombre,
         }
     )
+    out.update(
+        _merge_calificacion_placeholders(
+            db, empresa_id, getattr(siniestro, "calificacion_id", None)
+        )
+    )
     return out
 
 
@@ -543,30 +656,38 @@ def _expand_datetime_variables(variables: dict) -> dict:
 
 
 def _format_currency_value(value: Any) -> str:
-    """Formatea un valor numérico como moneda: 10,000,000.00"""
+    """Formatea un valor numérico como moneda para PDF: $10,000,000.00"""
     if value is None:
         return ""
     if isinstance(value, (int, float)):
-        return f"{value:,.2f}"
-    s = str(value).strip().replace(",", "")
+        return f"${value:,.2f}"
+    s = str(value).strip()
     if not s:
         return ""
+    s_num = s.lstrip("$").strip().replace(",", "").replace(" ", "")
+    if not s_num:
+        return ""
     try:
-        num = float(s)
-        return f"{num:,.2f}"
+        num = float(s_num)
+        return f"${num:,.2f}"
     except (ValueError, TypeError):
-        return str(value)
+        return s if s.startswith("$") else f"${s}"
+
+
+def _campo_es_moneda(campo: dict) -> bool:
+    t = str((campo or {}).get("tipo") or "").strip().lower()
+    return t in ("currency", "moneda")
 
 
 def _format_currency_variables(variables: dict, plantilla: Any) -> dict:
     """
-    Formatea en el diccionario de variables los valores de campos tipo 'currency'
-    de la plantilla (campos_formulario), para que en el PDF se vean como 10,000,000.00.
+    Formatea en el diccionario de variables los valores de campos tipo moneda
+    (campos_formulario: tipo 'currency' o 'moneda'), para el PDF: $10,000,000.00
     """
     if not plantilla or not getattr(plantilla, "campos_formulario", None):
         return variables
     campos = plantilla.campos_formulario or []
-    currency_keys = {c.get("clave") for c in campos if c.get("tipo") == "currency"}
+    currency_keys = {c.get("clave") for c in campos if _campo_es_moneda(c)}
     if not currency_keys:
         return variables
     out = dict(variables)
