@@ -10,7 +10,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import settings
 import uuid
@@ -182,7 +182,14 @@ async def get_current_user(
         user_uuid = uuid.UUID(user_id)
     except Exception:
         user_uuid = user_id  # fallback por si ya viene como UUID
-    user = db.query(User).filter(User.id == user_uuid).first()
+    # Cargar `rol` en la misma consulta: evita estados ambiguos de lazy-load en
+    # `get_nivel_rol` / `usuario_bypass_permisos` dentro del mismo request.
+    user = (
+        db.query(User)
+        .options(joinedload(User.rol))
+        .filter(User.id == user_uuid)
+        .first()
+    )
     
     if user is None:
         raise credentials_exception

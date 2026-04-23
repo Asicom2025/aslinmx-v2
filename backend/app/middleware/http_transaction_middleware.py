@@ -118,6 +118,28 @@ def _captured_to_response(captured: List[dict]) -> Response:
     )
 
 
+async def _read_response_content_bytes(response: Response) -> bytes:
+    """
+    Starlette reciente: Response con cuerpo en memoria expone `body` (bytes) y
+    a veces no define `body_iterator` (sí lo tiene StreamingResponse).
+    """
+    if isinstance(response, StreamingResponse):
+        out = b""
+        async for chunk in response.body_iterator:
+            out += chunk
+        return out
+    raw = getattr(response, "body", None)
+    if isinstance(raw, (bytes, bytearray, memoryview)):
+        return bytes(raw)
+    it = getattr(response, "body_iterator", None)
+    if it is not None:
+        out = b""
+        async for chunk in it:
+            out += chunk
+        return out
+    return b""
+
+
 def _multipart_summary(content_type: str, content_length: int) -> Dict[str, Any]:
     return {
         "kind": "multipart",
@@ -413,10 +435,8 @@ class HttpTransactionMiddleware:
             _emit_log_line(log_payload)
             return response
 
-        body = b""
         try:
-            async for chunk in response.body_iterator:
-                body += chunk
+            body = await _read_response_content_bytes(response)
         except Exception as exc:
             _structured_logger.error(
                 json.dumps(
