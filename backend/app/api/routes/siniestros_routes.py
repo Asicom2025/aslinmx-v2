@@ -12,7 +12,6 @@ from app.core.security import get_current_active_user
 from app.core.permisos import (
     assert_permiso_actualizar_siniestro,
     require_permiso,
-    CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO,
 )
 from app.models.user import User
 from app.schemas.legal_schema import (
@@ -29,11 +28,6 @@ from app.services.siniestro_acceso_service import (
 from app.core.nivel_acceso import get_nivel_rol
 
 logger = logging.getLogger(__name__)
-
-
-def _actualizacion_solo_campos_granulares(campos: set[str]) -> bool:
-    """True si el body solo toca campos con permiso granular (estado, calificación, pólizas, descripción hechos)."""
-    return bool(campos) and campos.issubset(CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO)
 
 router = APIRouter(prefix="/siniestros", tags=["Siniestros"])
 
@@ -98,6 +92,13 @@ def get_siniestro(
     siniestro = SiniestroService.get_by_id(db, siniestro_id, current_user.empresa_id)
     if not siniestro:
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
+    setattr(
+        siniestro,
+        "puede_editar_expediente",
+        usuario_puede_editar_siniestro(
+            db, current_user, current_user.empresa_id, siniestro_id
+        ),
+    )
     return siniestro
 
 
@@ -172,20 +173,20 @@ def update_siniestro(
     solo calificacion_id requiere editar_calificacion; solo polizas requiere editar_poliza;
     solo descripcion_hechos requiere editar_descripcion_de_hechos;
     esas claves pueden combinarse entre sí sin update.
+    Además exige poder editar el expediente según nivel (áreas / asignación).
     Si se actualiza descripcion_hechos, crea una nueva versión automáticamente.
     """
     campos = set(payload.model_dump(exclude_unset=True).keys())
     assert_permiso_actualizar_siniestro(db, current_user, campos)
 
-    # Cambiar solo estado/calificación/pólizas: basta con poder ver el siniestro + permisos granulares (ya validados arriba).
-    # El resto de campos sigue exigiendo la regla estricta de edición (nivel / responsable principal).
-    if _actualizacion_solo_campos_granulares(campos):
-        if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Siniestro no encontrado",
-            )
-    elif not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+    # Cualquier actualización persiste en el expediente: exige la misma regla de edición
+    # (nivel 2 por áreas, nivel 3 por asignación, etc.), además de ver + permisos granulares.
+    if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Siniestro no encontrado",
+        )
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tiene permiso para editar este siniestro según su nivel o asignación",

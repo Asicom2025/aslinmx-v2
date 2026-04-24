@@ -2,7 +2,9 @@
 Jerarquía de roles por nivel (roles.nivel) y utilidades de bypass SuperAdmin.
 - Nivel 0: desarrollador / SuperAdmin (acceso total a permisos vía bypass).
 - Nivel 1: administradores (sin filtro de alcance en datos; permisos por rol_permisos).
-- Nivel 2–4: alcance restringido en siniestros (ver siniestro_acceso_service).
+- Niveles 2–3: ven todos los siniestros de la empresa; la restricción por áreas o asignación
+  aplica solo a edición/mutación (ver siniestro_acceso_service).
+- Nivel 4: alcance restringido también en visibilidad (ver siniestro_acceso_service).
 """
 
 from uuid import UUID

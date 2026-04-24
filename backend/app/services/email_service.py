@@ -2,6 +2,7 @@
 Servicio para envío de correos electrónicos
 """
 
+import html as html_std
 import smtplib
 from pathlib import Path
 from email.utils import formataddr
@@ -27,6 +28,10 @@ try:
     from jinja2 import Template
 except ImportError:
     Template = None
+try:
+    from markupsafe import Markup
+except ImportError:
+    Markup = None  # type: ignore[misc, assignment]
 
 from app.models.config import ConfiguracionSMTP, PlantillaCorreo, HistorialCorreo
 from app.core.config import settings
@@ -64,6 +69,33 @@ def _read_file_bytes(path: Path) -> Optional[bytes]:
     except Exception as e:
         logger.debug("No se pudo leer %s: %s", path, e)
     return None
+
+
+def logo_img_html_for_email(logo_url: str) -> str:
+    """
+    HTML del logo con tamaño mayor que un <img src="{{ logo_url }}"> suelto.
+    En plantillas Jinja2 usar: {{ logo_img }} (con Markup en variables, sin escapar).
+    """
+    u = (logo_url or "").strip()
+    if not u:
+        return ""
+    return (
+        f'<img src="{html_std.escape(u)}" alt="Logo" '
+        'style="max-width:280px;width:100%;height:auto;display:block;border:0;outline:none;" />'
+    )
+
+
+def _bump_cid_logo_img_in_html(cuerpo_html: str) -> str:
+    """Agrandar logo en plantillas que siguen usando <img src="cid:logo"> sin estilo inline."""
+    if not cuerpo_html or "cid:logo" not in cuerpo_html:
+        return cuerpo_html
+    if "max-width:280px" in cuerpo_html:
+        return cuerpo_html
+    return cuerpo_html.replace(
+        'src="cid:logo"',
+        'style="max-width:280px;width:100%;height:auto;display:block;border:0" src="cid:logo"',
+        1,
+    )
 
 
 def get_email_assets_bytes() -> Tuple[Optional[bytes], Optional[bytes]]:
@@ -724,6 +756,11 @@ class EmailService:
         # Firma para usar dentro de la plantilla
         firma_url, firma_cid_bytes = EmailService.get_firma_for_template(db, current_user)
 
+        _logo_m = (
+            Markup(logo_img_html_for_email(logo_url))
+            if Markup
+            else logo_img_html_for_email(logo_url)
+        )
         variables = {
             "id": id_display,
             "enlace_ver_id": enlace_ver_id,
@@ -731,6 +768,7 @@ class EmailService:
             "fecha_creacion": fecha_creacion_str,
             "fecha_asignacion": fecha_asignacion_str,
             "logo_url": logo_url,
+            "logo_img": _logo_m,
             "file_icon_url": file_icon_url,
             "base_url": base_url,
             "firma_url": firma_url,
@@ -742,6 +780,8 @@ class EmailService:
         except Exception as e:
             logger.exception("Error renderizando plantilla de correo")
             return False, str(e)
+
+        cuerpo_html = _bump_cid_logo_img_in_html(cuerpo_html or "")
 
         success, error = EmailService.send_email_sync(
             config_smtp,
@@ -838,6 +878,11 @@ class EmailService:
 
         firma_url, firma_cid_bytes = EmailService.get_firma_for_template(db, current_user)
 
+        _logo_m = (
+            Markup(logo_img_html_for_email(logo_url))
+            if Markup
+            else logo_img_html_for_email(logo_url)
+        )
         variables = {
             "id": id_display,
             "enlace_ver_id": enlace_ver_id,
@@ -846,6 +891,7 @@ class EmailService:
             "tipo_relacion_label": tipo_relacion_label,
             "fecha_asignacion": fecha_asignacion_str,
             "logo_url": logo_url,
+            "logo_img": _logo_m,
             "base_url": base_url,
             "firma_url": firma_url,
             "ano_actual": str(datetime.now().year),
@@ -856,6 +902,8 @@ class EmailService:
         except Exception as e:
             logger.exception("Error renderizando plantilla de correo nuevo involucrado")
             return False, str(e)
+
+        cuerpo_html = _bump_cid_logo_img_in_html(cuerpo_html or "")
 
         success, error = EmailService.send_email_sync(
             config_smtp,
@@ -938,6 +986,11 @@ class EmailService:
         fecha_asig = datetime.now()
         fecha_asignacion_str = fecha_asig.strftime("%d/%m/%Y %H:%M")
 
+        _logo_m2 = (
+            Markup(logo_img_html_for_email(logo_url))
+            if Markup
+            else logo_img_html_for_email(logo_url)
+        )
         variables = {
             "id": id_display,
             "enlace_ver_id": enlace_ver_id,
@@ -945,6 +998,7 @@ class EmailService:
             "asignado_por": asignador_nombre,
             "fecha_asignacion": fecha_asignacion_str,
             "logo_url": logo_url,
+            "logo_img": _logo_m2,
             "file_icon_url": "cid:file_icon" if file_icon_cid_bytes else (base_for_assets + getattr(settings, "EMAIL_FILE_ICON_PATH", "/assets/icons/file2.png")),
             "base_url": base_url,
             "firma_url": firma_url,
@@ -956,6 +1010,8 @@ class EmailService:
         except Exception as e:
             logger.exception("Error renderizando plantilla de correo de asignación de área")
             return False, str(e)
+
+        cuerpo_html = _bump_cid_logo_img_in_html(cuerpo_html or "")
 
         remitente_nombre = EmailService.nombre_display_remitente_usuario(
             usuario_asignador or current_user

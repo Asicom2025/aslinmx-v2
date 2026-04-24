@@ -53,7 +53,8 @@ def get_dashboard_stats(
         try:
             q_tot = db.query(func.count(Siniestro.id)).filter(
                 Siniestro.empresa_id == empresa_id,
-                Siniestro.eliminado == False
+                Siniestro.eliminado == False,
+                Siniestro.activo == True,
             )
             if alcance is not None:
                 q_tot = q_tot.filter(Siniestro.id.in_(alcance))
@@ -89,6 +90,7 @@ def get_dashboard_stats(
                 .filter(
                     Siniestro.empresa_id == empresa_id,
                     Siniestro.eliminado == False,
+                    Siniestro.activo == True,
                     Asegurado.estado.isnot(None),
                     Asegurado.estado != "",
                 )
@@ -122,7 +124,8 @@ def get_dashboard_stats(
                 func.count(Siniestro.id).label('count')
             ).filter(
                 Siniestro.empresa_id == empresa_id,
-                Siniestro.eliminado == False
+                Siniestro.eliminado == False,
+                Siniestro.activo == True,
             )
             if alcance is not None:
                 q_pri = q_pri.filter(Siniestro.id.in_(alcance))
@@ -143,6 +146,7 @@ def get_dashboard_stats(
             ).filter(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False,
+                Siniestro.activo == True,
                 SiniestroArea.activo == True,
                 SiniestroArea.eliminado == False,
             )
@@ -158,6 +162,7 @@ def get_dashboard_stats(
             q_crit = db.query(func.count(Siniestro.id)).filter(
                 Siniestro.empresa_id == empresa_id,
                 Siniestro.eliminado == False,
+                Siniestro.activo == True,
                 Siniestro.prioridad == 'critica'
             )
             if alcance is not None:
@@ -244,7 +249,8 @@ def get_recent_siniestros(
         # Obtener siniestros recientes
         q_rec = db.query(Siniestro).filter(
             Siniestro.empresa_id == empresa_id,
-            Siniestro.eliminado == False
+            Siniestro.eliminado == False,
+            Siniestro.activo == True,
         )
         alcance = subquery_siniestros_visibles(db, current_user, empresa_id)
         if alcance is not None:
@@ -319,6 +325,7 @@ def get_siniestros_by_month(
     ).filter(
         Siniestro.empresa_id == empresa_id,
         Siniestro.eliminado == False,
+        Siniestro.activo == True,
         Siniestro.fecha_registro.isnot(None),
         Siniestro.fecha_registro >= fecha_limite
     )

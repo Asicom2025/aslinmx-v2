@@ -83,6 +83,34 @@ from app.schemas.legal_schema import (
     VersionesDescripcionHechosUpdate,
 )
 
+# Variantes de nombre de catálogo que se consideran "cancelado" (listados/reportes / activo).
+_CANCELLATION_STATE_NAMES = frozenset(
+    {
+        "cancelado",
+        "cancelados",
+        "cancleado",  # typo común
+        "cancleados",
+    }
+)
+
+
+def es_estado_cancelacion_por_nombre(nombre: Optional[str]) -> bool:
+    """
+    Indica si el nombre del catálogo `estados_siniestro` corresponde a un estado
+    de cancelación (excluye inactivos del listado salvo al filtrar por este estado).
+    """
+    if not nombre or not str(nombre).strip():
+        return False
+    key = str(nombre).strip().lower()
+    if key in _CANCELLATION_STATE_NAMES:
+        return True
+    # Cualquier variante "cancelad..." (p. ej. "Cancelado (archivado)")
+    if key.startswith("cancelad"):
+        return True
+    if key.startswith("cancleado") or key.startswith("cancleada"):
+        return True
+    return False
+
 
 class AreaService:
     @staticmethod
@@ -1180,9 +1208,25 @@ class SiniestroService:
             sub = subquery_siniestros_visibles(db, current_user, empresa_id)
             if sub is not None:
                 q = q.filter(Siniestro.id.in_(sub))
-        
+
         if activo is not None:
             q = q.filter(Siniestro.activo == activo)
+        else:
+            incluir_inactivos_por_cancelacion = False
+            if estado_id is not None:
+                row_est = (
+                    db.query(EstadoSiniestro)
+                    .filter(
+                        EstadoSiniestro.id == estado_id,
+                        EstadoSiniestro.empresa_id == empresa_id,
+                    )
+                    .first()
+                )
+                nom = getattr(row_est, "nombre", None) if row_est else None
+                if es_estado_cancelacion_por_nombre(nom):
+                    incluir_inactivos_por_cancelacion = True
+            if not incluir_inactivos_por_cancelacion:
+                q = q.filter(Siniestro.activo == True)
         if estado_id is not None:
             q = q.filter(Siniestro.estado_id == estado_id)
         if proveniente_id is not None:
@@ -1736,6 +1780,26 @@ class SiniestroService:
         for k, v in payload_dict.items():
             setattr(siniestro, k, v)
 
+        # Casar `activo` con estado de cancelación en catálogo (y reactivar al salir de cancelado).
+        if not siniestro.eliminado:
+            if siniestro.estado_id:
+                st_row = (
+                    db.query(EstadoSiniestro)
+                    .filter(
+                        EstadoSiniestro.id == siniestro.estado_id,
+                        EstadoSiniestro.empresa_id == empresa_id,
+                    )
+                    .first()
+                )
+                if st_row and es_estado_cancelacion_por_nombre(
+                    getattr(st_row, "nombre", None)
+                ):
+                    siniestro.activo = False
+                else:
+                    siniestro.activo = True
+            else:
+                siniestro.activo = True
+
         poliza_logs = {"created": [], "updated": [], "deleted": []}
         if polizas_payload is not None:
             poliza_logs = SiniestroService._sync_polizas(db, siniestro, polizas_payload)
@@ -1909,7 +1973,7 @@ class SiniestroService:
         
         siniestro.eliminado = True
         siniestro.activo = False
-        siniestro.eliminado_en = func.now()
+        siniestro.eliminado_en = datetime.now(timezone.utc)
         db.commit()
 
         # Log de auditoría
@@ -2404,6 +2468,23 @@ class SiniestroUsuarioService:
                     "ninguna de las áreas del siniestro"
                 ),
             )
+
+    @staticmethod
+    def _clear_otros_principales_tercero(
+        db: Session, siniestro_id: UUID, keep_relacion_id: UUID
+    ) -> None:
+        """Un solo tercero (abogado) principal por siniestro para informes/PDF."""
+        for otra in (
+            db.query(SiniestroUsuario)
+            .filter(
+                SiniestroUsuario.siniestro_id == siniestro_id,
+                SiniestroUsuario.tipo_relacion == "tercero",
+                SiniestroUsuario.id != keep_relacion_id,
+                SiniestroUsuario.eliminado == False,
+            )
+            .all()
+        ):
+            otra.es_principal = False
     
     @staticmethod
     def list(db: Session, siniestro_id: UUID, activo: Optional[bool] = None) -> List[SiniestroUsuario]:
@@ -2450,8 +2531,16 @@ class SiniestroUsuarioService:
             existing.activo = True
             existing.eliminado = False
             existing.eliminado_en = None
+            existing.es_principal = payload.es_principal
+            if payload.observaciones is not None:
+                existing.observaciones = payload.observaciones
             db.commit()
             db.refresh(existing)
+            if existing.tipo_relacion == "tercero" and existing.es_principal:
+                SiniestroUsuarioService._clear_otros_principales_tercero(
+                    db, payload.siniestro_id, existing.id
+                )
+                db.commit()
             return existing
 
         existing_deleted = db.query(SiniestroUsuario).filter(
@@ -2468,12 +2557,26 @@ class SiniestroUsuarioService:
             existing_deleted.observaciones = payload.observaciones
             db.commit()
             db.refresh(existing_deleted)
+            if (
+                existing_deleted.tipo_relacion == "tercero"
+                and existing_deleted.es_principal
+            ):
+                SiniestroUsuarioService._clear_otros_principales_tercero(
+                    db, payload.siniestro_id, existing_deleted.id
+                )
+                db.commit()
             return existing_deleted
         
         relacion = SiniestroUsuario(**payload.model_dump())
         db.add(relacion)
         db.commit()
         db.refresh(relacion)
+        if relacion.tipo_relacion == "tercero" and relacion.es_principal:
+            SiniestroUsuarioService._clear_otros_principales_tercero(
+                db, relacion.siniestro_id, relacion.id
+            )
+            db.commit()
+            db.refresh(relacion)
 
         # Log de auditoría
         from app.models.user import Usuario
@@ -2508,6 +2611,11 @@ class SiniestroUsuarioService:
         if payload.model_dump(exclude_unset=True).get("activo") is True:
             relacion.eliminado = False
             relacion.eliminado_en = None
+
+        if relacion.tipo_relacion == "tercero" and relacion.es_principal:
+            SiniestroUsuarioService._clear_otros_principales_tercero(
+                db, relacion.siniestro_id, relacion.id
+            )
         
         db.commit()
         db.refresh(relacion)

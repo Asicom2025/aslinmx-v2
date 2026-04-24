@@ -31,7 +31,9 @@ services:
         condition: service_healthy
     environment:
       STRUCTURED_LOG_DIR: /logs
-      STRUCTURED_LOG_TARGET: ${STRUCTURED_LOG_TARGET:-stdout}
+      # Con volumen en ./logs/backend:/logs conviene escribir JSON ahí (además de stdout).
+      # Override: STRUCTURED_LOG_TARGET=stdout si solo quieres docker logs.
+      STRUCTURED_LOG_TARGET: ${STRUCTURED_LOG_TARGET:-both}
     ports:
       - "127.0.0.1:8000:8000"
     networks:

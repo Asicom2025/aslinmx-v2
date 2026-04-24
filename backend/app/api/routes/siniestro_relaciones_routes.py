@@ -17,7 +17,11 @@ from app.schemas.legal_schema import (
 from app.services.legal_service import SiniestroUsuarioService, SiniestroAreaService, SiniestroService
 from app.services.email_service import EmailService
 from app.services.auditoria_service import AuditoriaService
-from app.services.siniestro_acceso_service import usuario_puede_ver_siniestro
+from app.services.siniestro_acceso_service import (
+    MSG_EXPEDIENTE_SOLO_LECTURA,
+    usuario_puede_editar_siniestro,
+    usuario_puede_ver_siniestro,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +53,11 @@ def add_involucrado(
     payload.siniestro_id = siniestro_id
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
     try:
         relacion = SiniestroUsuarioService.create(db, payload, current_user.id)
     except HTTPException:
@@ -99,6 +108,11 @@ def update_involucrado(
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
     relacion = SiniestroUsuarioService.update(db, relacion_id, payload)
     if not relacion:
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
@@ -117,6 +131,11 @@ def remove_involucrado(
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
     ok = SiniestroUsuarioService.delete(db, relacion_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Involucrado no encontrado")
@@ -153,7 +172,12 @@ def add_area_adicional(
     payload_with_siniestro = SiniestroAreaCreate(**payload_dict)
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
-    
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
+
     try:
         return SiniestroAreaService.create(db, payload_with_siniestro, current_user.id)
     except HTTPException:
@@ -192,6 +216,11 @@ def update_area_adicional(
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
     relacion = SiniestroAreaService.update(db, relacion_id, payload, current_user.id)
     if not relacion:
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
@@ -210,6 +239,11 @@ def remove_area_adicional(
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")
+    if not usuario_puede_editar_siniestro(db, current_user, current_user.empresa_id, existente.siniestro_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
     ok = SiniestroAreaService.delete(db, relacion_id, current_user.id)
     if not ok:
         raise HTTPException(status_code=404, detail="Área adicional no encontrada")

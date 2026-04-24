@@ -16,7 +16,11 @@ from app.schemas.legal_schema import (
     VersionesDescripcionHechosResponse,
 )
 from app.services.legal_service import VersionesDescripcionHechosService, SiniestroService
-from app.services.siniestro_acceso_service import usuario_puede_ver_siniestro
+from app.services.siniestro_acceso_service import (
+    MSG_EXPEDIENTE_SOLO_LECTURA,
+    usuario_puede_editar_siniestro,
+    usuario_puede_ver_siniestro,
+)
 
 router = APIRouter(prefix="/siniestros", tags=["Siniestros - Versiones Descripción"])
 
@@ -32,6 +36,21 @@ def _assert_siniestro_visible(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Siniestro no encontrado",
+        )
+
+
+def _assert_siniestro_editable(
+    db: Session,
+    current_user: User,
+    siniestro_id: UUID,
+) -> None:
+    _assert_siniestro_visible(db, current_user, siniestro_id)
+    if not usuario_puede_editar_siniestro(
+        db, current_user, current_user.empresa_id, siniestro_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
         )
 
 
@@ -120,7 +139,7 @@ def create_version_descripcion(
     ),
 ):
     """Crea una nueva versión de descripción de hechos"""
-    _assert_siniestro_visible(db, current_user, siniestro_id)
+    _assert_siniestro_editable(db, current_user, siniestro_id)
     payload.siniestro_id = siniestro_id
     try:
         return VersionesDescripcionHechosService.create(
@@ -148,7 +167,8 @@ def update_version_descripcion(
     ),
 ):
     """Actualiza una versión existente (solo observaciones)"""
-    _assert_version_visible(db, current_user, version_id)
+    version = _assert_version_visible(db, current_user, version_id)
+    _assert_siniestro_editable(db, current_user, version.siniestro_id)
     version = VersionesDescripcionHechosService.update(db, version_id, payload)
     if not version:
         raise HTTPException(status_code=404, detail="Versión no encontrada")
@@ -168,7 +188,8 @@ def restaurar_version_descripcion(
     ),
 ):
     """Restaura una versión anterior creando una nueva versión con su contenido"""
-    _assert_version_visible(db, current_user, version_id)
+    v = _assert_version_visible(db, current_user, version_id)
+    _assert_siniestro_editable(db, current_user, v.siniestro_id)
     try:
         version = VersionesDescripcionHechosService.restaurar_version(
             db, version_id, current_user.id
@@ -197,7 +218,8 @@ def delete_version_descripcion(
     ),
 ):
     """Elimina una versión de descripción de hechos (no permite eliminar la actual)"""
-    _assert_version_visible(db, current_user, version_id)
+    v = _assert_version_visible(db, current_user, version_id)
+    _assert_siniestro_editable(db, current_user, v.siniestro_id)
     try:
         ok = VersionesDescripcionHechosService.delete(db, version_id)
         if not ok:

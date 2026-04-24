@@ -15,6 +15,7 @@ from app.db.session import get_db
 from app.core.config import settings
 from app.core.security import get_current_active_user
 from app.core.permisos import require_permiso
+from app.core.nivel_acceso import get_nivel_rol
 from app.models.user import User
 from app.schemas.legal_schema import (
     DocumentoCreate, DocumentoUpdate, DocumentoResponse,
@@ -29,6 +30,11 @@ from app.services.legal_service import (
     NotificacionService,
 )
 from app.services.auditoria_service import AuditoriaService
+from app.services.siniestro_acceso_service import (
+    MSG_EXPEDIENTE_SOLO_LECTURA,
+    usuario_puede_editar_siniestro,
+    usuario_puede_ver_siniestro,
+)
 from app.services.storage_metadata_service import StorageObjectService
 from app.services.storage_service import (
     StorageConfigurationError,
@@ -39,6 +45,53 @@ from app.services.storage_service import (
 )
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
+
+
+def _assert_siniestro_documento_lectura(
+    db: Session,
+    current_user: User,
+    siniestro_id: UUID,
+) -> None:
+    if not usuario_puede_ver_siniestro(
+        db, current_user, current_user.empresa_id, siniestro_id
+    ):
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+
+def _assert_siniestro_documento_escritura(
+    db: Session,
+    current_user: User,
+    siniestro_id: UUID,
+) -> None:
+    _assert_siniestro_documento_lectura(db, current_user, siniestro_id)
+    if not usuario_puede_editar_siniestro(
+        db, current_user, current_user.empresa_id, siniestro_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
+
+
+def _assert_siniestro_documento_descarga(
+    db: Session,
+    current_user: User,
+    siniestro_id: UUID,
+) -> None:
+    """
+    Regla de descarga:
+    - Nivel 2: puede ver todo, pero solo descarga documentos de expedientes de su área.
+    - Resto de niveles: mantiene regla de lectura.
+    """
+    _assert_siniestro_documento_lectura(db, current_user, siniestro_id)
+    if get_nivel_rol(db, current_user) == 2 and not usuario_puede_editar_siniestro(
+        db, current_user, current_user.empresa_id, siniestro_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso para descargar documentos de este expediente.",
+        )
+
 
 ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "application/msword", "application/vnd.", "text/")
 MAX_FILE_SIZE_MB = 25
@@ -160,6 +213,7 @@ def list_documentos_siniestro(
     current_user: User = Depends(require_permiso("siniestros", "ver_documentos")),
 ):
     """Lista documentos de un siniestro, opcionalmente filtrados por área y flujo. Incluye plantilla_tiene_continuacion cuando el documento tiene plantilla."""
+    _assert_siniestro_documento_lectura(db, current_user, siniestro_id)
     documents = DocumentoService.list(
         db=db,
         siniestro_id=siniestro_id,
@@ -232,6 +286,7 @@ def get_documento(
     documento = DocumentoService.get_by_id(db, documento_id)
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+    _assert_siniestro_documento_lectura(db, current_user, documento.siniestro_id)
     return _build_documento_response(documento, request=request)
 
 
@@ -245,6 +300,7 @@ def get_documento_archivo(
     documento = DocumentoService.get_by_id(db, documento_id)
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+    _assert_siniestro_documento_descarga(db, current_user, documento.siniestro_id)
     if not documento.ruta_archivo:
         raise HTTPException(status_code=404, detail="Este documento no tiene archivo asociado")
 
@@ -285,6 +341,7 @@ def get_documento_archivo_url(
     documento = DocumentoService.get_by_id(db, documento_id)
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+    _assert_siniestro_documento_descarga(db, current_user, documento.siniestro_id)
     if not documento.ruta_archivo:
         raise HTTPException(status_code=404, detail="Este documento no tiene archivo asociado")
 
@@ -327,6 +384,8 @@ def create_documento(
     """Crea un nuevo documento y registra en bitácora y notificación"""
     if not payload.usuario_subio:
         payload.usuario_subio = current_user.id
+
+    _assert_siniestro_documento_escritura(db, current_user, payload.siniestro_id)
 
     # Excluir campos de bitácora del payload para crear el documento
     doc_data = payload.model_dump(exclude={"horas_trabajadas_bitacora", "comentarios_bitacora"})
@@ -385,10 +444,14 @@ def update_documento(
     current_user: User = Depends(get_current_active_user),
 ):
     # Excluir campos de bitácora del payload para actualizar el documento
+    existente = DocumentoService.get_by_id(db, documento_id)
+    if not existente:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    _assert_siniestro_documento_escritura(db, current_user, existente.siniestro_id)
     update_data = {k: v for k, v in payload.model_dump(exclude_unset=True).items()
                    if k not in ("horas_trabajadas_bitacora", "comentarios_bitacora")}
     doc_update = DocumentoUpdate(**update_data) if update_data else None
-    documento = DocumentoService.update(db, documento_id, doc_update) if doc_update else DocumentoService.get_by_id(db, documento_id)
+    documento = DocumentoService.update(db, documento_id, doc_update) if doc_update else existente
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
 
@@ -539,6 +602,7 @@ def upload_documento_archivo(
             datos_extra={"nombre_archivo": file.filename, "tamaño_bytes": size},
         )
         raise HTTPException(status_code=404, detail=detail)
+    _assert_siniestro_documento_escritura(db, current_user, siniestro_id)
     try:
         siniestro_storage_ref = resolve_siniestro_storage_ref(db, siniestro_obj)
         stored_file = storage_service.put_document_bytes(
@@ -700,6 +764,7 @@ def delete_documento(
     documento = DocumentoService.get_by_id(db, documento_id)
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
+    _assert_siniestro_documento_escritura(db, current_user, documento.siniestro_id)
     siniestro_id = documento.siniestro_id
     nombre_archivo = documento.nombre_archivo
     ok = DocumentoService.delete(db, documento_id)

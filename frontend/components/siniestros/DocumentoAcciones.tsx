@@ -30,6 +30,7 @@ export type DocumentoModalPreviewAccionesProps = {
   kind: "informe" | "archivo";
   documento: { id?: string } | null;
   showEditar?: boolean;
+  canDescargar?: boolean;
   descargarLabel: string;
   onCerrar: () => void;
   onDescargar: () => void;
@@ -241,6 +242,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
     kind,
     documento,
     showEditar,
+    canDescargar = true,
     descargarLabel,
     onCerrar,
     onDescargar,
@@ -254,7 +256,17 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
       <Button variant="secondary" type="button" onClick={onCerrar}>
         Cerrar
       </Button>
-      <Button variant="primary" type="button" onClick={onDescargar}>
+      <Button
+        variant="primary"
+        type="button"
+        onClick={onDescargar}
+        disabled={!canDescargar}
+        title={
+          canDescargar
+            ? descargarLabel
+            : "No tiene permiso para descargar este documento"
+        }
+      >
         <FiSave className="w-4 h-4 mr-2" />
         {descargarLabel}
       </Button>

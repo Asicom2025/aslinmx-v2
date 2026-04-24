@@ -66,6 +66,8 @@ export interface Siniestro {
   creado_en: string;
   actualizado_en: string;
   eliminado_en?: string;
+  /** GET detalle: si el usuario puede mutar expediente (API; false = solo lectura). */
+  puede_editar_expediente?: boolean | null;
 }
 
 export interface SiniestroCreate {

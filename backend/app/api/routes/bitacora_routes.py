@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.core.security import get_current_active_user
-from app.core.permisos import require_permiso
+from app.core.permisos import require_any_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
     BitacoraActividadCreate, BitacoraActividadUpdate, BitacoraActividadResponse,
@@ -16,7 +16,11 @@ from app.schemas.legal_schema import (
 from app.services.legal_service import BitacoraActividadService
 from app.services.auditoria_service import AuditoriaService
 from app.models.legal import Siniestro
-from app.services.siniestro_acceso_service import usuario_puede_ver_siniestro
+from app.services.siniestro_acceso_service import (
+    MSG_EXPEDIENTE_SOLO_LECTURA,
+    usuario_puede_editar_siniestro,
+    usuario_puede_ver_siniestro,
+)
 
 router = APIRouter(prefix="/bitacora", tags=["Bitácora"])
 
@@ -31,7 +35,13 @@ def list_bitacora_siniestro(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "ver_bitacora")),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("siniestros", "ver_bitacora"),
+            ("siniestros", "verificar_bitcora"),
+            ("siniestros", "verificar_bitacora"),
+        )
+    ),
 ):
     """Lista actividades de bitácora de un siniestro, opcionalmente filtradas por área y flujo"""
     if not usuario_puede_ver_siniestro(
@@ -90,6 +100,16 @@ def create_bitacora_actividad(
         payload.siniestro_id,
     ):
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
+    if not usuario_puede_editar_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        payload.siniestro_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
 
     actividad = BitacoraActividadService.create(db, payload)
 
@@ -129,6 +149,16 @@ def update_bitacora_actividad(
         existente.siniestro_id,
     ):
         raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    if not usuario_puede_editar_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        existente.siniestro_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
     actividad = BitacoraActividadService.update(db, actividad_id, payload)
     if not actividad:
         raise HTTPException(status_code=404, detail="Actividad no encontrada")
@@ -168,6 +198,16 @@ def delete_bitacora_actividad(
         existente.siniestro_id,
     ):
         raise HTTPException(status_code=404, detail="Actividad no encontrada")
+    if not usuario_puede_editar_siniestro(
+        db,
+        current_user,
+        current_user.empresa_id,
+        existente.siniestro_id,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
     ok = BitacoraActividadService.delete(db, actividad_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Actividad no encontrada")

@@ -15,6 +15,7 @@ from app.models.legal import (
 )
 from app.services.export_service import ExportService
 from app.services.pdf_service import PDFService
+from app.services.legal_service import es_estado_cancelacion_por_nombre
 
 
 class ReporteService:
@@ -75,7 +76,14 @@ class ReporteService:
 
         # Aplicar filtros
         if filtros:
-            query = ReporteService._aplicar_filtros(query, Modelo, filtros, modulo)
+            query = ReporteService._aplicar_filtros(
+                query, Modelo, filtros, modulo, db=db, empresa_id=empresa_id
+            )
+        elif modulo == "siniestros":
+            query = query.filter(
+                Siniestro.eliminado == False,  # noqa: E712
+                Siniestro.activo == True,  # noqa: E712
+            )
 
         # Aplicar ordenamiento
         if ordenamiento:
@@ -104,10 +112,19 @@ class ReporteService:
         return datos
 
     @staticmethod
-    def _aplicar_filtros(query, Modelo, filtros: Dict[str, Any], modulo: str):
+    def _aplicar_filtros(
+        query,
+        Modelo,
+        filtros: Dict[str, Any],
+        modulo: str,
+        db: Optional[Session] = None,
+        empresa_id: Optional[UUID] = None,
+    ):
         """Aplica filtros a una query"""
         if modulo == "siniestros":
-            return ReporteService._aplicar_filtros_siniestros(query, filtros)
+            return ReporteService._aplicar_filtros_siniestros(
+                query, filtros, db, empresa_id
+            )
 
         if filtros.get("activo") is not None and hasattr(Modelo, "activo"):
             query = query.filter(Modelo.activo == filtros["activo"])
@@ -174,7 +191,12 @@ class ReporteService:
         return query
 
     @staticmethod
-    def _aplicar_filtros_siniestros(query, filtros: Dict[str, Any]):
+    def _aplicar_filtros_siniestros(
+        query,
+        filtros: Dict[str, Any],
+        db: Optional[Session] = None,
+        empresa_id: Optional[UUID] = None,
+    ):
         """Aplica filtros de negocio para exportar siniestros."""
         if filtros.get("activo") is not None:
             query = query.filter(Siniestro.activo == filtros["activo"])
@@ -269,6 +291,31 @@ class ReporteService:
                     )
             except Exception:
                 pass
+
+        adicionales_f = filtros.get("filtros_adicionales", {}) or {}
+        estado_f = adicionales_f.get("estado_id")
+        relajar_activo = False
+        if db is not None and empresa_id is not None and estado_f is not None:
+            try:
+                eid = estado_f if isinstance(estado_f, UUID) else UUID(str(estado_f))
+                row_e = (
+                    db.query(EstadoSiniestro)
+                    .filter(
+                        EstadoSiniestro.id == eid,
+                        EstadoSiniestro.empresa_id == empresa_id,
+                    )
+                    .first()
+                )
+                if row_e and es_estado_cancelacion_por_nombre(
+                    getattr(row_e, "nombre", None)
+                ):
+                    relajar_activo = True
+            except (ValueError, TypeError):
+                pass
+
+        query = query.filter(Siniestro.eliminado == False)  # noqa: E712
+        if filtros.get("activo") is None and not relajar_activo:
+            query = query.filter(Siniestro.activo == True)  # noqa: E712
 
         return query.distinct()
 
@@ -577,7 +624,14 @@ class ReporteService:
             query = query.filter(Modelo.empresa_id == empresa_id)
 
         if filtros:
-            query = ReporteService._aplicar_filtros(query, Modelo, filtros, modulo)
+            query = ReporteService._aplicar_filtros(
+                query, Modelo, filtros, modulo, db=db, empresa_id=empresa_id
+            )
+        elif modulo == "siniestros":
+            query = query.filter(
+                Siniestro.eliminado == False,  # noqa: E712
+                Siniestro.activo == True,  # noqa: E712
+            )
 
         total = query.count()
 
@@ -595,7 +649,9 @@ class ReporteService:
             ).join(
                 Siniestro, Siniestro.estado_id == EstadoSiniestro.id
             ).filter(
-                Siniestro.empresa_id == empresa_id
+                Siniestro.empresa_id == empresa_id,
+                Siniestro.eliminado == False,  # noqa: E712
+                Siniestro.activo == True,  # noqa: E712
             ).group_by(EstadoSiniestro.nombre).all()
 
             estadisticas["por_estado"] = [
