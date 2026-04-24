@@ -1007,10 +1007,9 @@ class EvidenciaFotograficaResponse(EvidenciaFotograficaBase):
         from_attributes = True
 
 
-# ===== RELACIONES SINIESTRO-USUARIO (INVOLUCRADOS) =====
+# ===== RELACIONES SINIESTRO-USUARIO (INVOLUCRADOS / ABOGADOS) =====
 class SiniestroUsuarioBase(BaseModel):
-    """Schema base de relación siniestro-usuario"""
-    tipo_relacion: Literal["asegurado", "proveniente", "testigo", "tercero"]
+    """Schema base: involucrados del siniestro son abogados asignados."""
     es_principal: bool = False
     observaciones: Optional[str] = None
     activo: bool = True
@@ -1024,7 +1023,6 @@ class SiniestroUsuarioCreate(SiniestroUsuarioBase):
 
 class SiniestroUsuarioUpdate(BaseModel):
     """Schema para actualizar relación siniestro-usuario"""
-    tipo_relacion: Optional[Literal["asegurado", "proveniente", "testigo", "tercero"]] = None
     es_principal: Optional[bool] = None
     observaciones: Optional[str] = None
     activo: Optional[bool] = None
@@ -1068,6 +1066,7 @@ class SiniestroAreaUpdate(BaseModel):
     fecha_asignacion: Optional[datetime] = None
     observaciones: Optional[str] = None
     activo: Optional[bool] = None
+    abogado_principal_informe_id: Optional[UUID] = None
 
 
 class SiniestroAreaResponse(SiniestroAreaBase):
@@ -1075,6 +1074,7 @@ class SiniestroAreaResponse(SiniestroAreaBase):
     id: UUID
     siniestro_id: UUID
     area_id: UUID
+    abogado_principal_informe_id: Optional[UUID] = None
     fecha_asignacion: datetime
     eliminado: bool = False
     creado_en: datetime

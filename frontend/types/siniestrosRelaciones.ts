@@ -1,14 +1,11 @@
 /**
- * Tipos TypeScript para relaciones de siniestros (involucrados, áreas y pólizas)
+ * Tipos TypeScript para relaciones de siniestros (involucrados/abogados, áreas y pólizas)
  */
-
-export type TipoRelacion = "asegurado" | "proveniente" | "testigo" | "tercero";
 
 export interface SiniestroUsuario {
   id: string;
   siniestro_id: string;
   usuario_id: string;
-  tipo_relacion: TipoRelacion;
   es_principal: boolean;
   observaciones?: string;
   activo: boolean;
@@ -21,14 +18,12 @@ export interface SiniestroUsuario {
 export interface SiniestroUsuarioCreate {
   siniestro_id: string;
   usuario_id: string;
-  tipo_relacion: TipoRelacion;
   es_principal?: boolean;
   observaciones?: string;
   activo?: boolean;
 }
 
 export interface SiniestroUsuarioUpdate {
-  tipo_relacion?: TipoRelacion;
   es_principal?: boolean;
   observaciones?: string;
   activo?: boolean;
@@ -38,6 +33,8 @@ export interface SiniestroArea {
   id: string;
   siniestro_id: string;
   area_id: string;
+  /** Abogado cuya firma y nombre se usan en informes para este ámbito de área. */
+  abogado_principal_informe_id?: string | null;
   usuario_responsable?: string;
   fecha_asignacion: string;
   observaciones?: string;
@@ -61,6 +58,7 @@ export interface SiniestroAreaUpdate {
   usuario_responsable?: string;
   observaciones?: string;
   activo?: boolean;
+  abogado_principal_informe_id?: string | null;
 }
 
 export interface SiniestroPoliza {
@@ -79,12 +77,11 @@ export interface SiniestroPoliza {
 
 export interface SiniestroPolizaPayload {
   id?: string;
-  numero_poliza?: string | null;
-  deducible?: number;
-  reserva?: number;
-  coaseguro?: number;
-  suma_asegurada?: number;
-  es_principal?: boolean;
-  orden?: number;
+  numero_poliza?: string;
+  deducible: number;
+  reserva: number;
+  coaseguro: number;
+  suma_asegurada: number;
+  es_principal: boolean;
+  orden: number;
 }
-

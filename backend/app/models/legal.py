@@ -491,13 +491,12 @@ class EvidenciaFotografica(Base):
 
 
 class SiniestroUsuario(Base):
-    """Relación entre siniestros y usuarios (involucrados)"""
+    """Relación entre siniestros y abogados asignados (involucrados)."""
     __tablename__ = "siniestro_usuarios"
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)
     usuario_id = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
-    tipo_relacion = Column(String(20), nullable=False)  # asegurado, proveniente, testigo, tercero
     es_principal = Column(Boolean, default=False)
     observaciones = Column(Text, nullable=True)
     activo = Column(Boolean, nullable=False, default=True)
@@ -505,10 +504,6 @@ class SiniestroUsuario(Base):
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
-
-    __table_args__ = (
-        CheckConstraint("tipo_relacion IN ('asegurado', 'proveniente', 'testigo', 'tercero')", name="check_tipo_relacion"),
-    )
 
 
 class SiniestroArea(Base):
@@ -518,6 +513,10 @@ class SiniestroArea(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)
     area_id = Column(UUID(as_uuid=True), ForeignKey("areas.id", ondelete="CASCADE"), nullable=False)
+    # Abogado (tercero) cuya firma/nombre se usan en informes y PDF para documentos de este ámbito de área.
+    abogado_principal_informe_id = Column(
+        UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True
+    )
     fecha_asignacion = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     observaciones = Column(Text, nullable=True)
     activo = Column(Boolean, nullable=False, default=True)

@@ -793,7 +793,6 @@ export default function NuevoSiniestroPage() {
           try {
             await apiService.addInvolucrado(siniestroId, {
               usuario_id: usuariosIds[i],
-              tipo_relacion: "tercero",
               es_principal: i === 0,
               activo: true,
             });
