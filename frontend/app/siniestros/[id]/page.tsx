@@ -25,7 +25,10 @@ import {
   canSiniestrosVerBitacora,
 } from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
-import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
+import {
+  filtrarAbogadosPorAreas,
+  usuarioComparteAlgunaArea,
+} from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import JoditEditor from "@/components/ui/JoditEditor";
@@ -431,6 +434,7 @@ export default function SiniestroDetailPage() {
     forma_contacto: "correo" as "correo" | "telefono" | "directa",
     numero_reporte: "",
     observaciones: "",
+    tercero: "",
     asegurado_id: "" as string,
     institucion_id: "" as string,
     autoridad_id: "" as string,
@@ -456,6 +460,10 @@ export default function SiniestroDetailPage() {
   const [loadingInvolucrados, setLoadingInvolucrados] = useState(false);
   const [todasLasAreas, setTodasLasAreas] = useState<any[]>([]);
   const [todosLosUsuarios, setTodosLosUsuarios] = useState<any[]>([]);
+  /** Perfil con firma (GET /users/:id) del abogado usado en variables de informe según el ámbito de área. */
+  const [usuarioPrincipalInforme, setUsuarioPrincipalInforme] = useState<
+    any | null
+  >(null);
   const [nuevoInvolucradoUsuarioId, setNuevoInvolucradoUsuarioId] =
     useState<string>("");
 
@@ -550,7 +558,7 @@ export default function SiniestroDetailPage() {
 
   /**
    * HTML de firma física para plantillas ({{firmado_por}}, {{firma_fisica}}).
-   * Foto/firma en R2 llegan como data URL desde GET /users y GET /users/:id (lista también).
+   * La firma inline (data URL) solo viene en GET /users/:id; el listado GET /users no incluye firma en perfil.
    */
   const buildFirmaPhysicalHtml = (autorUsuario: any): string => {
     const firmaRaw =
@@ -573,26 +581,61 @@ export default function SiniestroDetailPage() {
       }
     }
     return firmaSrc
-      ? `<img src="${firmaSrc.replace(/"/g, "&quot;")}" alt="Firma" style="max-width:60px;height:auto;"/>`
+      ? `<img src="${firmaSrc.replace(/"/g, "&quot;")}" alt="Firma" class="pdf-firma" style="width:60px;max-width:60px;height:auto;"/>`
       : "---";
   };
 
-  /** Abogado (tercero) marcado como principal: su firma y nombre en informes/PDF. */
-  const resolveUsuarioFirmaParaInforme = useCallback(
-    (autorUsuarioParam: any) => {
+  /**
+   * Usuario cuya firma/nombre se usan en plantillas: primero abogado por relación
+   * siniestro–área (abogado_principal_informe_id); si no, involucrado con es_principal (legado).
+   */
+  const resolveIdAbogadoFirma = useCallback(
+    (areaIdOverride?: string | null) => {
+      const pick = (areaId: string | null | undefined) => {
+        if (areaId == null || String(areaId).trim() === "") return null;
+        const ar = areasAdicionales.find(
+          (x) => String(x.area_id) === String(areaId),
+        );
+        return ar?.abogado_principal_informe_id
+          ? String(ar.abogado_principal_informe_id)
+          : null;
+      };
+      if (areaIdOverride != null && String(areaIdOverride).trim() !== "") {
+        const fromOverride = pick(areaIdOverride);
+        if (fromOverride) return fromOverride;
+      }
+      const fromTab = pick(activeAreaTab || null);
+      if (fromTab) return fromTab;
+      const ap = (siniestro as any)?.area_principal_id;
+      if (ap) {
+        const fromAp = pick(String(ap));
+        if (fromAp) return fromAp;
+      }
+      if (areasAdicionales[0]?.abogado_principal_informe_id) {
+        return String(areasAdicionales[0].abogado_principal_informe_id);
+      }
       const p = involucrados.find(
-        (inv) =>
-          String(inv.tipo_relacion) === "tercero" &&
-          inv.es_principal &&
-          inv.activo !== false,
+        (inv) => inv.es_principal && inv.activo !== false,
       );
-      if (!p?.usuario_id) return autorUsuarioParam;
-      const u = todosLosUsuarios.find(
-        (x) => String(x.id) === String(p.usuario_id),
-      );
+      return p?.usuario_id ? String(p.usuario_id) : null;
+    },
+    [involucrados, areasAdicionales, activeAreaTab, siniestro],
+  );
+
+  const resolveUsuarioFirmaParaInforme = useCallback(
+    (autorUsuarioParam: any, areaIdOverride?: string | null) => {
+      const idFirma = resolveIdAbogadoFirma(areaIdOverride);
+      if (!idFirma) return autorUsuarioParam;
+      if (
+        usuarioPrincipalInforme &&
+        String(usuarioPrincipalInforme.id) === idFirma
+      ) {
+        return usuarioPrincipalInforme;
+      }
+      const u = todosLosUsuarios.find((x) => String(x.id) === idFirma);
       return u ?? autorUsuarioParam;
     },
-    [involucrados, todosLosUsuarios],
+    [resolveIdAbogadoFirma, todosLosUsuarios, usuarioPrincipalInforme],
   );
 
   /**
@@ -605,6 +648,8 @@ export default function SiniestroDetailPage() {
     siniestroData: Siniestro | null,
     autorUsuario: any,
     asegurado: any,
+    /** Área cuyo abogado principal aplica; si se omite, se usa el tab de área activo. */
+    areaIdFirma?: string | null,
   ): string => {
     if (!contenido) return contenido;
 
@@ -628,7 +673,10 @@ export default function SiniestroDetailPage() {
       asegurado?.email ||
       "";
 
-    const uFirmaPlantilla = resolveUsuarioFirmaParaInforme(autorUsuario);
+    const uFirmaPlantilla = resolveUsuarioFirmaParaInforme(
+      autorUsuario,
+      areaIdFirma !== undefined ? areaIdFirma : undefined,
+    );
     const autorNombre = getUserDisplayName(uFirmaPlantilla, "");
 
     const firmaHtml = buildFirmaPhysicalHtml(uFirmaPlantilla);
@@ -810,7 +858,10 @@ export default function SiniestroDetailPage() {
 
     const idLegiblePdf = construirIdFormato();
 
-    const uFirmaPdf = resolveUsuarioFirmaParaInforme(autorUsuario ?? null);
+    const uFirmaPdf = resolveUsuarioFirmaParaInforme(
+      autorUsuario ?? null,
+      (doc as { area_id?: string | null })?.area_id || activeAreaTab || null,
+    );
     const nombreFirmaPdf = getUserDisplayName(uFirmaPdf, autorNombre);
     const firmaImg = buildFirmaPhysicalHtml(uFirmaPdf ?? {});
 
@@ -1011,6 +1062,31 @@ export default function SiniestroDetailPage() {
       loadSmtpConfigs();
     }
   }, [siniestro, siniestroId]);
+
+  // Abogado de firma en informes: GET /users/:id (perfil con firma; el listado no trae firma)
+  useEffect(() => {
+    const idFirma = resolveIdAbogadoFirma(undefined);
+    if (!idFirma) {
+      setUsuarioPrincipalInforme(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const u = await apiService.getUserById(idFirma);
+        if (!cancelled) {
+          setUsuarioPrincipalInforme(u);
+        }
+      } catch {
+        if (!cancelled) {
+          setUsuarioPrincipalInforme(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveIdAbogadoFirma, involucrados, areasAdicionales, activeAreaTab, siniestro]);
 
   const loadVersionesDescripcionHechos = useCallback(
     async (fallbackDescripcionHtml?: string) => {
@@ -1572,6 +1648,7 @@ export default function SiniestroDetailPage() {
       forma_contacto: siniestro.forma_contacto || "correo",
       numero_reporte: siniestro.numero_reporte || "",
       observaciones: siniestro.observaciones || "",
+      tercero: (siniestro as any).tercero || "",
       asegurado_id: siniestro.asegurado_id || "",
       institucion_id: siniestro.institucion_id || "",
       autoridad_id: siniestro.autoridad_id || "",
@@ -1657,6 +1734,7 @@ export default function SiniestroDetailPage() {
         ubicacion: editForm.ubicacion || undefined,
         prioridad: editForm.prioridad || undefined,
         forma_contacto: editForm.forma_contacto || undefined,
+        tercero: editForm.tercero?.trim() || null,
         numero_reporte:
           editForm.numero_reporte && editForm.numero_reporte.trim()
             ? editForm.numero_reporte
@@ -1959,15 +2037,11 @@ export default function SiniestroDetailPage() {
     }
   };
 
-  const handleAddInvolucrado = async (
-    usuarioId: string,
-    tipoRelacion: "asegurado" | "proveniente" | "testigo" | "tercero",
-  ) => {
+  const handleAddInvolucrado = async (usuarioId: string) => {
     if (!siniestroId) return;
     try {
       await apiService.addInvolucrado(siniestroId, {
         usuario_id: usuarioId,
-        tipo_relacion: tipoRelacion,
         activo: true,
       });
       await loadInvolucrados();
@@ -2010,17 +2084,22 @@ export default function SiniestroDetailPage() {
     }
   };
 
-  const handleSetAbogadoPrincipalInformes = async (relacionId: string) => {
+  const handleAbogadoPrincipalInformePorArea = async (
+    relacionId: string,
+    usuarioId: string | null,
+  ) => {
     if (!puedeAsignarAbogadoExpediente) return;
     try {
-      await apiService.updateInvolucrado(relacionId, { es_principal: true });
-      await loadInvolucrados();
+      await apiService.updateAreaAdicional(relacionId, {
+        abogado_principal_informe_id: usuarioId || null,
+      });
+      await loadAreasAdicionales();
       await loadLogsAuditoria();
-      swalSuccess("Abogado principal para informes actualizado");
+      swalSuccess("Abogado de firmas en informes actualizado para el área");
     } catch (error: any) {
       swalError(
         error.response?.data?.detail ||
-          "Error al marcar abogado principal en informes",
+          "Error al asignar el abogado de informes al área",
       );
     }
   };
@@ -2420,7 +2499,12 @@ export default function SiniestroDetailPage() {
             (docExistente?.area_id as string | undefined) || activeAreaTab || undefined,
           );
           if (respuesta?.valores && typeof respuesta.valores === "object") {
-            variables = { ...respuesta.valores, ...variables };
+            const formValoresNoVacios = Object.fromEntries(
+              Object.entries(respuesta.valores as Record<string, unknown>)
+                .filter(([, v]) => v != null && String(v).trim() !== "")
+                .map(([k, v]) => [k, String(v)])
+            );
+            variables = { ...variables, ...formValoresNoVacios };
           }
         } catch {
           // Sin respuesta de formulario, seguir con las variables base
@@ -2518,7 +2602,12 @@ export default function SiniestroDetailPage() {
               (documento?.area_id as string | undefined) || activeAreaTab || undefined,
             );
             if (respuesta?.valores && typeof respuesta.valores === "object") {
-              variables = { ...respuesta.valores, ...variables };
+              const formValoresNoVacios = Object.fromEntries(
+                Object.entries(respuesta.valores as Record<string, unknown>)
+                  .filter(([, v]) => v != null && String(v).trim() !== "")
+                  .map(([k, v]) => [k, String(v)])
+              );
+              variables = { ...variables, ...formValoresNoVacios };
             }
           } catch {
             // Sin respuesta de formulario, seguir con las variables base
@@ -2977,7 +3066,12 @@ export default function SiniestroDetailPage() {
             (documento?.area_id as string | undefined) || activeAreaTab || undefined,
           );
           if (respuesta?.valores && typeof respuesta.valores === "object") {
-            variables = { ...respuesta.valores, ...variables };
+            const formValoresNoVacios = Object.fromEntries(
+              Object.entries(respuesta.valores as Record<string, unknown>)
+                .filter(([, v]) => v != null && String(v).trim() !== "")
+                .map(([k, v]) => [k, String(v)])
+            );
+            variables = { ...variables, ...formValoresNoVacios };
           }
         } catch {
           // Sin respuesta de formulario: descargar con variables base
@@ -3366,6 +3460,7 @@ export default function SiniestroDetailPage() {
             siniestro,
             user,
             aseguradoInfo,
+            (docExistente?.area_id as string | undefined) || areaIdActual,
           ),
         );
       } else {
@@ -3403,6 +3498,7 @@ export default function SiniestroDetailPage() {
             siniestro,
             user,
             aseguradoInfo,
+            areaIdActual,
           );
 
           setDocumentoContenido(contenidoConDatos);
@@ -4738,7 +4834,7 @@ export default function SiniestroDetailPage() {
               ) : (
                 <div className="space-y-4">
                   {/* Lista de áreas asignadas */}
-                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  <div className="space-y-3 max-h-[360px] overflow-y-auto">
                     {areasAdicionales.length === 0 ? (
                       <p className="text-sm text-gray-500 text-center py-4">
                         No hay áreas asignadas
@@ -4748,47 +4844,109 @@ export default function SiniestroDetailPage() {
                         const area = todasLasAreas.find(
                           (a) => a.id === areaRelacion.area_id,
                         );
+                        const opcionesAbogadoInf = involucrados
+                          .filter((inv) => inv.activo)
+                          .map((inv) => {
+                            const u = todosLosUsuarios.find(
+                              (x) => x.id === inv.usuario_id,
+                            );
+                            if (
+                              !u ||
+                              !usuarioComparteAlgunaArea(u, [
+                                String(areaRelacion.area_id),
+                              ])
+                            ) {
+                              return null;
+                            }
+                            return {
+                              value: inv.usuario_id,
+                              label: getUserDisplayName(
+                                u,
+                                u?.email || "Usuario",
+                              ),
+                            };
+                          })
+                          .filter(
+                            (o): o is { value: string; label: string } =>
+                              o != null,
+                          );
                         return (
                           <div
                             key={areaRelacion.id}
-                            className={`flex items-center justify-between p-2 rounded-lg transition-colors ${
+                            className={`p-2 rounded-lg transition-colors ${
                               areaRelacion.activo
                                 ? "bg-gray-50 hover:bg-gray-100"
                                 : "border border-red-300 bg-red-50"
                             }`}
                           >
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <span className="text-sm font-medium text-gray-700 truncate">
-                                {area?.nombre || "Área desconocida"}
-                              </span>
-                              {!areaRelacion.activo && (
-                                <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
-                                  Inactiva
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <span className="text-sm font-medium text-gray-700 truncate">
+                                  {area?.nombre || "Área desconocida"}
                                 </span>
-                              )}
+                                {!areaRelacion.activo && (
+                                  <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+                                    Inactiva
+                                  </span>
+                                )}
+                              </div>
+                              {puedeAsignarAreasExpediente &&
+                                (areaRelacion.activo ? (
+                                  <button
+                                    onClick={() =>
+                                      handleRemoveArea(areaRelacion.id)
+                                    }
+                                    className="p-1 text-red-600 hover:text-red-800 transition-colors flex-shrink-0"
+                                    title="Desactivar área"
+                                    type="button"
+                                  >
+                                    <FiTrash2 className="w-4 h-4" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() =>
+                                      handleReactivateArea(areaRelacion.id)
+                                    }
+                                    className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors flex-shrink-0"
+                                    title="Reactivar área"
+                                    type="button"
+                                  >
+                                    Reactivar
+                                  </button>
+                                ))}
                             </div>
-                            {puedeAsignarAreasExpediente &&
-                              (areaRelacion.activo ? (
-                                <button
-                                  onClick={() =>
-                                    handleRemoveArea(areaRelacion.id)
-                                  }
-                                  className="p-1 text-red-600 hover:text-red-800 transition-colors"
-                                  title="Desactivar área"
-                                >
-                                  <FiTrash2 className="w-4 h-4" />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() =>
-                                    handleReactivateArea(areaRelacion.id)
-                                  }
-                                  className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
-                                  title="Reactivar área"
-                                >
-                                  Reactivar
-                                </button>
-                              ))}
+                            {areaRelacion.activo &&
+                              puedeAsignarAbogadoExpediente && (
+                                <div className="mt-2 pt-2 border-t border-gray-200/80">
+                                  <CustomSelect
+                                    label="Firma y nombre en informes"
+                                    name={`abogado_inf_area_${areaRelacion.id}`}
+                                    value={
+                                      areaRelacion.abogado_principal_informe_id ||
+                                      ""
+                                    }
+                                    onChange={(val) => {
+                                      const id =
+                                        typeof val === "string" ? val : "";
+                                      void handleAbogadoPrincipalInformePorArea(
+                                        areaRelacion.id,
+                                        id ? id : null,
+                                      );
+                                    }}
+                                    options={[
+                                      {
+                                        value: "",
+                                        label:
+                                          "— Ninguno (o asignado por legado) —",
+                                      },
+                                      ...opcionesAbogadoInf,
+                                    ]}
+                                    placeholder="Seleccionar abogado del área…"
+                                    isSearchable
+                                    isClearable
+                                  />
+                                </div>
+                              )}
                           </div>
                         );
                       })
@@ -4886,11 +5044,6 @@ export default function SiniestroDetailPage() {
                                     <span className="font-medium text-gray-700">
                                       {rolUsuario}
                                     </span>
-                                    {involucrado.es_principal && (
-                                      <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
-                                        Principal
-                                      </span>
-                                    )}
                                     {!involucrado.activo && (
                                       <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs">
                                         Inactivo
@@ -4901,23 +5054,6 @@ export default function SiniestroDetailPage() {
                                 {puedeActualizarSiniestroExpediente && (
                                   involucrado.activo ? (
                                     <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                                      {puedeAsignarAbogadoExpediente &&
-                                        involucrado.tipo_relacion ===
-                                          "tercero" &&
-                                        !involucrado.es_principal && (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleSetAbogadoPrincipalInformes(
-                                                involucrado.id,
-                                              )
-                                            }
-                                            className="px-2 py-0.5 text-xs rounded border border-blue-200 text-blue-700 hover:bg-blue-50"
-                                            title="Usar firma y nombre de este abogado en informes y PDF"
-                                          >
-                                            Principal en informes
-                                          </button>
-                                        )}
                                       <button
                                         onClick={() =>
                                           handleRemoveInvolucrado(
@@ -4992,7 +5128,6 @@ export default function SiniestroDetailPage() {
                               if (!nuevoInvolucradoUsuarioId) return;
                               await handleAddInvolucrado(
                                 nuevoInvolucradoUsuarioId,
-                                "tercero",
                               );
                               setNuevoInvolucradoUsuarioId("");
                             }}
@@ -6131,6 +6266,13 @@ export default function SiniestroDetailPage() {
                 name="numero_reporte"
                 value={editForm.numero_reporte}
                 onChange={handleEditFormChange}
+              />
+              <Input
+                label="Tercero involucrado"
+                name="tercero"
+                value={editForm.tercero}
+                onChange={handleEditFormChange}
+                placeholder="Nombre del tercero"
               />
             </div>
           </div>

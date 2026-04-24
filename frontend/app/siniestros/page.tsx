@@ -519,7 +519,6 @@ function SiniestrosPageContent() {
       const involucrados = await apiService.getInvolucrados(siniestro.id, true);
       // Ordenar por es_principal para mantener el orden
       const involucradosOrdenados = involucrados
-        .filter((inv: any) => inv.tipo_relacion === "tercero")
         .sort((a: any, b: any) => {
           if (a.es_principal && !b.es_principal) return -1;
           if (!a.es_principal && b.es_principal) return 1;
@@ -693,9 +692,9 @@ function SiniestrosPageContent() {
         );
 
         // Construir lista completa de usuarios actuales
-        const usuariosActualesIds: string[] = usuariosActuales
-          .filter((inv: any) => inv.tipo_relacion === "tercero")
-          .map((inv: any) => inv.usuario_id);
+        const usuariosActualesIds: string[] = usuariosActuales.map(
+          (inv: any) => inv.usuario_id,
+        );
 
         // Áreas: sincronizar todas las áreas seleccionadas
         const areasSeleccionadas = extendedForm.generales.areas_ids || [];
@@ -810,10 +809,7 @@ function SiniestrosPageContent() {
 
         // Eliminar usuarios que ya no están seleccionados
         for (const usuarioRelacion of usuariosActuales) {
-          if (
-            usuarioRelacion.tipo_relacion === "tercero" &&
-            usuariosParaEliminar.includes(usuarioRelacion.usuario_id)
-          ) {
+          if (usuariosParaEliminar.includes(usuarioRelacion.usuario_id)) {
             try {
               await apiService.removeInvolucrado(usuarioRelacion.id);
             } catch (error: any) {
@@ -833,7 +829,6 @@ function SiniestrosPageContent() {
           try {
             await apiService.addInvolucrado(siniestroId, {
               usuario_id: usuarioId,
-              tipo_relacion: "tercero",
               es_principal: indiceEnSeleccionados === 0, // El primero es principal
               activo: true,
             });
@@ -846,9 +841,7 @@ function SiniestrosPageContent() {
         if (usuariosSeleccionados.length > 0) {
           const primerUsuarioId = usuariosSeleccionados[0];
           const relacionPrimerUsuario = usuariosActuales.find(
-            (inv: any) =>
-              inv.usuario_id === primerUsuarioId &&
-              inv.tipo_relacion === "tercero"
+            (inv: any) => inv.usuario_id === primerUsuarioId,
           );
           if (relacionPrimerUsuario && !relacionPrimerUsuario.es_principal) {
             try {
@@ -962,7 +955,6 @@ function SiniestrosPageContent() {
             try {
               await apiService.addInvolucrado(siniestroId, {
                 usuario_id: usuariosIds[i],
-                tipo_relacion: "tercero",
                 es_principal: i === 0, // El primero es principal
                 activo: true,
               });

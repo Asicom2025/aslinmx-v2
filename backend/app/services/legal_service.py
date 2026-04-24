@@ -2470,15 +2470,14 @@ class SiniestroUsuarioService:
             )
 
     @staticmethod
-    def _clear_otros_principales_tercero(
+    def _clear_otros_principales(
         db: Session, siniestro_id: UUID, keep_relacion_id: UUID
     ) -> None:
-        """Un solo tercero (abogado) principal por siniestro para informes/PDF."""
+        """Un solo involucrado principal por siniestro (legado informes/PDF)."""
         for otra in (
             db.query(SiniestroUsuario)
             .filter(
                 SiniestroUsuario.siniestro_id == siniestro_id,
-                SiniestroUsuario.tipo_relacion == "tercero",
                 SiniestroUsuario.id != keep_relacion_id,
                 SiniestroUsuario.eliminado == False,
             )
@@ -2506,19 +2505,17 @@ class SiniestroUsuarioService:
     
     @staticmethod
     def create(db: Session, payload: SiniestroUsuarioCreate, usuario_audit_id: Optional[UUID] = None) -> SiniestroUsuario:
-        """Agrega un involucrado a un siniestro"""
-        if payload.tipo_relacion == "tercero":
-            SiniestroUsuarioService._validar_abogado_en_areas_del_siniestro(
-                db,
-                payload.siniestro_id,
-                payload.usuario_id,
-            )
+        """Agrega un abogado involucrado a un siniestro"""
+        SiniestroUsuarioService._validar_abogado_en_areas_del_siniestro(
+            db,
+            payload.siniestro_id,
+            payload.usuario_id,
+        )
 
         # Verificar que no exista ya la misma relación
         existing = db.query(SiniestroUsuario).filter(
             SiniestroUsuario.siniestro_id == payload.siniestro_id,
             SiniestroUsuario.usuario_id == payload.usuario_id,
-            SiniestroUsuario.tipo_relacion == payload.tipo_relacion,
             SiniestroUsuario.eliminado == False,
         ).first()
         
@@ -2536,8 +2533,8 @@ class SiniestroUsuarioService:
                 existing.observaciones = payload.observaciones
             db.commit()
             db.refresh(existing)
-            if existing.tipo_relacion == "tercero" and existing.es_principal:
-                SiniestroUsuarioService._clear_otros_principales_tercero(
+            if existing.es_principal:
+                SiniestroUsuarioService._clear_otros_principales(
                     db, payload.siniestro_id, existing.id
                 )
                 db.commit()
@@ -2546,7 +2543,6 @@ class SiniestroUsuarioService:
         existing_deleted = db.query(SiniestroUsuario).filter(
             SiniestroUsuario.siniestro_id == payload.siniestro_id,
             SiniestroUsuario.usuario_id == payload.usuario_id,
-            SiniestroUsuario.tipo_relacion == payload.tipo_relacion,
             SiniestroUsuario.eliminado == True,
         ).order_by(SiniestroUsuario.actualizado_en.desc()).first()
         if existing_deleted:
@@ -2557,11 +2553,8 @@ class SiniestroUsuarioService:
             existing_deleted.observaciones = payload.observaciones
             db.commit()
             db.refresh(existing_deleted)
-            if (
-                existing_deleted.tipo_relacion == "tercero"
-                and existing_deleted.es_principal
-            ):
-                SiniestroUsuarioService._clear_otros_principales_tercero(
+            if existing_deleted.es_principal:
+                SiniestroUsuarioService._clear_otros_principales(
                     db, payload.siniestro_id, existing_deleted.id
                 )
                 db.commit()
@@ -2571,8 +2564,8 @@ class SiniestroUsuarioService:
         db.add(relacion)
         db.commit()
         db.refresh(relacion)
-        if relacion.tipo_relacion == "tercero" and relacion.es_principal:
-            SiniestroUsuarioService._clear_otros_principales_tercero(
+        if relacion.es_principal:
+            SiniestroUsuarioService._clear_otros_principales(
                 db, relacion.siniestro_id, relacion.id
             )
             db.commit()
@@ -2592,8 +2585,8 @@ class SiniestroUsuarioService:
             modulo="siniestros",
             tabla="siniestros",
             registro_id=payload.siniestro_id,
-            datos_nuevos={"usuario_id": str(payload.usuario_id), "tipo_relacion": payload.tipo_relacion},
-            descripcion=f"Involucrado asignado: {usu_nombre}",
+            datos_nuevos={"usuario_id": str(payload.usuario_id)},
+            descripcion=f"Abogado asignado: {usu_nombre}",
         )
 
         return relacion
@@ -2612,8 +2605,8 @@ class SiniestroUsuarioService:
             relacion.eliminado = False
             relacion.eliminado_en = None
 
-        if relacion.tipo_relacion == "tercero" and relacion.es_principal:
-            SiniestroUsuarioService._clear_otros_principales_tercero(
+        if relacion.es_principal:
+            SiniestroUsuarioService._clear_otros_principales(
                 db, relacion.siniestro_id, relacion.id
             )
         
@@ -2648,8 +2641,8 @@ class SiniestroUsuarioService:
             modulo="siniestros",
             tabla="siniestros",
             registro_id=siniestro_id,
-            datos_anteriores={"usuario_id": str(relacion.usuario_id), "tipo_relacion": relacion.tipo_relacion},
-            descripcion=f"Involucrado eliminado ({relacion.tipo_relacion}): {usu_nombre}",
+            datos_anteriores={"usuario_id": str(relacion.usuario_id)},
+            descripcion=f"Abogado eliminado: {usu_nombre}",
         )
 
         return True
@@ -2802,6 +2795,46 @@ class SiniestroAreaService:
             )
     
     @staticmethod
+    def _validate_abogado_principal_informe(
+        db: Session,
+        siniestro_id: UUID,
+        area_id: UUID,
+        abogado_id: Optional[UUID],
+    ) -> None:
+        if abogado_id is None:
+            return
+        from app.models.user import UsuarioArea
+
+        su = (
+            db.query(SiniestroUsuario)
+            .filter(
+                SiniestroUsuario.siniestro_id == siniestro_id,
+                SiniestroUsuario.usuario_id == abogado_id,
+                SiniestroUsuario.activo == True,  # noqa: E712
+                SiniestroUsuario.eliminado == False,  # noqa: E712
+            )
+            .first()
+        )
+        if not su:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El abogado principal de informes debe estar asignado al siniestro y activo",
+            )
+        in_area = (
+            db.query(UsuarioArea)
+            .filter(
+                UsuarioArea.usuario_id == abogado_id,
+                UsuarioArea.area_id == area_id,
+            )
+            .first()
+        )
+        if not in_area:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El abogado debe pertenecer al área de esta asignación",
+            )
+
+    @staticmethod
     def update(db: Session, relacion_id: UUID, payload: SiniestroAreaUpdate, usuario_id: Optional[UUID] = None) -> Optional[SiniestroArea]:
         """Actualiza una relación siniestro-área"""
         relacion = db.query(SiniestroArea).filter(SiniestroArea.id == relacion_id).first()
@@ -2810,9 +2843,17 @@ class SiniestroAreaService:
 
         activo_antes = relacion.activo
 
-        for k, v in payload.model_dump(exclude_unset=True).items():
+        dump = payload.model_dump(exclude_unset=True)
+        if "abogado_principal_informe_id" in dump:
+            SiniestroAreaService._validate_abogado_principal_informe(
+                db,
+                relacion.siniestro_id,
+                relacion.area_id,
+                dump.get("abogado_principal_informe_id"),
+            )
+        for k, v in dump.items():
             setattr(relacion, k, v)
-        if payload.model_dump(exclude_unset=True).get("activo") is True:
+        if dump.get("activo") is True:
             relacion.eliminado = False
             relacion.eliminado_en = None
 
@@ -2820,7 +2861,7 @@ class SiniestroAreaService:
         db.refresh(relacion)
 
         # Log si cambió el estado activo
-        if "activo" in payload.model_dump(exclude_unset=True):
+        if "activo" in dump:
             if activo_antes and not relacion.activo:
                 accion_desc = "area_desactivada"
                 desc = "Área desactivada"

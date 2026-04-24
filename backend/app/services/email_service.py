@@ -656,13 +656,6 @@ class EmailService:
     NOMBRE_PLANTILLA_TE_ENVIAN_ARCHIVO = "Envió de archivo"
     NOMBRE_PLANTILLA_ASIGNACION_AREA = "Asignación de área"
 
-    _TIPO_RELACION_LABELS = {
-        "asegurado": "Asegurado",
-        "proveniente": "Proveniente",
-        "testigo": "Testigo",
-        "tercero": "Tercero",
-    }
-
     @staticmethod
     def enviar_notificacion_nuevo_siniestro(
         db: Session,
@@ -850,10 +843,9 @@ class EmailService:
             a.nombre for a in db.query(Area).filter(Area.id.in_(area_ids)).all()
         ] if area_ids else []
 
-        tipo_relacion = getattr(relacion, "tipo_relacion", "") or ""
-        tipo_relacion_label = EmailService._TIPO_RELACION_LABELS.get(
-            tipo_relacion.lower(), tipo_relacion or "Involucrado"
-        )
+        # Involucrados del siniestro son abogados; se mantienen las claves por compatibilidad con plantillas.
+        tipo_relacion = "abogado"
+        tipo_relacion_label = "Abogado"
 
         fecha_asig = getattr(relacion, "creado_en", None) or datetime.now()
         if hasattr(fecha_asig, "strftime"):

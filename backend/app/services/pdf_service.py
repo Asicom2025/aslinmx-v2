@@ -42,6 +42,44 @@ class PDFService:
         return result
 
     @staticmethod
+    def _ensure_pdf_firma_class_on_signature_imgs(html: str) -> str:
+        """
+        Añade class="pdf-firma" (o la fusiona) en <img> con alt='Firma' (p. ej. Word/Jodit)
+        para que el CSS de firma de WeasyPrint siempre aplique.
+        """
+        if not html:
+            return html
+
+        def alt_is_firma(tag: str) -> bool:
+            m = re.search(r"\balt\s*=\s*([\"'])([^\"']*)\1", tag, re.IGNORECASE)
+            if m:
+                return m.group(2).strip().lower() == "firma"
+            return False
+
+        def add_class(m: re.Match) -> str:
+            tag = m.group(0)
+            if "pdf-firma" in tag:
+                return tag
+            if not alt_is_firma(tag):
+                return tag
+            cm = re.search(
+                r"class\s*=\s*([\"'])([^\"']*)\1", tag, re.IGNORECASE
+            )
+            if cm:
+                q, val = cm.group(1), cm.group(2)
+                if "pdf-firma" in val:
+                    return tag
+                new_val = f"{val} pdf-firma".strip()
+                return tag[: cm.start()] + f"class={q}{new_val}{q}" + tag[cm.end() :]
+            return re.sub(
+                r"<img\b", '<img class="pdf-firma"', tag, count=1, flags=re.IGNORECASE
+            )
+
+        return re.sub(
+            r"<img\b[^>]*>", add_class, html, flags=re.IGNORECASE
+        )
+
+    @staticmethod
     def generate_base_css(
         page_size: PageSize = PageSize.A4,
         orientation: PageOrientation = PageOrientation.PORTRAIT,
@@ -72,13 +110,16 @@ class PDFService:
             color: #333;
         }}
         
-        /* Estilos para tablas: solo aplican a tablas sin estilos propios (clase .pdf-default-table) */
-        /* Las tablas con estilos inline (width, border, background-color, etc.) se respetan íntegramente */
+        /* Tablas: bordes por defecto en celdas (Jodit muestra bordes vía su tema; WeasyPrint no) */
         table {{
             border-collapse: collapse;
         }}
+        table td, table th {{
+            border: 1px solid #333;
+            padding: 4px 8px;
+        }}
         
-        /* Solo tablas marcadas con esta clase reciben el estilo por defecto */
+        /* Solo tablas marcadas con esta clase reciben el ancho 100% y márgenes extra */
         table.pdf-default-table {{
             width: 100%;
             margin: 1em 0;
@@ -138,6 +179,16 @@ class PDFService:
         img {{
             max-width: 100%;
             height: auto;
+        }}
+        /* Firma: placeholders (class pdf-firma) o imágenes pegadas desde Word/Jodit (alt Firma, attrs width) —
+           WeasyPrint puede no respetar solo width/height del HTML y escalar con max-width:100% del img global. */
+        img[alt="Firma"],
+        img[alt="firma"],
+        img.pdf-firma {{
+            width: 60px !important;
+            max-width: 60px !important;
+            height: auto !important;
+            display: inline-block;
         }}
         
         /* Estilos para listas */
@@ -285,7 +336,10 @@ class PDFService:
         """
         # Reemplazar variables en el HTML
         html_with_variables = PDFService.replace_variables(html_content, variables)
-        
+        html_with_variables = PDFService._ensure_pdf_firma_class_on_signature_imgs(
+            html_with_variables
+        )
+
         # Generar CSS base
         base_css = PDFService.generate_base_css(
             page_size=page_size,

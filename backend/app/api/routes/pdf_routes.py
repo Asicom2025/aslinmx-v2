@@ -631,23 +631,40 @@ def _variables_plantilla_alineadas_frontend(
         if area_row and getattr(area_row, "nombre", None):
             area_nombre = str(area_row.nombre).strip()
 
-    # Nombre y firma: abogado principal (tercero con es_principal) si existe; si no, quien subió el doc o usuario actual.
-    principal_ab = (
-        db.query(SiniestroUsuario)
-        .filter(
-            SiniestroUsuario.siniestro_id == siniestro.id,
-            SiniestroUsuario.tipo_relacion == "tercero",
-            SiniestroUsuario.es_principal == True,  # noqa: E712
-            SiniestroUsuario.activo == True,  # noqa: E712
-            SiniestroUsuario.eliminado == False,  # noqa: E712
+    # Nombre y firma: por área (siniestro_areas.abogado_principal_informe_id) según el ámbito
+    # del documento; si no hay, tercero es_principal (legado); si no, quien subió el doc o usuario actual.
+    vars_user_id = None
+    if getattr(doc, "area_id", None) and getattr(siniestro, "id", None) is not None:
+        sa_firma = (
+            db.query(SiniestroArea)
+            .filter(
+                SiniestroArea.siniestro_id == siniestro.id,
+                SiniestroArea.area_id == doc.area_id,
+                SiniestroArea.activo == True,  # noqa: E712
+                SiniestroArea.eliminado == False,  # noqa: E712
+            )
+            .order_by(SiniestroArea.fecha_asignacion.desc())
+            .first()
         )
-        .first()
-    )
-    vars_user_id = (
-        principal_ab.usuario_id
-        if principal_ab and getattr(principal_ab, "usuario_id", None)
-        else (getattr(doc, "usuario_subio", None) or getattr(current_user, "id", None))
-    )
+        if sa_firma and getattr(sa_firma, "abogado_principal_informe_id", None):
+            vars_user_id = sa_firma.abogado_principal_informe_id
+    if vars_user_id is None:
+        principal_ab = (
+            db.query(SiniestroUsuario)
+            .filter(
+                SiniestroUsuario.siniestro_id == siniestro.id,
+                SiniestroUsuario.es_principal == True,  # noqa: E712
+                SiniestroUsuario.activo == True,  # noqa: E712
+                SiniestroUsuario.eliminado == False,  # noqa: E712
+            )
+            .first()
+        )
+        if principal_ab and getattr(principal_ab, "usuario_id", None):
+            vars_user_id = principal_ab.usuario_id
+    if vars_user_id is None:
+        vars_user_id = (
+            getattr(doc, "usuario_subio", None) or getattr(current_user, "id", None)
+        )
 
     autor = ""
     u = None
@@ -672,7 +689,7 @@ def _variables_plantilla_alineadas_frontend(
                 firma_html = (
                     '<img src="'
                     + src.replace('"', "&quot;")
-                    + '" alt="Firma" style="max-width:30px;height:auto;"/>'
+                    + '" alt="Firma" class="pdf-firma" style="width:60px;max-width:60px;height:auto;"/>'
                 )
     except Exception:
         firma_html = "---"
@@ -1095,6 +1112,7 @@ def _wrap_header_for_all_pages(header_html: str, body_html: str) -> str:
         "}"
         ".pdf-page-header-running p { margin: 0; }"
         ".pdf-page-header-running table { margin: 0; }"
+        ".pdf-page-header-running td, .pdf-page-header-running th { border: none !important; padding: 0; }"
         ".pdf-with-running-header { page: withRunningHeader; }"
         "</style>"
     )
@@ -1344,7 +1362,8 @@ async def generate_pdf(
                     siniestro_id=PyUUID(request.siniestro_id),
                 )
                 if respuesta and respuesta.valores:
-                    merged_variables = {**respuesta.valores, **merged_variables}
+                    form_vals = {k: v for k, v in respuesta.valores.items() if v is not None and str(v).strip()}
+                    merged_variables = {**merged_variables, **form_vals}
             merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
             merged_variables = _expand_datetime_variables(merged_variables)
             merged_variables = _format_currency_variables(merged_variables, plantilla)
@@ -1483,7 +1502,8 @@ async def generate_pdf_from_template(
                 siniestro_id=PyUUID(str(request.siniestro_id)),
             )
             if respuesta and respuesta.valores:
-                merged_variables = {**respuesta.valores, **merged_variables}
+                form_vals = {k: v for k, v in respuesta.valores.items() if v is not None and str(v).strip()}
+                merged_variables = {**merged_variables, **form_vals}
 
         merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
         merged_variables = _expand_datetime_variables(merged_variables)
@@ -1569,7 +1589,8 @@ async def download_pdf(
                     siniestro_id=PyUUID(request.siniestro_id),
                 )
                 if respuesta and respuesta.valores:
-                    merged_variables = {**respuesta.valores, **merged_variables}
+                    form_vals = {k: v for k, v in respuesta.valores.items() if v is not None and str(v).strip()}
+                    merged_variables = {**merged_variables, **form_vals}
             merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
             merged_variables = _expand_datetime_variables(merged_variables)
             merged_variables = _format_currency_variables(merged_variables, plantilla)
@@ -1709,7 +1730,8 @@ async def download_pdf_from_template(
                 siniestro_id=PyUUID(str(request.siniestro_id)),
             )
             if respuesta and respuesta.valores:
-                merged_variables = {**respuesta.valores, **merged_variables}
+                form_vals = {k: v for k, v in respuesta.valores.items() if v is not None and str(v).strip()}
+                merged_variables = {**merged_variables, **form_vals}
         merged_variables = _normalize_textarea_variables(merged_variables, plantilla)
         merged_variables = _expand_datetime_variables(merged_variables)
         merged_variables = _format_currency_variables(merged_variables, plantilla)

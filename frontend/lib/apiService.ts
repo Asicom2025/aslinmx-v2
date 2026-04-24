@@ -1204,7 +1204,6 @@ const siniestroService = {
     siniestroId: string,
     data: {
       usuario_id: string;
-      tipo_relacion: "asegurado" | "proveniente" | "testigo" | "tercero";
       es_principal?: boolean;
       observaciones?: string;
       activo?: boolean;
@@ -1223,7 +1222,6 @@ const siniestroService = {
     return response.data;
   },
   updateInvolucrado: async (relacionId: string, data: {
-    tipo_relacion?: "asegurado" | "proveniente" | "testigo" | "tercero";
     es_principal?: boolean;
     observaciones?: string;
     activo?: boolean;
@@ -1257,6 +1255,7 @@ const siniestroService = {
     usuario_responsable?: string;
     observaciones?: string;
     activo?: boolean;
+    abogado_principal_informe_id?: string | null;
   }) => {
     const response = await api.put(`/siniestros/areas-adicionales/${relacionId}`, data);
     return response.data;
