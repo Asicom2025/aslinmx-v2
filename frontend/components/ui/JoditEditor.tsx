@@ -83,7 +83,8 @@ export default function JoditEditorComponent({
     defaultActionOnPaste: "insert_as_html" as const,
     processPasteFromWord: true,
     processPasteHTML: true,
-    removeEmptyElements: true,
+    // No eliminar párrafos “vacíos” que solo contienen <img> (rompe pegado de capturas).
+    removeEmptyElements: false,
     
     // Pantalla completa - Configuración corregida
     fullsize: false, // Desactivar pantalla completa automática
@@ -510,7 +511,7 @@ export default function JoditEditorComponent({
     // No usar allowTags/allowAttributes vacíos a nivel raíz: en Jodit implica “no dejar ninguna etiqueta”
     // y elimina <img> al pegar aunque uploader.insertImageAsBase64URI esté en true.
     cleanHTML: {
-      removeEmptyElements: true,
+      removeEmptyElements: false,
       fillEmptyParagraph: true,
       removeSpaces: false,
       removeNBSP: false,

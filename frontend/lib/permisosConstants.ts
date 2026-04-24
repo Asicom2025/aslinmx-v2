@@ -38,12 +38,16 @@ export const ACCION = {
   editar_poliza: "editar_poliza",
   /** Descripción de hechos y versiones (independiente de siniestros.update) */
   editar_descripcion_de_hechos: "editar_descripcion_de_hechos",
+  /** Listar bitácora (GET /bitacora/siniestros/{id}). Ver también `verificar_bitcora` / `verificar_bitacora`. */
   ver_bitacora: "ver_bitacora",
+  /** Variante / legacy en catálogo de permisos (mismo uso que ver_bitacora). */
+  verificar_bitcora: "verificar_bitcora",
+  /** Variante con nombre correcto (bitácora); si existe en BD, cuenta igual. */
+  verificar_bitacora: "verificar_bitacora",
   ver_documentos: "ver_documentos",
   subir_archivo: "subir_archivo",
   generar_pdf: "generar_pdf",
   ver_involucrados: "ver_involucrados",
-  verificar_bitcora: "verificar_bitcora",
   eliminar_archivos: "eliminar_archivos",
   ver_reportes_de_autoridades: "ver_reportes_de_autoridades",
   invitar: "invitar",
@@ -186,3 +190,9 @@ export const canCatalogoDocumentoEliminar = (can: CanFn) =>
 /** Descripción de hechos / versiones (no usar siniestros.update como sustituto). */
 export const canSiniestroEditarDescripcionHechos = (can: CanFn) =>
   can(MODULO.siniestros, ACCION.editar_descripcion_de_hechos);
+
+/** Ver listado de bitácora del siniestro: cualquiera de las acciones técnicas asignadas al rol. */
+export const canSiniestrosVerBitacora = (can: CanFn) =>
+  can(MODULO.siniestros, ACCION.ver_bitacora) ||
+  can(MODULO.siniestros, ACCION.verificar_bitcora) ||
+  can(MODULO.siniestros, ACCION.verificar_bitacora);

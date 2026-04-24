@@ -166,7 +166,12 @@ def _daily_log_path() -> Optional[str]:
     return os.path.join(base, name)
 
 
+_structured_file_warned_no_dir = False
+_structured_file_warned_oserr: Optional[str] = None
+
+
 def _emit_log_line(payload: Dict[str, Any]) -> None:
+    global _structured_file_warned_no_dir, _structured_file_warned_oserr
     try:
         line = json.dumps(payload, default=str, ensure_ascii=False)
     except Exception:
@@ -179,12 +184,43 @@ def _emit_log_line(payload: Dict[str, Any]) -> None:
             pass
     if target in ("file", "both"):
         path = _daily_log_path()
-        if path:
+        if not path:
+            if not _structured_file_warned_no_dir:
+                _structured_file_warned_no_dir = True
+                try:
+                    _structured_logger.warning(
+                        json.dumps(
+                            {
+                                "event": "structured_log_file_skipped",
+                                "reason": "STRUCTURED_LOG_DIR no definido; no se escribe a disco (solo stdout si aplica)",
+                                "STRUCTURED_LOG_TARGET": target,
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                except Exception:
+                    pass
+        else:
             try:
                 with open(path, "a", encoding="utf-8") as fp:
                     fp.write(line + "\n")
-            except OSError:
-                pass
+            except OSError as exc:
+                key = f"{path}:{exc!s}"
+                if _structured_file_warned_oserr != key:
+                    _structured_file_warned_oserr = key
+                    try:
+                        _structured_logger.warning(
+                            json.dumps(
+                                {
+                                    "event": "structured_log_file_write_failed",
+                                    "path": path,
+                                    "error": str(exc),
+                                },
+                                ensure_ascii=False,
+                            )
+                        )
+                    except Exception:
+                        pass
 
 
 class HttpTransactionMiddleware:

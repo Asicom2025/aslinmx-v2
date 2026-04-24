@@ -33,6 +33,7 @@ from app.models.legal import (
     Area,
     Proveniente,
     SiniestroArea,
+    SiniestroUsuario,
     Institucion,
     Autoridad,
     EstadoSiniestro,
@@ -194,6 +195,158 @@ def _get_poliza_principal(siniestro: Any) -> Optional[Any]:
     return polizas[0] if polizas else None
 
 
+def _id_legible_para_plantillas(db: Session, siniestro: Any) -> str:
+    """ID legible del expediente ({{id}}, {{ID}}) — mismo criterio que el frontend."""
+    if not siniestro:
+        return ""
+    raw_id_fmt = (getattr(siniestro, "id_formato", None) or "").strip()
+    if raw_id_fmt:
+        return raw_id_fmt
+    codigo_prov = ""
+    if getattr(siniestro, "proveniente_id", None):
+        prov = (
+            db.query(Proveniente)
+            .filter(Proveniente.id == siniestro.proveniente_id)
+            .first()
+        )
+        if prov and getattr(prov, "codigo", None):
+            codigo_prov = str(prov.codigo).strip()
+    sc = (getattr(siniestro, "codigo", None) or "").strip()
+    return (
+        format_siniestro_id_legible(
+            codigo_prov,
+            sc,
+            anualidad_column=getattr(siniestro, "anualidad", None),
+            fecha_registro=getattr(siniestro, "fecha_registro", None),
+            fecha_siniestro=getattr(siniestro, "fecha_siniestro", None),
+        )
+        or ""
+    )
+
+
+def _nombre_calificacion_siniestro(
+    db: Session, empresa_id: Optional[PyUUID], calificacion_id: Any
+) -> str:
+    """Nombre de la calificación asignada ({{calificacion}})."""
+    if not empresa_id or not calificacion_id:
+        return ""
+    try:
+        cid = (
+            calificacion_id
+            if isinstance(calificacion_id, PyUUID)
+            else PyUUID(str(calificacion_id))
+        )
+    except (ValueError, TypeError):
+        return ""
+    row = (
+        db.query(CalificacionSiniestro)
+        .filter(
+            CalificacionSiniestro.id == cid,
+            CalificacionSiniestro.empresa_id == empresa_id,
+        )
+        .first()
+    )
+    if row and getattr(row, "nombre", None):
+        return str(row.nombre).strip()
+    return ""
+
+
+def _merge_aliases_plantilla_estandar(
+    db: Session,
+    siniestro: Any,
+    empresa_id: Optional[PyUUID],
+    out: Dict[str, Any],
+) -> None:
+    """
+    Alias y claves adicionales usadas en plantillas / informes / PDF:
+    {{ID}}, {{numero_de_reporte}}, {{numero_de_siniestro}}, {{calificacion}},
+    {{poliza_principal_numero}} (refuerzo si faltara).
+    """
+    if not siniestro:
+        return
+    ileg = _id_legible_para_plantillas(db, siniestro)
+    out["id"] = ileg
+    out["ID"] = ileg
+    out["numero_de_reporte"] = str(getattr(siniestro, "numero_reporte", None) or "").strip()
+    out["numero_de_siniestro"] = str(getattr(siniestro, "numero_siniestro", None) or "").strip()
+    out["calificacion"] = _nombre_calificacion_siniestro(
+        db, empresa_id, getattr(siniestro, "calificacion_id", None)
+    )
+    pp = _get_poliza_principal(siniestro)
+    np = (getattr(pp, "numero_poliza", None) or "").strip() if pp else ""
+    if np:
+        out["poliza_principal_numero"] = np
+
+
+def _informe_variables_catalogo_extendido(
+    db: Session,
+    siniestro: Any,
+    empresa_id: Optional[PyUUID],
+) -> Dict[str, str]:
+    """
+    Variables {{...}} estándar para informes / plantillas (alineadas con el detalle de siniestro):
+    poliza_principal_numero, institucion, tercero, autoridad, celular, correo_electrónico (+ alias ASCII).
+    """
+    out: Dict[str, str] = {}
+    if not siniestro:
+        return out
+
+    poliza_principal = _get_poliza_principal(siniestro)
+    np = (
+        (getattr(poliza_principal, "numero_poliza", None) or "").strip()
+        if poliza_principal
+        else ""
+    )
+    out["poliza_principal_numero"] = np
+
+    tv = getattr(siniestro, "tercero", None)
+    out["tercero"] = str(tv).strip() if tv is not None and str(tv).strip() else ""
+
+    inst_nombre = ""
+    if getattr(siniestro, "institucion_id", None):
+        inst = (
+            db.query(Institucion)
+            .filter(Institucion.id == siniestro.institucion_id)
+            .first()
+        )
+        if inst and getattr(inst, "nombre", None):
+            inst_nombre = str(inst.nombre).strip()
+    out["institucion"] = inst_nombre
+
+    aut_nombre = ""
+    if getattr(siniestro, "autoridad_id", None):
+        aut = (
+            db.query(Institucion)
+            .filter(Institucion.id == siniestro.autoridad_id)
+            .first()
+        )
+        if not aut:
+            aut = (
+                db.query(Autoridad)
+                .filter(Autoridad.id == siniestro.autoridad_id)
+                .first()
+            )
+        if aut and getattr(aut, "nombre", None):
+            aut_nombre = str(aut.nombre).strip()
+    out["autoridad"] = aut_nombre
+
+    cel = ""
+    corr = ""
+    if empresa_id and getattr(siniestro, "asegurado_id", None):
+        aseg = AseguradoService.get_by_id(db, siniestro.asegurado_id, empresa_id)
+        if aseg:
+            cel = (
+                (getattr(aseg, "telefono", None) or "").strip()
+                or (getattr(aseg, "tel_oficina", None) or "").strip()
+                or (getattr(aseg, "tel_casa", None) or "").strip()
+            )
+            corr = (getattr(aseg, "correo", None) or "").strip()
+    out["celular"] = cel
+    out["correo_electrónico"] = corr
+    out["correo_electronico"] = corr
+    return out
+
+
 # Tabla completa (table/tbody). table-layout:auto + salto de línea para títulos largos.
 # Alineado con frontend/calificacionTablaPlaceholders.ts
 _CALIF_TABLE_CLASS = "calificaciones-siniestro-dinamica"
@@ -300,6 +453,8 @@ def _get_siniestro_asegurado_variables(
     """
     Variables para PDF desde siniestro y asegurado (header y cuerpo).
     - numero_poliza, numero_siniestro: del siniestro
+    - poliza_principal_numero, institucion, tercero, autoridad, celular,
+      correo_electrónico / correo_electronico: catálogo extendido (informes)
     - lugar_ocurrido: dirección del asegurado (ciudad, estado)
     - fecha_reporte, hora_fecha_reporte: de `fecha_reporte` / `fecha_registro` / `fecha_siniestro`
     - fecha_asignacion: de `siniestros.fecha_asignacion` o relación `siniestro_areas`
@@ -401,6 +556,8 @@ def _get_siniestro_asegurado_variables(
             db, empresa_id, getattr(siniestro, "calificacion_id", None)
         )
     )
+    out.update(_informe_variables_catalogo_extendido(db, siniestro, empresa_id))
+    _merge_aliases_plantilla_estandar(db, siniestro, empresa_id, out)
 
     return out
 
@@ -474,8 +631,23 @@ def _variables_plantilla_alineadas_frontend(
         if area_row and getattr(area_row, "nombre", None):
             area_nombre = str(area_row.nombre).strip()
 
-    # Mismo criterio que el frontend: nombre y firma del usuario que subió el documento si existe.
-    vars_user_id = getattr(doc, "usuario_subio", None) or getattr(current_user, "id", None)
+    # Nombre y firma: abogado principal (tercero con es_principal) si existe; si no, quien subió el doc o usuario actual.
+    principal_ab = (
+        db.query(SiniestroUsuario)
+        .filter(
+            SiniestroUsuario.siniestro_id == siniestro.id,
+            SiniestroUsuario.tipo_relacion == "tercero",
+            SiniestroUsuario.es_principal == True,  # noqa: E712
+            SiniestroUsuario.activo == True,  # noqa: E712
+            SiniestroUsuario.eliminado == False,  # noqa: E712
+        )
+        .first()
+    )
+    vars_user_id = (
+        principal_ab.usuario_id
+        if principal_ab and getattr(principal_ab, "usuario_id", None)
+        else (getattr(doc, "usuario_subio", None) or getattr(current_user, "id", None))
+    )
 
     autor = ""
     u = None
@@ -505,31 +677,7 @@ def _variables_plantilla_alineadas_frontend(
     except Exception:
         firma_html = "---"
 
-    codigo_prov = ""
-    if getattr(siniestro, "proveniente_id", None):
-        prov = (
-            db.query(Proveniente)
-            .filter(Proveniente.id == siniestro.proveniente_id)
-            .first()
-        )
-        if prov and prov.codigo:
-            codigo_prov = str(prov.codigo).strip()
-
-    sc = (getattr(siniestro, "codigo", None) or "").strip()
-    raw_id_fmt = (getattr(siniestro, "id_formato", None) or "").strip()
-    if raw_id_fmt:
-        id_formato = raw_id_fmt
-    else:
-        id_formato = (
-            format_siniestro_id_legible(
-                codigo_prov,
-                sc,
-                anualidad_column=getattr(siniestro, "anualidad", None),
-                fecha_registro=getattr(siniestro, "fecha_registro", None),
-                fecha_siniestro=getattr(siniestro, "fecha_siniestro", None),
-            )
-            or ""
-        )
+    id_formato = _id_legible_para_plantillas(db, siniestro)
 
     creado_src = (
         getattr(doc, "creado_en", None)
@@ -615,6 +763,8 @@ def _variables_plantilla_alineadas_frontend(
             db, empresa_id, getattr(siniestro, "calificacion_id", None)
         )
     )
+    out.update(_informe_variables_catalogo_extendido(db, siniestro, empresa_id))
+    _merge_aliases_plantilla_estandar(db, siniestro, empresa_id, out)
     return out
 
 

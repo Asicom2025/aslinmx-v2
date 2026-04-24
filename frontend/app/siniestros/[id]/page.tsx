@@ -16,7 +16,14 @@ import { swalError, swalSuccess, swalConfirm } from "@/lib/swal";
 import { buildSiniestroIdLegible } from "@/lib/siniestroIdDisplay";
 import { decodeHtmlForEditor } from "@/lib/decodeHtmlForEditor";
 import { buildCalificacionPlantillaVariables } from "@/lib/calificacionTablaPlaceholders";
-import { canSiniestroEditarDescripcionHechos } from "@/lib/permisosConstants";
+import {
+  buildCatalogoInformePlaceholders,
+  escapePlaceholderKeyForRegex,
+} from "@/lib/plantillaSiniestroVariables";
+import {
+  canSiniestroEditarDescripcionHechos,
+  canSiniestrosVerBitacora,
+} from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
 import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
@@ -350,7 +357,7 @@ export default function SiniestroDetailPage() {
   const { can } = usePermisos();
   const canVerDocumentos = can("siniestros", "ver_documentos");
   const canSubirArchivo = can("siniestros", "subir_archivo");
-  const canVerBitacora = can("siniestros", "ver_bitacora");
+  const canVerBitacora = canSiniestrosVerBitacora(can);
   const canGenerarPdf = can("siniestros", "generar_pdf");
   const canActualizarSiniestro = can("siniestros", "update");
   const canEditarDescripcionHechos = canSiniestroEditarDescripcionHechos(can);
@@ -361,6 +368,28 @@ export default function SiniestroDetailPage() {
   const canEditarPolizaSiniestro = can("siniestros", "editar_poliza");
   const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
+
+  const puedeMutarExpediente = useMemo(
+    () => Boolean(siniestro) && siniestro!.puede_editar_expediente !== false,
+    [siniestro],
+  );
+  const puedeSubirArchivoExpediente = puedeMutarExpediente && canSubirArchivo;
+  const puedeActualizarSiniestroExpediente =
+    puedeMutarExpediente && canActualizarSiniestro;
+  const puedeAsignarAbogadoExpediente =
+    puedeMutarExpediente && canAgregarAbogado;
+  const puedeAsignarAreasExpediente =
+    puedeMutarExpediente && canAsignarAreas;
+  const puedeEditarStatusExpediente =
+    puedeMutarExpediente && canEditarStatusSiniestro;
+  const puedeEditarCalificacionExpediente =
+    puedeMutarExpediente && canCalificacionSiniestro;
+  const puedeEditarPolizaExpediente =
+    puedeMutarExpediente && canEditarPolizaSiniestro;
+  const puedeEditarDescripcionExpediente =
+    puedeMutarExpediente && canEditarDescripcionHechos;
+  const puedeMutarDocumentosPdfExpediente =
+    puedeMutarExpediente && canGenerarPdf;
 
   // Estados para status y calificación
   const [estadosSiniestro, setEstadosSiniestro] = useState<EstadoSiniestro[]>(
@@ -548,6 +577,24 @@ export default function SiniestroDetailPage() {
       : "---";
   };
 
+  /** Abogado (tercero) marcado como principal: su firma y nombre en informes/PDF. */
+  const resolveUsuarioFirmaParaInforme = useCallback(
+    (autorUsuarioParam: any) => {
+      const p = involucrados.find(
+        (inv) =>
+          String(inv.tipo_relacion) === "tercero" &&
+          inv.es_principal &&
+          inv.activo !== false,
+      );
+      if (!p?.usuario_id) return autorUsuarioParam;
+      const u = todosLosUsuarios.find(
+        (x) => String(x.id) === String(p.usuario_id),
+      );
+      return u ?? autorUsuarioParam;
+    },
+    [involucrados, todosLosUsuarios],
+  );
+
   /**
    * Aplica los valores dinámicos del siniestro y del contexto actual
    * a una plantilla HTML con placeholders tipo {{nombre_campo}}.
@@ -581,16 +628,10 @@ export default function SiniestroDetailPage() {
       asegurado?.email ||
       "";
 
-    const autorNombre =
-      `${autorUsuario?.nombre || ""} ${autorUsuario?.apellido_paterno || ""} ${
-        autorUsuario?.apellido_materno || ""
-      }`.trim() ||
-      autorUsuario?.full_name ||
-      autorUsuario?.nombre_completo ||
-      autorUsuario?.email ||
-      "";
+    const uFirmaPlantilla = resolveUsuarioFirmaParaInforme(autorUsuario);
+    const autorNombre = getUserDisplayName(uFirmaPlantilla, "");
 
-    const firmaHtml = buildFirmaPhysicalHtml(autorUsuario);
+    const firmaHtml = buildFirmaPhysicalHtml(uFirmaPlantilla);
 
     // ID legible: mismo criterio que API (id_formato; si no, anualidad columna → fechas)
     const construirIdFormato = (): string => {
@@ -631,7 +672,25 @@ export default function SiniestroDetailPage() {
       (siniestroData as any)?.calificacion_id,
     );
 
+    const calificacionNombre =
+      calificacionesSiniestro.find(
+        (c) =>
+          String(c.id) ===
+          String((siniestroData as any)?.calificacion_id ?? ""),
+      )?.nombre ?? "";
+
     const replacements: Record<string, string> = {
+      ...buildCatalogoInformePlaceholders({
+        siniestroData,
+        polizaPrincipalNumero: polizaPrincipalData?.numero_poliza ?? "",
+        institucionNombre: institucionInfo?.nombre ?? "",
+        autoridadNombre: autoridadInfo?.nombre ?? "",
+        aseguradoContact: asegurado,
+        idLegible: idFormato,
+        numeroReporte: siniestroData?.numero_reporte || "",
+        numeroSiniestro: siniestroData?.numero_siniestro,
+        calificacionNombre,
+      }),
       // ── Fechas ──────────────────────────────────────────────────────────────
       fecha: formatoFecha(hoy),
       fecha_asignacion: formatoFecha(fechaAsignacionSrc),
@@ -640,8 +699,7 @@ export default function SiniestroDetailPage() {
       fecha_siniestro: formatoFecha(
         (siniestroData as any)?.fecha_siniestro,
       ),
-      // ── ID / Códigos ─────────────────────────────────────────────────────────
-      id: idFormato,
+      // ── ID / Códigos (alias sin "de" para plantillas antiguas) ───────────────
       numero_reporte: siniestroData?.numero_reporte || "",
       numero_siniestro: siniestroData?.numero_siniestro ?? "",
       numero_poliza: polizaPrincipalData?.numero_poliza ?? "",
@@ -664,7 +722,10 @@ export default function SiniestroDetailPage() {
 
     let resultado = contenido;
     Object.entries(replacements).forEach(([key, value]) => {
-      const regex = new RegExp(`{{\\s*${key}\\s*}}`, "g");
+      const regex = new RegExp(
+        `{{\\s*${escapePlaceholderKeyForRegex(key)}\\s*}}`,
+        "g",
+      );
       resultado = resultado.replace(regex, value ?? "");
     });
 
@@ -740,19 +801,40 @@ export default function SiniestroDetailPage() {
       (siniestroData as any)?.calificacion_id,
     );
 
-    const firmaImg = buildFirmaPhysicalHtml(autorUsuario ?? {});
+    const calificacionNombrePdf =
+      calificacionesSiniestro.find(
+        (c) =>
+          String(c.id) ===
+          String((siniestroData as any)?.calificacion_id ?? ""),
+      )?.nombre ?? "";
+
+    const idLegiblePdf = construirIdFormato();
+
+    const uFirmaPdf = resolveUsuarioFirmaParaInforme(autorUsuario ?? null);
+    const nombreFirmaPdf = getUserDisplayName(uFirmaPdf, autorNombre);
+    const firmaImg = buildFirmaPhysicalHtml(uFirmaPdf ?? {});
 
     return {
+      ...buildCatalogoInformePlaceholders({
+        siniestroData,
+        polizaPrincipalNumero: polizaPrincipalData?.numero_poliza ?? "",
+        institucionNombre: institucionInfo?.nombre ?? "",
+        autoridadNombre: autoridadInfo?.nombre ?? "",
+        aseguradoContact: aseguradoData,
+        idLegible: idLegiblePdf,
+        numeroReporte: siniestroData?.numero_reporte || "",
+        numeroSiniestro: siniestroData?.numero_siniestro,
+        calificacionNombre: calificacionNombrePdf,
+      }),
       creado_en: creadoEn,
-      creado_por: autorNombre,
+      creado_por: nombreFirmaPdf,
       firmado_por: firmaImg,
       firma_fisica: firmaImg,
-      id: construirIdFormato(),
       asegurado: nombreAsegurado,
       area: areaNombre || "",
       fecha_registro: creadoEn,
       nombre_asegurado: nombreAsegurado,
-      autor: autorNombre,
+      autor: nombreFirmaPdf,
       fecha_asignacion: formatoFecha(fechaAsignacionSrc),
       fecha: formatoFecha(hoy),
       fecha_siniestro: formatoFecha((siniestroData as any)?.fecha_siniestro),
@@ -1036,24 +1118,30 @@ export default function SiniestroDetailPage() {
   };
 
   const handleOpenEditDescripcion = useCallback(() => {
-    if (!canEditarDescripcionHechos) return;
+    if (!puedeEditarDescripcionExpediente) return;
     if (!descripcionSeleccionada || !isDescripcionSeleccionadaUltima) return;
     setDescripcionEditHtml(
       decodeHtmlForEditor(descripcionSeleccionada.descripcion_html || ""),
     );
     setShowDescripcionModal(true);
   }, [
-    canEditarDescripcionHechos,
+    puedeEditarDescripcionExpediente,
     descripcionSeleccionada,
     isDescripcionSeleccionadaUltima,
   ]);
 
+  const handleOpenAgregarDescripcion = useCallback(() => {
+    if (!puedeEditarDescripcionExpediente) return;
+    setDescripcionEditHtml("<p><br></p>");
+    setShowDescripcionModal(true);
+  }, [puedeEditarDescripcionExpediente]);
+
   const handleSaveDescripcionVersion = useCallback(async () => {
-    if (!canEditarDescripcionHechos) {
+    if (!puedeEditarDescripcionExpediente) {
       swalError("No tiene permiso para editar la descripción de hechos");
       return;
     }
-    if (!descripcionActual) return;
+    if (!siniestroId) return;
     const html = descripcionEditHtml.trim();
     if (!html) {
       swalError("La descripción de los hechos no puede quedar vacía");
@@ -1088,8 +1176,7 @@ export default function SiniestroDetailPage() {
       setSavingDescripcionVersion(false);
     }
   }, [
-    canEditarDescripcionHechos,
-    descripcionActual,
+    puedeEditarDescripcionExpediente,
     descripcionEditHtml,
     loadVersionesDescripcionHechos,
     siniestroId,
@@ -1919,6 +2006,21 @@ export default function SiniestroDetailPage() {
     } catch (error: any) {
       swalError(
         error.response?.data?.detail || "Error al reactivar involucrado",
+      );
+    }
+  };
+
+  const handleSetAbogadoPrincipalInformes = async (relacionId: string) => {
+    if (!puedeAsignarAbogadoExpediente) return;
+    try {
+      await apiService.updateInvolucrado(relacionId, { es_principal: true });
+      await loadInvolucrados();
+      await loadLogsAuditoria();
+      swalSuccess("Abogado principal para informes actualizado");
+    } catch (error: any) {
+      swalError(
+        error.response?.data?.detail ||
+          "Error al marcar abogado principal en informes",
       );
     }
   };
@@ -2907,7 +3009,7 @@ export default function SiniestroDetailPage() {
 
   /** Eliminación lógica: el documento deja de mostrarse pero permanece en base de datos. */
   const handleEliminarDocumento = async (documento: any) => {
-    if (!documento?.id || !canSubirArchivo) return;
+    if (!documento?.id || !puedeSubirArchivoExpediente) return;
     const nombre = documento.nombre_archivo || "este documento";
     const confirmed = await swalConfirm(
       `Se eliminará «${nombre}» del expediente.`,
@@ -3573,7 +3675,7 @@ export default function SiniestroDetailPage() {
                 }))}
                 placeholder="Seleccionar estado"
                 disabled={
-                  !canEditarStatusSiniestro || loadingEstados || updatingStatus
+                  !puedeEditarStatusExpediente || loadingEstados || updatingStatus
                 }
               />
 
@@ -3598,14 +3700,14 @@ export default function SiniestroDetailPage() {
                   }))}
                 placeholder="Seleccionar calificación"
                 disabled={
-                  !canCalificacionSiniestro ||
+                  !puedeEditarCalificacionExpediente ||
                   loadingCalificaciones ||
                   updatingCalificacion
                 }
               />
             </div>
 
-            {canActualizarSiniestro && (
+            {puedeActualizarSiniestroExpediente && (
               <div className="flex justify-end">
                 <EmpresaButton
                   variant="primary"
@@ -3875,11 +3977,15 @@ export default function SiniestroDetailPage() {
                                           }
                                           areaId={activeAreaTab}
                                           siniestroId={siniestroId as string}
-                                          canVerPdf={canGenerarPdf}
-                                          canEditarDocumento={
-                                            canGenerarPdf
+                                          canVerPdf={
+                                            canGenerarPdf || canVerDocumentos
                                           }
-                                          canCrearDocumento={canGenerarPdf}
+                                          canEditarDocumento={
+                                            puedeMutarDocumentosPdfExpediente
+                                          }
+                                          canCrearDocumento={
+                                            puedeMutarDocumentosPdfExpediente
+                                          }
                                         />
                                       )}
 
@@ -3889,23 +3995,31 @@ export default function SiniestroDetailPage() {
                                             documentos={documentosFiltrados}
                                             loading={loadingDocumentos}
                                             onViewDocument={handleViewDocumento}
-                                            onEditDocument={handleEditDocumento}
+                                            onEditDocument={
+                                              puedeMutarExpediente
+                                                ? handleEditDocumento
+                                                : () => {}
+                                            }
                                             onSendByEmail={
                                               handleOpenEmailModalFromDocumento
                                             }
                                             onDownloadDocument={
-                                              handleDownloadDocumento
+                                              puedeMutarExpediente
+                                                ? handleDownloadDocumento
+                                                : undefined
                                             }
                                             onDownloadInforme={
-                                              handleDownloadInforme
+                                              puedeMutarExpediente
+                                                ? handleDownloadInforme
+                                                : undefined
                                             }
                                             onDeleteDocument={
-                                              canSubirArchivo
+                                              puedeSubirArchivoExpediente
                                                 ? handleEliminarDocumento
                                                 : undefined
                                             }
                                             onUploadClick={
-                                              canSubirArchivo
+                                              puedeSubirArchivoExpediente
                                                 ? handleOpenUploadDocModal
                                                 : undefined
                                             }
@@ -3918,6 +4032,9 @@ export default function SiniestroDetailPage() {
                                       {activeContentTab === "bitacora" &&
                                         canVerBitacora && (
                                           <BitacoraList
+                                            puedeMutarExpediente={
+                                              puedeMutarExpediente
+                                            }
                                             bitacoras={bitacorasFiltradas}
                                             loading={loadingBitacoras}
                                             siniestroId={siniestroId}
@@ -4038,11 +4155,15 @@ export default function SiniestroDetailPage() {
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
                                         areaId={activeAreaTab}
                                         siniestroId={siniestroId as string}
-                                        canVerPdf={canGenerarPdf}
-                                        canEditarDocumento={
-                                          canGenerarPdf
+                                        canVerPdf={
+                                          canGenerarPdf || canVerDocumentos
                                         }
-                                        canCrearDocumento={canGenerarPdf}
+                                        canEditarDocumento={
+                                          puedeMutarDocumentosPdfExpediente
+                                        }
+                                        canCrearDocumento={
+                                          puedeMutarDocumentosPdfExpediente
+                                        }
                                       />
                                     )}
 
@@ -4052,23 +4173,31 @@ export default function SiniestroDetailPage() {
                                           documentos={documentosFiltrados}
                                           loading={loadingDocumentos}
                                           onViewDocument={handleViewDocumento}
-                                          onEditDocument={handleEditDocumento}
+                                          onEditDocument={
+                                            puedeMutarExpediente
+                                              ? handleEditDocumento
+                                              : () => {}
+                                          }
                                           onSendByEmail={
                                             handleOpenEmailModalFromDocumento
                                           }
                                           onDownloadDocument={
-                                            handleDownloadDocumento
+                                            puedeMutarExpediente
+                                              ? handleDownloadDocumento
+                                              : undefined
                                           }
                                           onDownloadInforme={
-                                            handleDownloadInforme
+                                            puedeMutarExpediente
+                                              ? handleDownloadInforme
+                                              : undefined
                                           }
                                           onDeleteDocument={
-                                            canSubirArchivo
+                                            puedeSubirArchivoExpediente
                                               ? handleEliminarDocumento
                                               : undefined
                                           }
                                           onUploadClick={
-                                            canSubirArchivo
+                                            puedeSubirArchivoExpediente
                                               ? handleOpenUploadDocModal
                                               : undefined
                                           }
@@ -4081,6 +4210,9 @@ export default function SiniestroDetailPage() {
                                     {activeContentTab === "bitacora" &&
                                       canVerBitacora && (
                                         <BitacoraList
+                                          puedeMutarExpediente={
+                                            puedeMutarExpediente
+                                          }
                                           bitacoras={bitacorasFiltradas}
                                           loading={loadingBitacoras}
                                           siniestroId={siniestroId}
@@ -4145,16 +4277,6 @@ export default function SiniestroDetailPage() {
                       <h3 className="font-semibold text-gray-700 flex-1">
                         Asegurado
                       </h3>
-                      {aseguradoInfo && !aseguradoInfo.error && (
-                        <EmpresaButton
-                          size="sm"
-                          variant="outline"
-                          onClick={abrirModalAsegurado}
-                          className="text-xs"
-                        >
-                          Cambiar
-                        </EmpresaButton>
-                      )}
                     </div>
                     {aseguradoInfo && !aseguradoInfo.error ? (
                       <>
@@ -4492,6 +4614,30 @@ export default function SiniestroDetailPage() {
                 </div>
 
                 {/* Descripción de los Hechos */}
+                {!descripcionHechosVistaHtml.trim() &&
+                  puedeEditarDescripcionExpediente && (
+                  <div className="mt-6 pt-6 border-t border-gray-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold text-gray-700">
+                          Descripción de los Hechos
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-1">
+                          Aún no hay descripción registrada para este expediente.
+                        </p>
+                      </div>
+                      <EmpresaButton
+                        variant="primary"
+                        size="sm"
+                        onClick={handleOpenAgregarDescripcion}
+                      >
+                        <FiEdit3 className="w-4 h-4 mr-2" />
+                        Agregar descripción de los hechos
+                      </EmpresaButton>
+                    </div>
+                  </div>
+                )}
+
                 {descripcionHechosVistaHtml.trim() && (
                   <div className="mt-6 pt-6 border-t border-gray-200">
                     <div className="flex items-center justify-between gap-3 mb-3">
@@ -4522,7 +4668,7 @@ export default function SiniestroDetailPage() {
                           isSearchable={false}
                           isClearable={false}
                         />
-                        {canEditarDescripcionHechos &&
+                        {puedeEditarDescripcionExpediente &&
                           isDescripcionSeleccionadaUltima && (
                           <EmpresaButton
                             variant="secondary"
@@ -4621,7 +4767,7 @@ export default function SiniestroDetailPage() {
                                 </span>
                               )}
                             </div>
-                            {canAsignarAreas &&
+                            {puedeAsignarAreasExpediente &&
                               (areaRelacion.activo ? (
                                 <button
                                   onClick={() =>
@@ -4650,7 +4796,7 @@ export default function SiniestroDetailPage() {
                   </div>
 
                   {/* Agregar nueva área (solo con permiso asignar_areas) */}
-                  {canAsignarAreas && (
+                  {puedeAsignarAreasExpediente && (
                     <div className="pt-4 border-t border-gray-200">
                       <CustomSelect
                         key={`add-area-${areasAdicionales.map((a) => a.id).join("-")}`}
@@ -4737,7 +4883,6 @@ export default function SiniestroDetailPage() {
                                       {getUserDisplayName(usuario, usuario?.email || "Usuario desconocido")}
                                     </p>
                                   <p className="text-xs text-gray-500 mt-1">
-                                    Rol del usuario:{" "}
                                     <span className="font-medium text-gray-700">
                                       {rolUsuario}
                                     </span>
@@ -4753,17 +4898,38 @@ export default function SiniestroDetailPage() {
                                     )}
                                   </p>
                                 </div>
-                                {canActualizarSiniestro && (
+                                {puedeActualizarSiniestroExpediente && (
                                   involucrado.activo ? (
-                                    <button
-                                      onClick={() =>
-                                        handleRemoveInvolucrado(involucrado.id)
-                                      }
-                                      className="p-1 text-red-600 hover:text-red-800 transition-colors ml-2 flex-shrink-0"
-                                      title="Desactivar involucrado"
-                                    >
-                                      <FiTrash2 className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                                      {puedeAsignarAbogadoExpediente &&
+                                        involucrado.tipo_relacion ===
+                                          "tercero" &&
+                                        !involucrado.es_principal && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleSetAbogadoPrincipalInformes(
+                                                involucrado.id,
+                                              )
+                                            }
+                                            className="px-2 py-0.5 text-xs rounded border border-blue-200 text-blue-700 hover:bg-blue-50"
+                                            title="Usar firma y nombre de este abogado en informes y PDF"
+                                          >
+                                            Principal en informes
+                                          </button>
+                                        )}
+                                      <button
+                                        onClick={() =>
+                                          handleRemoveInvolucrado(
+                                            involucrado.id,
+                                          )
+                                        }
+                                        className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                                        title="Desactivar involucrado"
+                                      >
+                                        <FiTrash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
                                   ) : (
                                     <button
                                       onClick={() =>
@@ -4786,7 +4952,7 @@ export default function SiniestroDetailPage() {
                     </div>
 
                     {/* Agregar nuevo involucrado (solo con permiso actualizar) */}
-                    {canAgregarAbogado && (
+                    {puedeAsignarAbogadoExpediente && (
                       <div className="pt-4 border-t border-gray-200 space-y-3">
                         <div className="flex flex-col md:flex-row gap-2 md:items-end">
                           <div className="w-full md:flex-1">
@@ -4855,7 +5021,8 @@ export default function SiniestroDetailPage() {
                     className="w-5 h-5"
                     style={{ color: empresaColors.primary }}
                   />
-                  {(canActualizarSiniestro || canEditarPolizaSiniestro) && (
+                  {(puedeActualizarSiniestroExpediente ||
+                    puedeEditarPolizaExpediente) && (
                     <button
                       onClick={handleOpenPolizaModal}
                       className="p-1 text-blue-600 hover:text-blue-800 transition-colors"
@@ -5476,7 +5643,8 @@ export default function SiniestroDetailPage() {
                 variant="modal-preview"
                 kind="informe"
                 documento={documentoEnVistaPrevia}
-                showEditar={!!currentEtapa}
+                showEditar={!!currentEtapa && puedeMutarExpediente}
+                canDescargar={puedeMutarExpediente}
                 descargarLabel="Descargar PDF"
                 onCerrar={() => {
                   setShowPdfModal(false);
@@ -5508,7 +5676,7 @@ export default function SiniestroDetailPage() {
                   setDocumentoEnVistaPrevia(null);
                 }}
                 onEditar={
-                  currentEtapa
+                  currentEtapa && puedeMutarExpediente
                     ? () => {
                         setShowPdfModal(false);
                         revokeArchivoPreviewUrl();
@@ -5572,6 +5740,7 @@ export default function SiniestroDetailPage() {
                 variant="modal-preview"
                 kind="archivo"
                 documento={documentoEnVistaPrevia}
+                canDescargar={puedeMutarExpediente}
                 descargarLabel="Descargar archivo"
                 onCerrar={() => {
                   setShowPdfModal(false);
@@ -5868,7 +6037,11 @@ export default function SiniestroDetailPage() {
       <Modal
         open={showDescripcionModal}
         onClose={() => !savingDescripcionVersion && setShowDescripcionModal(false)}
-        title={`Editar Descripción de los Hechos (${descripcionActual ? `v${descripcionActual.version}` : "última"})`}
+        title={
+          descripcionActual
+            ? `Editar Descripción de los Hechos (v${descripcionActual.version})`
+            : "Agregar descripción de los Hechos"
+        }
         maxWidthClass="max-w-5xl"
       >
         <div className="space-y-4">
@@ -5891,7 +6064,9 @@ export default function SiniestroDetailPage() {
               variant="primary"
               onClick={handleSaveDescripcionVersion}
               loading={savingDescripcionVersion}
-              disabled={savingDescripcionVersion || !canEditarDescripcionHechos}
+              disabled={
+                savingDescripcionVersion || !puedeEditarDescripcionExpediente
+              }
             >
               <FiSave className="w-4 h-4 mr-2" />
               Guardar como nueva versión
@@ -6984,6 +7159,7 @@ function BitacoraList({
   areaId,
   flujoTrabajoId,
   onRefresh,
+  puedeMutarExpediente = true,
 }: {
   bitacoras: BitacoraActividad[];
   loading: boolean;
@@ -6991,6 +7167,8 @@ function BitacoraList({
   areaId?: string;
   flujoTrabajoId?: string;
   onRefresh: () => void;
+  /** Si false, solo lectura (sin agregar/editar/verificar actividades). */
+  puedeMutarExpediente?: boolean;
 }) {
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingActividad, setEditingActividad] =
@@ -7095,23 +7273,25 @@ function BitacoraList({
   if (bitacoras.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            onClick={() => {
-              setEditingActividad(null);
-              setDescripcion("");
-              setHoras("");
-              setComentarios("");
-              setFechaActividad(new Date().toISOString().slice(0, 16));
-              setShowFormModal(true);
-            }}
-          >
-            Agregar actividad
-          </Button>
-        </div>
+        {puedeMutarExpediente && (
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                setEditingActividad(null);
+                setDescripcion("");
+                setHoras("");
+                setComentarios("");
+                setFechaActividad(new Date().toISOString().slice(0, 16));
+                setShowFormModal(true);
+              }}
+            >
+              Agregar actividad
+            </Button>
+          </div>
+        )}
         <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
           <FiClock className="w-12 h-12 text-gray-400 mx-auto mb-3" />
           <p className="text-gray-500 font-medium">
@@ -7212,21 +7392,23 @@ function BitacoraList({
         <h3 className="text-sm font-semibold text-gray-800">
           Actividades registradas
         </h3>
-        <Button
-          type="button"
-          size="sm"
-          variant="primary"
-          onClick={() => {
-            setEditingActividad(null);
-            setDescripcion("");
-            setHoras("");
-            setComentarios("");
-            setFechaActividad(new Date().toISOString().slice(0, 16));
-            setShowFormModal(true);
-          }}
-        >
-          Agregar actividad
-        </Button>
+        {puedeMutarExpediente && (
+          <Button
+            type="button"
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setEditingActividad(null);
+              setDescripcion("");
+              setHoras("");
+              setComentarios("");
+              setFechaActividad(new Date().toISOString().slice(0, 16));
+              setShowFormModal(true);
+            }}
+          >
+            Agregar actividad
+          </Button>
+        )}
       </div>
 
       <DataTable
@@ -7329,10 +7511,10 @@ function BitacoraList({
             header: "Acciones",
             cell: ({ row }: any) => {
               const actividad = row.original as BitacoraActividad;
-              const puedeEditar = !actividad.verificado;
+              const puedeEditar = !actividad.verificado && puedeMutarExpediente;
               return (
                 <div className="flex items-center gap-2">
-                  {!actividad.verificado && (
+                  {!actividad.verificado && puedeMutarExpediente && (
                     <Button
                       type="button"
                       size="sm"

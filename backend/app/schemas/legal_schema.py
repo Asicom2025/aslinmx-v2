@@ -774,6 +774,11 @@ class SiniestroResponse(SiniestroBase):
     id_formato: Optional[str] = None  # ID legible: proveniente-consecutivo-año (ej. 102-001-26)
     # Rellenado en servicio (no es columna en `siniestros`): nombre completo del asegurado
     asegurado_nombre: Optional[str] = Field(None, max_length=600)
+    # Solo en GET detalle: si el usuario actual puede mutar expediente (documentos, bitácora, etc.)
+    puede_editar_expediente: Optional[bool] = Field(
+        default=None,
+        description="Capacidad de edición del expediente para el usuario autenticado (detalle).",
+    )
 
     class Config:
         from_attributes = True
