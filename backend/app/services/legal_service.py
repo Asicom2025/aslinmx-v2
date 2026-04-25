@@ -2651,6 +2651,46 @@ class SiniestroUsuarioService:
 # ===== RELACIONES SINIESTRO-ÁREA =====
 class SiniestroAreaService:
     """Servicio para gestión de áreas adicionales en siniestros"""
+
+    @staticmethod
+    def _asignar_jefe_area_automaticamente(
+        db: Session, siniestro_id: UUID, area: Area, usuario_audit_id: Optional[UUID]
+    ) -> None:
+        """
+        Asigna automáticamente al jefe del área como involucrado del siniestro.
+        No lanza errores para no romper la asignación del área.
+        """
+        jefe_id = getattr(area, "usuario_id", None)
+        if not jefe_id:
+            return
+
+        relacion_activa = (
+            db.query(SiniestroUsuario)
+            .filter(
+                SiniestroUsuario.siniestro_id == siniestro_id,
+                SiniestroUsuario.usuario_id == jefe_id,
+                SiniestroUsuario.eliminado == False,  # noqa: E712
+                SiniestroUsuario.activo == True,  # noqa: E712
+            )
+            .first()
+        )
+        if relacion_activa:
+            return
+
+        try:
+            SiniestroUsuarioService.create(
+                db,
+                SiniestroUsuarioCreate(
+                    siniestro_id=siniestro_id,
+                    usuario_id=jefe_id,
+                    es_principal=False,
+                    activo=True,
+                ),
+                usuario_audit_id=usuario_audit_id,
+            )
+        except Exception:
+            # Mejor esfuerzo: nunca bloquear la asignación del área por esta automatización.
+            pass
     
     @staticmethod
     def list(db: Session, siniestro_id: UUID, activo: Optional[bool] = None) -> List[SiniestroArea]:
@@ -2710,6 +2750,12 @@ class SiniestroAreaService:
                 existing.eliminado_en = None
                 db.commit()
                 db.refresh(existing)
+            SiniestroAreaService._asignar_jefe_area_automaticamente(
+                db,
+                payload.siniestro_id,
+                area,
+                usuario_id,
+            )
             return existing
 
         existing_deleted = db.query(SiniestroArea).filter(
@@ -2727,6 +2773,12 @@ class SiniestroAreaService:
                 existing_deleted.observaciones = payload.observaciones
             db.commit()
             db.refresh(existing_deleted)
+            SiniestroAreaService._asignar_jefe_area_automaticamente(
+                db,
+                payload.siniestro_id,
+                area,
+                usuario_id,
+            )
             return existing_deleted
         
         # Crear nueva relación
@@ -2747,6 +2799,13 @@ class SiniestroAreaService:
                 registro_id=payload.siniestro_id,
                 datos_nuevos={"area_id": str(payload.area_id), "area_nombre": area.nombre},
                 descripcion=f"Área asignada: {area.nombre}",
+            )
+
+            SiniestroAreaService._asignar_jefe_area_automaticamente(
+                db,
+                payload.siniestro_id,
+                area,
+                usuario_id,
             )
 
             # Notificar por correo al jefe del área usando plantilla de correo.
