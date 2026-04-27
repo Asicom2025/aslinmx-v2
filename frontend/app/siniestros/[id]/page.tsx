@@ -4919,7 +4919,7 @@ export default function SiniestroDetailPage() {
                               puedeAsignarAbogadoExpediente && (
                                 <div className="mt-2 pt-2 border-t border-gray-200/80">
                                   <CustomSelect
-                                    label="Firma y nombre en informes"
+                                    label="Abogado principal de informes para esta área"
                                     name={`abogado_inf_area_${areaRelacion.id}`}
                                     value={
                                       areaRelacion.abogado_principal_informe_id ||
@@ -4937,7 +4937,7 @@ export default function SiniestroDetailPage() {
                                       {
                                         value: "",
                                         label:
-                                          "— Ninguno (o asignado por legado) —",
+                                          "— Ninguno —",
                                       },
                                       ...opcionesAbogadoInf,
                                     ]}
@@ -5019,7 +5019,6 @@ export default function SiniestroDetailPage() {
                           const usuario = todosLosUsuarios.find(
                             (u) => u.id === involucrado.usuario_id,
                           );
-
                           const rolUsuario =
                             usuario?.rol?.nombre ||
                             (usuario?.rol_id
@@ -5042,7 +5041,7 @@ export default function SiniestroDetailPage() {
                                     </p>
                                   <p className="text-xs text-gray-500 mt-1">
                                     <span className="font-medium text-gray-700">
-                                      {rolUsuario}
+                                      {rolUsuario} del área {usuario?.areas?.map((area) => area.nombre).join(", ")}
                                     </span>
                                     {!involucrado.activo && (
                                       <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs">
