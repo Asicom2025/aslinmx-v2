@@ -3821,8 +3821,11 @@ export default function SiniestroDetailPage() {
 
         {/* Layout de dos columnas */}
         <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)] gap-4 lg:gap-6 mt-4 lg:mt-6">
-          {/* Columna izquierda - Contenido principal */}
-          <div data-tour="detalle-tabs" className="space-y-4 lg:space-y-6">
+          {/* Columna izquierda - Contenido principal (sticky bajo navbar en xl) */}
+          <div
+            data-tour="detalle-tabs"
+            className="space-y-4 lg:space-y-6 min-w-0 xl:sticky xl:top-16 xl:z-10 xl:self-start xl:bg-gray-50"
+          >
             {/* Pestañas estilo Chrome - Dos niveles */}
             {loadingFlujos ? (
               <div className="bg-white rounded-lg shadow p-6">

@@ -1045,6 +1045,8 @@ const catalogService = {
 const siniestroService = {
   getSiniestros: async (filters?: {
     activo?: boolean;
+    /** Si true, el backend no filtra por activo/inactivo (listado “Todos”, búsqueda navbar, etc.). */
+    sin_filtrar_activo?: boolean;
     estado_id?: string;
     proveniente_id?: string;
     area_id?: string;
@@ -1060,7 +1062,12 @@ const siniestroService = {
     limit?: number;
   }) => {
     const params = new URLSearchParams();
-    if (filters?.activo !== undefined) params.append("activo", String(filters.activo));
+    if (filters?.sin_filtrar_activo === true) {
+      params.append("sin_filtrar_activo", "true");
+    }
+    if (filters?.activo !== undefined) {
+      params.append("activo", filters.activo === true ? "true" : "false");
+    }
     if (filters?.estado_id) params.append("estado_id", filters.estado_id);
     if (filters?.proveniente_id) params.append("proveniente_id", filters.proveniente_id);
     if (filters?.area_id) params.append("area_id", filters.area_id);

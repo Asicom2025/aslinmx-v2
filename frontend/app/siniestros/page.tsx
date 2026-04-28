@@ -293,17 +293,24 @@ function SiniestrosPageContent() {
     const activoParam = searchParams.get("activo");
     const limitParam = Number(searchParams.get("limit"));
 
-    setFiltros({
-      activo:
-        activoParam === "all"
-          ? "all"
-          : activoParam === "false"
+    const activo: ActivoFilterValue =
+      activoParam === "all"
+        ? "all"
+        : activoParam === "false"
           ? "false"
-          : "true",
-      estado_id: searchParams.get("estado_id") || "",
+          : "true";
+
+    const estado_id_raw = searchParams.get("estado_id") || "";
+    const area_id_raw = searchParams.get("area_id") || "";
+    const usuario_raw = searchParams.get("usuario_asignado") || "";
+
+    setFiltros({
+      activo,
+      estado_id:
+        activo === "all" || activo === "false" ? "" : estado_id_raw,
       proveniente_id: searchParams.get("proveniente_id") || "",
-      area_id: searchParams.get("area_id") || "",
-      usuario_asignado: searchParams.get("usuario_asignado") || "",
+      area_id: activo === "false" ? "" : area_id_raw,
+      usuario_asignado: activo === "false" ? "" : usuario_raw,
       prioridad:
         (searchParams.get("prioridad") as DashboardAwareFilters["prioridad"]) ||
         "",
@@ -348,7 +355,9 @@ function SiniestrosPageContent() {
     try {
       setSiniestrosLoading(true);
       const params: any = {};
-      if (filtros.activo !== "all") {
+      if (filtros.activo === "all") {
+        params.sin_filtrar_activo = true;
+      } else {
         params.activo = filtros.activo === "true";
       }
       if (filtros.estado_id) params.estado_id = filtros.estado_id;
@@ -1816,12 +1825,26 @@ function SiniestrosPageContent() {
               label="Actividad"
               name="activo"
               value={filtros.activo}
-              onChange={(value) =>
-                setFiltros({
-                  ...filtros,
-                  activo: value as ActivoFilterValue,
-                })
-              }
+              isClearable={false}
+              onChange={(value) => {
+                const v = (value || "true") as ActivoFilterValue;
+                setFiltros((prev) => {
+                  const next = { ...prev, activo: v };
+                  // Duplicados inactivos suelen tener otro estado_id que el activo; con Status
+                  // aplicado la API devolvía 0 filas. «Todos»: solo quitamos status (se mantiene
+                  // area_id por enlaces del dashboard). «Solo inactivos»: también área/asignación,
+                  // que suelen no coincidir con la fila inactiva.
+                  if (v === "all") {
+                    next.estado_id = "";
+                  }
+                  if (v === "false") {
+                    next.estado_id = "";
+                    next.area_id = "";
+                    next.usuario_asignado = "";
+                  }
+                  return next;
+                });
+              }}
               options={[
                 { value: "all", label: "Todos" },
                 { value: "true", label: "Solo activos" },
