@@ -146,6 +146,7 @@ export interface SiniestroUpdate {
 
 export interface SiniestroFilters {
   activo?: boolean;
+  sin_filtrar_activo?: boolean;
   estado_id?: string;
   calificacion_id?: string;
   proveniente_id?: string;

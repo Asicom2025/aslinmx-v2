@@ -36,6 +36,10 @@ router = APIRouter(prefix="/siniestros", tags=["Siniestros"])
 @router.get("", response_model=List[SiniestroResponse])
 def list_siniestros(
     activo: Optional[bool] = Query(None, description="Filtrar por estado activo"),
+    sin_filtrar_activo: bool = Query(
+        False,
+        description="Si true, no filtra por activo/inactivo. Tiene prioridad sobre activo (p. ej. listado “Todos” o búsqueda global).",
+    ),
     estado_id: Optional[UUID] = Query(None, description="Filtrar por estado de siniestro"),
     proveniente_id: Optional[UUID] = Query(None, description="Filtrar por proveniente"),
     area_id: Optional[UUID] = Query(None, description="Filtrar por área principal"),
@@ -60,6 +64,7 @@ def list_siniestros(
         db=db,
         empresa_id=current_user.empresa_id,
         activo=activo,
+        sin_filtrar_activo=sin_filtrar_activo,
         estado_id=estado_id,
         proveniente_id=proveniente_id,
         area_id=area_id,

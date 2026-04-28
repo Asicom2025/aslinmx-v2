@@ -110,7 +110,7 @@ export default function Navbar() {
     }
     setSearchLoading(true);
     try {
-      const filters: any = { limit: 15 };
+      const filters: any = { limit: 15, sin_filtrar_activo: true };
       if (activeSearchTab === "id") filters.busqueda_id = q;
       else if (activeSearchTab === "numero_siniestro") filters.numero_siniestro = q;
       else if (activeSearchTab === "asegurado") filters.asegurado_nombre = q;

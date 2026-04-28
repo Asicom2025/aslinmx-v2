@@ -1176,6 +1176,7 @@ class SiniestroService:
         db: Session,
         empresa_id: UUID,
         activo: Optional[bool] = None,
+        sin_filtrar_activo: bool = False,
         estado_id: Optional[UUID] = None,
         proveniente_id: Optional[UUID] = None,
         area_id: Optional[UUID] = None,
@@ -1209,7 +1210,9 @@ class SiniestroService:
             if sub is not None:
                 q = q.filter(Siniestro.id.in_(sub))
 
-        if activo is not None:
+        if sin_filtrar_activo:
+            pass
+        elif activo is not None:
             q = q.filter(Siniestro.activo == activo)
         else:
             incluir_inactivos_por_cancelacion = False
