@@ -380,7 +380,7 @@ export default function SiniestroDetailPage() {
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
 
   const puedeMutarExpediente = useMemo(
-    () => Boolean(siniestro) && siniestro!.puede_editar_expediente !== false,
+    () => siniestro?.puede_editar_expediente === true,
     [siniestro],
   );
   const puedeSubirArchivoExpediente = puedeMutarExpediente && canSubirArchivo;
@@ -2980,6 +2980,10 @@ export default function SiniestroDetailPage() {
 
   // Función para editar un documento directamente (desde la lista de documentos)
   const handleEditDocumento = async (documento: any) => {
+    if (!puedeMutarExpediente) {
+      swalError("No tiene permiso para editar documentos de este expediente.");
+      return;
+    }
     if (siniestro?.eliminado || documento?.eliminado === true) {
       swalError("Este documento no está disponible para editar.");
       return;
@@ -3178,6 +3182,10 @@ export default function SiniestroDetailPage() {
 
   // Abrir/cerrar modal de subir archivo (opcional: etapa → PDF/imagen bloquea tipo y muestra requisitos)
   const handleOpenUploadDocModal = useCallback((etapa?: EtapaFlujo) => {
+    if (!puedeSubirArchivoExpediente) {
+      swalError("No tiene permiso para subir archivos a este expediente.");
+      return;
+    }
     setUploadDocFile(null);
     setUploadDocDescripcion("");
     setUploadRequisitoSeleccionadoId("");
@@ -3199,8 +3207,7 @@ export default function SiniestroDetailPage() {
       setUploadDocTipoId("");
     }
     setShowUploadDocModal(true);
-  // Solo usa state setters (estables) + el argumento etapa → deps vacíos
-  }, []);
+  }, [puedeSubirArchivoExpediente]);
   const handleCloseUploadDocModal = () => {
     setShowUploadDocModal(false);
     setUploadDocFile(null);
@@ -3351,6 +3358,10 @@ export default function SiniestroDetailPage() {
 
   // Subir archivo (foto, PDF, etc.) como documento del siniestro
   const handleSubmitUploadDoc = async () => {
+    if (!puedeSubirArchivoExpediente) {
+      swalError("No tiene permiso para subir archivos a este expediente.");
+      return;
+    }
     if (!uploadDocFile || !siniestroId) return;
     if (
       uploadModalEtapaContext &&
@@ -4130,7 +4141,11 @@ export default function SiniestroDetailPage() {
                                               : undefined
                                           }
                                           onContinuar={handleContinuarEtapa}
-                                          onSubirArchivo={handleOpenUploadDocModal}
+                                          onSubirArchivo={
+                                            puedeSubirArchivoExpediente
+                                              ? handleOpenUploadDocModal
+                                              : undefined
+                                          }
                                           empresaColors={empresaColors}
                                           flujoTrabajoId={
                                             flujoConEtapas.flujo.id
@@ -4334,7 +4349,11 @@ export default function SiniestroDetailPage() {
                                             : undefined
                                         }
                                         onContinuar={handleContinuarEtapa}
-                                        onSubirArchivo={handleOpenUploadDocModal}
+                                        onSubirArchivo={
+                                          puedeSubirArchivoExpediente
+                                            ? handleOpenUploadDocModal
+                                            : undefined
+                                        }
                                         empresaColors={empresaColors}
                                         flujoTrabajoId={flujoConEtapas.flujo.id}
                                         areaId={activeAreaTab}
@@ -7086,24 +7105,24 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                         esEditor ? (
                           // ── Tipo EDITOR: Editar + Ver + Continuar ──────────────
                           <>
-                            <button
-                              type="button"
-                              disabled={!puedeAccion}
-                              onClick={() => onOpenEditor(etapa)}
-                              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ backgroundColor: empresaColors.primary }}
-                              onMouseEnter={(e) => {
-                                if (!puedeAccion) return;
-                                e.currentTarget.style.opacity = "0.88";
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.opacity = puedeAccion ? "1" : "0.5";
-                              }}
-                              title={countEtapa > 0 ? "Editar documento existente" : "Crear documento"}
-                            >
-                              <FiEdit3 className="w-4 h-4" />
-                              Editar
-                            </button>
+                            {puedeAccion && (
+                              <button
+                                type="button"
+                                onClick={() => onOpenEditor(etapa)}
+                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white"
+                                style={{ backgroundColor: empresaColors.primary }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.opacity = "0.88";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.opacity = "1";
+                                }}
+                                title={countEtapa > 0 ? "Editar documento existente" : "Crear documento"}
+                              >
+                                <FiEdit3 className="w-4 h-4" />
+                                Editar
+                              </button>
+                            )}
 
                             {countEtapa > 0 && canVerPdf && (
                               <button
@@ -7117,10 +7136,9 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                               </button>
                             )}
 
-                            {Boolean(etapa.plantilla_documento?.plantilla_continuacion_id) && onContinuar && (
+                            {puedeAccion && Boolean(etapa.plantilla_documento?.plantilla_continuacion_id) && onContinuar && (
                               <button
                                 type="button"
-                                disabled={!puedeAccion}
                                 onClick={() => {
                                   const docMasReciente =
                                     countEtapa > 0
@@ -7132,7 +7150,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                                       : null;
                                   onContinuar(etapa, docMasReciente);
                                 }}
-                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
                                 title="Continuar con la segunda sección de la plantilla"
                               >
                                 <FiChevronRight className="w-4 h-4" />
@@ -7143,24 +7161,24 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                         ) : (
                           // ── Tipo PDF / Imagen: Subir + Ver ─────────────────────
                           <>
-                            <button
-                              type="button"
-                              disabled={!puedeAccion}
-                              onClick={() => abrirDocumentoEtapa(etapa)}
-                              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                              style={{ backgroundColor: empresaColors.primary }}
-                              onMouseEnter={(e) => {
-                                if (!puedeAccion) return;
-                                e.currentTarget.style.opacity = "0.88";
-                              }}
-                              onMouseLeave={(e) => {
-                                e.currentTarget.style.opacity = puedeAccion ? "1" : "0.5";
-                              }}
-                              title="Subir archivo"
-                            >
-                              <FiUpload className="w-4 h-4" />
-                              Subir archivo
-                            </button>
+                            {puedeAccion && (
+                              <button
+                                type="button"
+                                onClick={() => abrirDocumentoEtapa(etapa)}
+                                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors shadow-sm text-white"
+                                style={{ backgroundColor: empresaColors.primary }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.opacity = "0.88";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.opacity = "1";
+                                }}
+                                title="Subir archivo"
+                              >
+                                <FiUpload className="w-4 h-4" />
+                                Subir archivo
+                              </button>
+                            )}
                           </>
                         )
                       ) : (

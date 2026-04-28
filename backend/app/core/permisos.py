@@ -121,7 +121,7 @@ def assert_permiso_actualizar_siniestro(
 def require_permiso(modulo_tecnico: str, accion_tecnico: str):
     """
     Dependencia que exige que el usuario actual tenga el permiso (módulo, acción).
-    Bypass: roles.nivel == 0 (SuperAdmin desarrollador) o UUID SuperAdmin legacy.
+    Bypass: roles.nivel == 0 (SuperAdmin desarrollador).
     """
 
     def _check(
