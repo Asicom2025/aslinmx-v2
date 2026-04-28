@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.core.config import settings
 from app.core.security import get_current_active_user
-from app.core.permisos import require_permiso
+from app.core.permisos import require_any_permiso, require_permiso
 from app.core.nivel_acceso import get_nivel_rol
 from app.models.user import User
 from app.schemas.legal_schema import (
@@ -758,7 +758,12 @@ def upload_documento_archivo(
 def delete_documento(
     documento_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "subir_archivo")),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("siniestros", "eliminar_archivos"),
+            ("siniestros", "subir_archivo"),
+        )
+    ),
 ):
     """Elimina lógicamente un documento (sigue existiendo en base de datos)."""
     documento = DocumentoService.get_by_id(db, documento_id)

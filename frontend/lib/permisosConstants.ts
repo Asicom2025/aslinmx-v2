@@ -36,6 +36,8 @@ export const ACCION = {
   editar_calificacion: "editar_calificacion",
   /** Cambiar solo el arreglo polizas del siniestro (sin siniestros.update completo) */
   editar_poliza: "editar_poliza",
+  /** Cambiar solo prioridad del siniestro */
+  editar_prioridad: "editar_prioridad",
   /** Descripción de hechos y versiones (independiente de siniestros.update) */
   editar_descripcion_de_hechos: "editar_descripcion_de_hechos",
   /** Listar bitácora (GET /bitacora/siniestros/{id}). Ver también `verificar_bitcora` / `verificar_bitacora`. */
@@ -190,6 +192,11 @@ export const canCatalogoDocumentoEliminar = (can: CanFn) =>
 /** Descripción de hechos / versiones (no usar siniestros.update como sustituto). */
 export const canSiniestroEditarDescripcionHechos = (can: CanFn) =>
   can(MODULO.siniestros, ACCION.editar_descripcion_de_hechos);
+
+/** Prioridad del siniestro (permiso granular, o update completo). */
+export const canSiniestroEditarPrioridad = (can: CanFn) =>
+  can(MODULO.siniestros, ACCION.update) ||
+  can(MODULO.siniestros, ACCION.editar_prioridad);
 
 /** Ver listado de bitácora del siniestro: cualquiera de las acciones técnicas asignadas al rol. */
 export const canSiniestrosVerBitacora = (can: CanFn) =>

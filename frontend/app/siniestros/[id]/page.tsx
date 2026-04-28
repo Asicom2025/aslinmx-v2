@@ -21,6 +21,7 @@ import {
   escapePlaceholderKeyForRegex,
 } from "@/lib/plantillaSiniestroVariables";
 import {
+  canSiniestroEditarPrioridad,
   canSiniestroEditarDescripcionHechos,
   canSiniestrosVerBitacora,
 } from "@/lib/permisosConstants";
@@ -78,6 +79,7 @@ import {
   FiUserPlus,
   FiUpload,
   FiChevronRight,
+  FiX,
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
@@ -265,6 +267,9 @@ export default function SiniestroDetailPage() {
   const [documentosExistentes, setDocumentosExistentes] = useState<
     DocumentoEtapa[]
   >([]);
+  const [documentosEtapas, setDocumentosEtapas] = useState<DocumentoEtapa[]>(
+    [],
+  );
 
   // Estado para modal de formulario de continuación (llenar datos para documento de continuación)
   const [showFormularioContinuacionModal, setShowFormularioContinuacionModal] =
@@ -369,6 +374,8 @@ export default function SiniestroDetailPage() {
   const canEditarStatusSiniestro = can("siniestros", "editar_status");
   const canCalificacionSiniestro = can("siniestros", "editar_calificacion");
   const canEditarPolizaSiniestro = can("siniestros", "editar_poliza");
+  const canEditarPrioridadSiniestro = canSiniestroEditarPrioridad(can);
+  const canEliminarArchivos = can("siniestros", "eliminar_archivos");
   const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
 
@@ -389,10 +396,14 @@ export default function SiniestroDetailPage() {
     puedeMutarExpediente && canCalificacionSiniestro;
   const puedeEditarPolizaExpediente =
     puedeMutarExpediente && canEditarPolizaSiniestro;
+  const puedeEditarPrioridadExpediente =
+    puedeMutarExpediente && canEditarPrioridadSiniestro;
   const puedeEditarDescripcionExpediente =
     puedeMutarExpediente && canEditarDescripcionHechos;
   const puedeMutarDocumentosPdfExpediente =
     puedeMutarExpediente && canGenerarPdf;
+  const puedeEliminarArchivoExpediente =
+    puedeMutarExpediente && canEliminarArchivos;
 
   // Estados para status y calificación
   const [estadosSiniestro, setEstadosSiniestro] = useState<EstadoSiniestro[]>(
@@ -424,6 +435,7 @@ export default function SiniestroDetailPage() {
   // Estados para modal de edición
   const [showEditModal, setShowEditModal] = useState(false);
   const [savingSiniestro, setSavingSiniestro] = useState(false);
+  const [updatingPrioridad, setUpdatingPrioridad] = useState(false);
   const [editForm, setEditForm] = useState({
     numero_siniestro: "",
     fecha_registro: "",
@@ -1261,12 +1273,14 @@ export default function SiniestroDetailPage() {
   const loadDocumentosSiniestro = async () => {
     if (!canVerDocumentos) {
       setDocumentosExistentes([]);
+      setDocumentosEtapas([]);
       return;
     }
     try {
       const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
         activo: true,
       });
+      setDocumentosEtapas(documentos);
       setDocumentosExistentes(getUltimasVersionesDocumentos(documentos));
     } catch (error: any) {
       console.error("Error al cargar documentos:", error);
@@ -1576,6 +1590,27 @@ export default function SiniestroDetailPage() {
       );
     } finally {
       setUpdatingCalificacion(false);
+    }
+  };
+
+  const handleUpdatePrioridad = async (
+    prioridad: "baja" | "media" | "alta" | "critica",
+  ) => {
+    if (!siniestro || !puedeEditarPrioridadExpediente) return;
+
+    try {
+      setUpdatingPrioridad(true);
+      await apiService.updateSiniestro(siniestroId, { prioridad });
+      await loadSiniestro();
+      await loadLogsAuditoria();
+      swalSuccess("Prioridad actualizada correctamente");
+    } catch (error: any) {
+      console.error("Error al actualizar prioridad:", error);
+      swalError(
+        error.response?.data?.detail || "Error al actualizar prioridad",
+      );
+    } finally {
+      setUpdatingPrioridad(false);
     }
   };
 
@@ -2427,6 +2462,7 @@ export default function SiniestroDetailPage() {
         const documentosRaw = await apiService.getDocumentosSiniestro(siniestroId, {
           activo: true,
         });
+        setDocumentosEtapas(documentosRaw);
         listaDocumentos = getUltimasVersionesDocumentos(documentosRaw);
         setDocumentosExistentes(listaDocumentos);
       }
@@ -3103,7 +3139,7 @@ export default function SiniestroDetailPage() {
 
   /** Eliminación lógica: el documento deja de mostrarse pero permanece en base de datos. */
   const handleEliminarDocumento = async (documento: any) => {
-    if (!documento?.id || !puedeSubirArchivoExpediente) return;
+    if (!documento?.id || !puedeEliminarArchivoExpediente) return;
     const nombre = documento.nombre_archivo || "este documento";
     const confirmed = await swalConfirm(
       `Se eliminará «${nombre}» del expediente.`,
@@ -3430,6 +3466,7 @@ export default function SiniestroDetailPage() {
         const documentosRaw = await apiService.getDocumentosSiniestro(siniestroId, {
           activo: true,
         });
+        setDocumentosEtapas(documentosRaw);
         listaDocumentos = getUltimasVersionesDocumentos(documentosRaw);
         setDocumentosExistentes(listaDocumentos);
       }
@@ -4062,12 +4099,36 @@ export default function SiniestroDetailPage() {
                                         <EtapasTimeline
                                           etapas={flujoConEtapas.etapas}
                                           documentosExistentes={
-                                            documentosExistentes
+                                            documentosEtapas
                                           }
                                           onOpenEditor={
                                             handleOpenDocumentEditor
                                           }
                                           onViewDocument={handleViewDocument}
+                                          onViewDocumento={handleViewDocumento}
+                                          onEditDocumento={
+                                            puedeMutarExpediente
+                                              ? handleEditDocumento
+                                              : undefined
+                                          }
+                                          onSendDocumento={
+                                            handleOpenEmailModalFromDocumento
+                                          }
+                                          onDownloadDocumento={
+                                            puedeMutarExpediente
+                                              ? handleDownloadDocumento
+                                              : undefined
+                                          }
+                                          onDownloadInforme={
+                                            puedeMutarExpediente
+                                              ? handleDownloadInforme
+                                              : undefined
+                                          }
+                                          onDeleteDocumento={
+                                            puedeEliminarArchivoExpediente
+                                              ? handleEliminarDocumento
+                                              : undefined
+                                          }
                                           onContinuar={handleContinuarEtapa}
                                           onSubirArchivo={handleOpenUploadDocModal}
                                           empresaColors={empresaColors}
@@ -4113,7 +4174,7 @@ export default function SiniestroDetailPage() {
                                                 : undefined
                                             }
                                             onDeleteDocument={
-                                              puedeSubirArchivoExpediente
+                                              puedeEliminarArchivoExpediente
                                                 ? handleEliminarDocumento
                                                 : undefined
                                             }
@@ -4244,10 +4305,34 @@ export default function SiniestroDetailPage() {
                                       <EtapasTimeline
                                         etapas={flujoConEtapas.etapas}
                                         documentosExistentes={
-                                          documentosExistentes
+                                          documentosEtapas
                                         }
                                         onOpenEditor={handleOpenDocumentEditor}
                                         onViewDocument={handleViewDocument}
+                                        onViewDocumento={handleViewDocumento}
+                                        onEditDocumento={
+                                          puedeMutarExpediente
+                                            ? handleEditDocumento
+                                            : undefined
+                                        }
+                                        onSendDocumento={
+                                          handleOpenEmailModalFromDocumento
+                                        }
+                                        onDownloadDocumento={
+                                          puedeMutarExpediente
+                                            ? handleDownloadDocumento
+                                            : undefined
+                                        }
+                                        onDownloadInforme={
+                                          puedeMutarExpediente
+                                            ? handleDownloadInforme
+                                            : undefined
+                                        }
+                                        onDeleteDocumento={
+                                          puedeEliminarArchivoExpediente
+                                            ? handleEliminarDocumento
+                                            : undefined
+                                        }
                                         onContinuar={handleContinuarEtapa}
                                         onSubirArchivo={handleOpenUploadDocModal}
                                         empresaColors={empresaColors}
@@ -4291,7 +4376,7 @@ export default function SiniestroDetailPage() {
                                               : undefined
                                           }
                                           onDeleteDocument={
-                                            puedeSubirArchivoExpediente
+                                            puedeEliminarArchivoExpediente
                                               ? handleEliminarDocumento
                                               : undefined
                                           }
@@ -4580,20 +4665,44 @@ export default function SiniestroDetailPage() {
                           Prioridad
                         </h3>
                       </div>
-                      <EmpresaBadge
-                        variant={
-                          siniestro.prioridad === "critica"
-                            ? "danger"
-                            : siniestro.prioridad === "alta"
-                              ? "warning"
-                              : siniestro.prioridad === "media"
-                                ? "info"
-                                : "secondary"
-                        }
-                      >
-                        {siniestro.prioridad.charAt(0).toUpperCase() +
-                          siniestro.prioridad.slice(1)}
-                      </EmpresaBadge>
+                      {puedeEditarPrioridadExpediente ? (
+                        <EmpresaSelect
+                          value={siniestro.prioridad}
+                          onChange={(value) => {
+                            if (
+                              value === "baja" ||
+                              value === "media" ||
+                              value === "alta" ||
+                              value === "critica"
+                            ) {
+                              handleUpdatePrioridad(value);
+                            }
+                          }}
+                          options={[
+                            { value: "baja", label: "Baja" },
+                            { value: "media", label: "Media" },
+                            { value: "alta", label: "Alta" },
+                            { value: "critica", label: "Crítica" },
+                          ]}
+                          placeholder="Prioridad"
+                          disabled={updatingPrioridad}
+                        />
+                      ) : (
+                        <EmpresaBadge
+                          variant={
+                            siniestro.prioridad === "critica"
+                              ? "danger"
+                              : siniestro.prioridad === "alta"
+                                ? "warning"
+                                : siniestro.prioridad === "media"
+                                  ? "info"
+                                  : "secondary"
+                          }
+                        >
+                          {siniestro.prioridad.charAt(0).toUpperCase() +
+                            siniestro.prioridad.slice(1)}
+                        </EmpresaBadge>
+                      )}
                     </div>
                   )}
 
@@ -6768,6 +6877,12 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   documentosExistentes,
   onOpenEditor,
   onViewDocument,
+  onViewDocumento,
+  onEditDocumento,
+  onSendDocumento,
+  onDownloadDocumento,
+  onDownloadInforme,
+  onDeleteDocumento,
   onContinuar,
   onSubirArchivo,
   empresaColors,
@@ -6782,6 +6897,12 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   documentosExistentes: DocumentoEtapa[];
   onOpenEditor: (etapa: EtapaFlujo) => void;
   onViewDocument: (etapa: EtapaFlujo) => void;
+  onViewDocumento?: (documento: any) => void;
+  onEditDocumento?: (documento: any) => void;
+  onSendDocumento?: (documento: any) => void;
+  onDownloadDocumento?: (documento: any) => void;
+  onDownloadInforme?: (documento: any) => void;
+  onDeleteDocumento?: (documento: any) => void;
   onContinuar?: (etapa: EtapaFlujo, docExistente: any) => void;
   /** Abre el modal de carga de archivo (etapa PDF/imagen: tipo fijo y requisitos de la etapa) */
   onSubirArchivo?: (etapa: EtapaFlujo) => void;
@@ -6793,6 +6914,9 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   canEditarDocumento?: boolean;
   canCrearDocumento?: boolean;
 }) {
+  const [etapaDocumentosModal, setEtapaDocumentosModal] =
+    useState<EtapaFlujo | null>(null);
+
   /** Tipo de documento principal = editor → abre el editor; pdf/imagen/otro → modal de subida */
   const esTipoEditor = (e: EtapaFlujo) =>
     (e.tipo_documento_principal?.tipo ?? "").toLowerCase() === "editor";
@@ -6835,7 +6959,12 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
           const docsEtapa = documentosExistentes.filter(
             (d: any) =>
               d.etapa_flujo_id === etapa.id &&
+              (!flujoTrabajoId || d.flujo_trabajo_id === flujoTrabajoId) &&
               (!areaId || d.area_id === areaId),
+          ).sort(
+            (a: any, b: any) =>
+              new Date(b.creado_en || 0).getTime() -
+              new Date(a.creado_en || 0).getTime(),
           );
           const countEtapa = docsEtapa.length;
           const esEditor = esTipoEditor(etapa);
@@ -7046,20 +7175,140 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                   </div>
                 </div>
 
-                {/* Contador de archivos cargados — solo para tipo PDF/Imagen */}
-                {!esEditor && hayDoc && countEtapa > 0 && (
-                  <p className="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
+                {/* Contador/listado de documentos vinculados */}
+                {hayDoc && countEtapa > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setEtapaDocumentosModal(etapa)}
+                    className="mt-1.5 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                    title={
+                      esEditor
+                        ? "Ver versiones del documento"
+                        : "Ver archivos vinculados"
+                    }
+                  >
                     <FiFile className="w-3 h-3 shrink-0" />
-                    {countEtapa === 1
-                      ? "1 archivo cargado"
-                      : `${countEtapa} archivos cargados`}
-                  </p>
+                    {esEditor
+                      ? countEtapa === 1
+                        ? "1 versión encontrada"
+                        : `${countEtapa} versiones encontradas`
+                      : countEtapa === 1
+                        ? "1 archivo cargado"
+                        : `${countEtapa} archivos cargados`}
+                  </button>
                 )}
               </div>
             </div>
           );
         })}
       </div>
+      {etapaDocumentosModal &&
+        (() => {
+          const esEditorModal = esTipoEditor(etapaDocumentosModal);
+          const documentosModal = documentosExistentes
+            .filter(
+              (d: any) =>
+                d.etapa_flujo_id === etapaDocumentosModal.id &&
+                (!flujoTrabajoId || d.flujo_trabajo_id === flujoTrabajoId) &&
+                (!areaId || d.area_id === areaId),
+            )
+            .sort(
+              (a: any, b: any) =>
+                new Date(b.creado_en || 0).getTime() -
+                new Date(a.creado_en || 0).getTime(),
+            );
+
+          return (
+            <Modal
+              open={!!etapaDocumentosModal}
+              onClose={() => setEtapaDocumentosModal(null)}
+              title={`${esEditorModal ? "Versiones" : "Documentos"} - ${etapaDocumentosModal.nombre}`}
+              maxWidthClass="max-w-3xl"
+            >
+              <div className="space-y-3">
+                {documentosModal.length === 0 ? (
+                  <div className="py-8 text-center text-sm text-gray-500">
+                    No hay documentos vinculados a esta etapa.
+                  </div>
+                ) : (
+                  documentosModal.map((documento: any) => {
+                    const version =
+                      esEditorModal && documento.version
+                        ? `Versión ${documento.version}`
+                        : null;
+                    const fecha = documento.creado_en
+                      ? new Date(documento.creado_en).toLocaleDateString(
+                          "es-MX",
+                          {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          },
+                        )
+                      : null;
+
+                    return (
+                      <div
+                        key={documento.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-gray-900">
+                            {documento.nombre_archivo || "Documento sin nombre"}
+                          </p>
+                          {(version || fecha) && (
+                            <p className="mt-0.5 text-xs text-gray-500">
+                              {[version, fecha].filter(Boolean).join(" · ")}
+                            </p>
+                          )}
+                        </div>
+                        <DocumentoAcciones
+                          variant="tabla-fila"
+                          documento={documento}
+                          empresaColors={empresaColors}
+                          onViewDocument={(doc) => {
+                            setEtapaDocumentosModal(null);
+                            onViewDocumento?.(doc);
+                          }}
+                          onEditDocument={
+                            onEditDocumento
+                              ? (doc) => {
+                                  setEtapaDocumentosModal(null);
+                                  onEditDocumento(doc);
+                                }
+                              : undefined
+                          }
+                          onSendByEmail={
+                            onSendDocumento
+                              ? (doc) => {
+                                  setEtapaDocumentosModal(null);
+                                  onSendDocumento(doc);
+                                }
+                              : undefined
+                          }
+                          onDownloadDocument={onDownloadDocumento}
+                          onDownloadInforme={onDownloadInforme}
+                          onDeleteDocument={onDeleteDocumento}
+                        />
+                      </div>
+                    );
+                  })
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setEtapaDocumentosModal(null)}
+                  >
+                    <FiX className="w-4 h-4 mr-2" />
+                    Cerrar
+                  </Button>
+                </div>
+              </div>
+            </Modal>
+          );
+        })()}
     </div>
   );
 });
