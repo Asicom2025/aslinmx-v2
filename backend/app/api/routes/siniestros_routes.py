@@ -177,6 +177,7 @@ def update_siniestro(
     Permisos: siniestros.update para cambios generales; solo estado_id requiere editar_status;
     solo calificacion_id requiere editar_calificacion; solo polizas requiere editar_poliza;
     solo descripcion_hechos requiere editar_descripcion_de_hechos;
+    solo prioridad requiere editar_prioridad;
     esas claves pueden combinarse entre sí sin update.
     Además exige poder editar el expediente según nivel (áreas / asignación).
     Si se actualiza descripcion_hechos, crea una nueva versión automáticamente.

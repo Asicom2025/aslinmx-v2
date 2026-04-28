@@ -16,8 +16,8 @@ type TablaFilaProps = {
   documento: Record<string, unknown> & { id?: string; contenido?: unknown; ruta_archivo?: string };
   empresaColors: DocumentoEmpresaColors;
   onViewDocument: (documento: unknown) => void;
-  onEditDocument: (documento: unknown) => void;
-  onSendByEmail: (documento: unknown) => void;
+  onEditDocument?: (documento: unknown) => void;
+  onSendByEmail?: (documento: unknown) => void;
   onDownloadDocument?: (documento: unknown) => void;
   onDownloadInforme?: (documento: unknown) => void;
   /** Eliminación lógica (oculta en listados; el registro permanece en BD). */
@@ -129,14 +129,14 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
         label: "Editar",
         icon: <FiEdit3 className="w-4 h-4" />,
         disabled: !onEditDocument,
-        action: () => onEditDocument(documento),
+        action: () => onEditDocument?.(documento),
       });
       items.push({
         key: "enviar",
         label: "Enviar",
         icon: <FiMail className="w-4 h-4" />,
         disabled: !onSendByEmail,
-        action: () => onSendByEmail(documento),
+        action: () => onSendByEmail?.(documento),
       });
       items.push({
         key: "descargar",
@@ -166,7 +166,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
         label: "Enviar",
         icon: <FiMail className="w-4 h-4" />,
         disabled: !onSendByEmail,
-        action: () => onSendByEmail(documento),
+        action: () => onSendByEmail?.(documento),
       });
       if (onDeleteDocument && tieneId) {
         items.push({
