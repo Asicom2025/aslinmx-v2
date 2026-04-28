@@ -36,10 +36,12 @@ def get_nivel_rol(db: Session, user) -> int:
 
 def usuario_bypass_permisos(db: Session, user) -> bool:
     """
-    True si el usuario no debe validarse contra rol_permisos (nivel 0 o UUID SuperAdmin legacy).
+    True si el usuario no debe validarse contra rol_permisos.
+
+    La fuente de verdad es roles.nivel: solo nivel 0 tiene bypass total.
+    No usar rol_id como bypass, porque un rol de menor privilegio puede
+    conservar un UUID legacy y aun asi debe respetar rol_permisos.
     """
-    if getattr(user, "rol_id", None) and user.rol_id == ROL_SUPER_ADMIN_ID:
-        return True
     return get_nivel_rol(db, user) == NIVEL_SUPERADMIN
 
 
