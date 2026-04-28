@@ -147,6 +147,7 @@ interface DocumentoEtapa {
   etapa_flujo_id: string;
   area_id?: string;
   plantilla_documento_id?: string;
+  usuario_subio?: string | null;
   /** Categoría (viene del requisito o de la plantilla) */
   categoria_documento_nombre?: string | null;
   version: number;
@@ -378,12 +379,19 @@ export default function SiniestroDetailPage() {
   const canEliminarArchivos = can("siniestros", "eliminar_archivos");
   const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
+  const nivelRol = Number(user?.rol?.nivel ?? 99);
+  const esNivelOperativo = nivelRol === 4;
 
   const puedeMutarExpediente = useMemo(
     () => siniestro?.puede_editar_expediente === true,
     [siniestro],
   );
-  const puedeSubirArchivoExpediente = puedeMutarExpediente && canSubirArchivo;
+  const puedeCrearEditarInformesPropios =
+    Boolean(siniestro) && !siniestro?.eliminado && esNivelOperativo && canGenerarPdf;
+  const puedeSubirArchivosPropios =
+    Boolean(siniestro) && !siniestro?.eliminado && esNivelOperativo && canSubirArchivo;
+  const puedeSubirArchivoExpediente =
+    (puedeMutarExpediente || puedeSubirArchivosPropios) && canSubirArchivo;
   const puedeActualizarSiniestroExpediente =
     puedeMutarExpediente && canActualizarSiniestro;
   const puedeAsignarAbogadoExpediente =
@@ -401,7 +409,7 @@ export default function SiniestroDetailPage() {
   const puedeEditarDescripcionExpediente =
     puedeMutarExpediente && canEditarDescripcionHechos;
   const puedeMutarDocumentosPdfExpediente =
-    puedeMutarExpediente && canGenerarPdf;
+    (puedeMutarExpediente || puedeCrearEditarInformesPropios) && canGenerarPdf;
   const puedeEliminarArchivoExpediente =
     puedeMutarExpediente && canEliminarArchivos;
 
@@ -2980,7 +2988,12 @@ export default function SiniestroDetailPage() {
 
   // Función para editar un documento directamente (desde la lista de documentos)
   const handleEditDocumento = async (documento: any) => {
-    if (!puedeMutarExpediente) {
+    const esDocumentoPropio =
+      user?.id && String(documento?.usuario_subio || "") === String(user.id);
+    if (
+      !puedeMutarExpediente &&
+      !(puedeCrearEditarInformesPropios && esDocumentoPropio)
+    ) {
       swalError("No tiene permiso para editar documentos de este expediente.");
       return;
     }
@@ -3489,6 +3502,19 @@ export default function SiniestroDetailPage() {
         flujoTrabajoIdActual,
         areaIdActual,
       );
+      const esDocumentoPropio =
+        user?.id && String(docExistente?.usuario_subio || "") === String(user.id);
+      if (
+        !puedeMutarExpediente &&
+        !(
+          puedeCrearEditarInformesPropios &&
+          (!docExistente || esDocumentoPropio)
+        )
+      ) {
+        swalError("No tiene permiso para editar este informe.");
+        setShowEditorModal(false);
+        return;
+      }
 
       const expedienteEliminado = !!siniestro?.eliminado;
       const puedeUsarVersionGuardada =
@@ -4161,6 +4187,10 @@ export default function SiniestroDetailPage() {
                                           canCrearDocumento={
                                             puedeMutarDocumentosPdfExpediente
                                           }
+                                          currentUserId={user?.id}
+                                          soloDocumentosPropios={
+                                            !puedeMutarExpediente && esNivelOperativo
+                                          }
                                         />
                                       )}
 
@@ -4366,6 +4396,10 @@ export default function SiniestroDetailPage() {
                                         }
                                         canCrearDocumento={
                                           puedeMutarDocumentosPdfExpediente
+                                        }
+                                        currentUserId={user?.id}
+                                        soloDocumentosPropios={
+                                          !puedeMutarExpediente && esNivelOperativo
                                         }
                                       />
                                     )}
@@ -6911,6 +6945,8 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   canVerPdf = true,
   canEditarDocumento = true,
   canCrearDocumento = true,
+  currentUserId,
+  soloDocumentosPropios = false,
 }: {
   etapas: EtapaFlujo[];
   documentosExistentes: DocumentoEtapa[];
@@ -6932,6 +6968,8 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   canVerPdf?: boolean;
   canEditarDocumento?: boolean;
   canCrearDocumento?: boolean;
+  currentUserId?: string;
+  soloDocumentosPropios?: boolean;
 }) {
   const [etapaDocumentosModal, setEtapaDocumentosModal] =
     useState<EtapaFlujo | null>(null);
@@ -6987,7 +7025,23 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
           );
           const countEtapa = docsEtapa.length;
           const esEditor = esTipoEditor(etapa);
-          const puedeAccion = canCrearDocumento || canEditarDocumento;
+          const docMasReciente =
+            countEtapa > 0
+              ? [...docsEtapa].sort(
+                  (a: any, b: any) =>
+                    new Date(b.creado_en || 0).getTime() -
+                    new Date(a.creado_en || 0).getTime(),
+                )[0]
+              : null;
+          const esDocumentoPropio =
+            !!currentUserId &&
+            String(docMasReciente?.usuario_subio || "") === String(currentUserId);
+          const puedeEditarEtapa =
+            canEditarDocumento &&
+            (!soloDocumentosPropios || !docMasReciente || esDocumentoPropio);
+          const puedeCrearEtapa =
+            canCrearDocumento && (!soloDocumentosPropios || !docMasReciente);
+          const puedeAccion = puedeCrearEtapa || puedeEditarEtapa;
           const hayDoc = tieneDocumentoDisponible(etapa);
 
           return (

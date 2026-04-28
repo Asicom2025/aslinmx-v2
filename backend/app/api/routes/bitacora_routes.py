@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.core.security import get_current_active_user
 from app.core.permisos import require_any_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
@@ -67,7 +66,13 @@ def list_bitacora_siniestro(
 def get_bitacora_actividad(
     actividad_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("siniestros", "ver_bitacora"),
+            ("siniestros", "verificar_bitcora"),
+            ("siniestros", "verificar_bitacora"),
+        )
+    ),
 ):
     """Obtiene una actividad de bitácora por ID"""
     actividad = BitacoraActividadService.get_by_id(db, actividad_id)
@@ -87,7 +92,13 @@ def get_bitacora_actividad(
 def create_bitacora_actividad(
     payload: BitacoraActividadCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("siniestros", "ver_bitacora"),
+            ("siniestros", "verificar_bitcora"),
+            ("siniestros", "verificar_bitacora"),
+        )
+    ),
 ):
     """Crea una nueva actividad en bitácora"""
     # Si no se especifica usuario_id, usar el usuario actual
@@ -136,7 +147,13 @@ def update_bitacora_actividad(
     actividad_id: UUID,
     payload: BitacoraActividadUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("siniestros", "ver_bitacora"),
+            ("siniestros", "verificar_bitcora"),
+            ("siniestros", "verificar_bitacora"),
+        )
+    ),
 ):
     """Actualiza una actividad de bitácora"""
     existente = BitacoraActividadService.get_by_id(db, actividad_id)
@@ -185,7 +202,13 @@ def update_bitacora_actividad(
 def delete_bitacora_actividad(
     actividad_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("siniestros", "ver_bitacora"),
+            ("siniestros", "verificar_bitcora"),
+            ("siniestros", "verificar_bitacora"),
+        )
+    ),
 ):
     """Elimina una actividad de bitácora"""
     existente = BitacoraActividadService.get_by_id(db, actividad_id)

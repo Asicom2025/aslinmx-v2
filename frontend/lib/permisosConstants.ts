@@ -30,6 +30,7 @@ export const ACCION = {
   ver_siniestros_recientes: "ver_siniestros_recientes",
   ver_grafica_por_mes: "ver_grafica_por_mes",
   asignar_areas: "asignar_areas",
+  asignar_abogado: "asignar_abogado",
   /** Cambiar solo estado_id del siniestro (sin siniestros.update completo) */
   editar_status: "editar_status",
   /** Cambiar solo calificacion_id del siniestro */

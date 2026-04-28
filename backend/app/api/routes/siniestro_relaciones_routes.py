@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.core.security import get_current_active_user
+from app.core.permisos import require_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
     SiniestroUsuarioCreate, SiniestroUsuarioUpdate, SiniestroUsuarioResponse,
@@ -34,7 +34,7 @@ def list_involucrados(
     siniestro_id: UUID,
     activo: Optional[bool] = Query(None, description="Filtrar por estado activo"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "ver_involucrados")),
 ):
     """Lista involucrados de un siniestro"""
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
@@ -47,7 +47,7 @@ def add_involucrado(
     siniestro_id: UUID,
     payload: SiniestroUsuarioCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "asignar_abogado")),
 ):
     """Agrega un involucrado a un siniestro. Envía correo al involucrado si existe plantilla 'Nuevo involucrado'."""
     payload.siniestro_id = siniestro_id
@@ -100,7 +100,7 @@ def update_involucrado(
     relacion_id: UUID,
     payload: SiniestroUsuarioUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "asignar_abogado")),
 ):
     """Actualiza un involucrado"""
     existente = SiniestroUsuarioService.get_by_id(db, relacion_id)
@@ -123,7 +123,7 @@ def update_involucrado(
 def remove_involucrado(
     relacion_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "asignar_abogado")),
 ):
     """Elimina un involucrado de un siniestro"""
     existente = SiniestroUsuarioService.get_by_id(db, relacion_id)
@@ -148,7 +148,7 @@ def list_areas_adicionales(
     siniestro_id: UUID,
     activo: Optional[bool] = Query(None, description="Filtrar por estado activo"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "read")),
 ):
     """Lista áreas adicionales de un siniestro"""
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
@@ -161,7 +161,7 @@ def add_area_adicional(
     siniestro_id: UUID,
     payload: SiniestroAreaCreateBody,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "asignar_areas")),
 ):
     """Agrega un área adicional a un siniestro"""
     # Crear un nuevo payload con el siniestro_id de la URL
@@ -208,7 +208,7 @@ def update_area_adicional(
     relacion_id: UUID,
     payload: SiniestroAreaUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "asignar_areas")),
 ):
     """Actualiza un área adicional"""
     existente = SiniestroAreaService.get_by_id(db, relacion_id)
@@ -231,7 +231,7 @@ def update_area_adicional(
 def remove_area_adicional(
     relacion_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "asignar_areas")),
 ):
     """Elimina un área adicional de un siniestro"""
     existente = SiniestroAreaService.get_by_id(db, relacion_id)

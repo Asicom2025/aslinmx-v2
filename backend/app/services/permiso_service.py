@@ -129,6 +129,19 @@ class AccionService:
 
 class RolPermisoService:
     """Servicio para operaciones CRUD de permisos de roles"""
+
+    @staticmethod
+    def _accion_pertenece_a_modulo(db: Session, modulo_id: str, accion_id: str) -> bool:
+        return (
+            db.query(Accion.id)
+            .filter(
+                Accion.id == accion_id,
+                Accion.modulo_id == modulo_id,
+                Accion.activo == True,
+            )
+            .first()
+            is not None
+        )
     
     @staticmethod
     def get_permisos_por_rol(
@@ -168,6 +181,10 @@ class RolPermisoService:
     @staticmethod
     def create_permiso(db: Session, permiso: RolPermisoCreate, creado_por: Optional[str] = None) -> RolPermiso:
         """Crea un nuevo permiso"""
+        if not RolPermisoService._accion_pertenece_a_modulo(
+            db, str(permiso.modulo_id), str(permiso.accion_id)
+        ):
+            raise ValueError("La acción no pertenece al módulo indicado")
         db_permiso = RolPermiso(
             rol_id=permiso.rol_id,
             modulo_id=permiso.modulo_id,
@@ -240,11 +257,15 @@ class RolPermisoService:
             mid = str(a.modulo_id)
             acciones_por_modulo.setdefault(mid, []).append(a)
 
-        # Permisos de ESTE rol: conjunto de IDs de acción
-        permisos_rol_ids = {
-            str(p.accion_id)
+        # Permisos de ESTE rol: pares modulo/accion válidos.
+        permisos_rol_pares = {
+            (str(p.modulo_id), str(p.accion_id))
             for p in db.query(RolPermiso)
-            .join(Accion, RolPermiso.accion_id == Accion.id)
+            .join(
+                Accion,
+                (RolPermiso.accion_id == Accion.id)
+                & (Accion.modulo_id == RolPermiso.modulo_id),
+            )
             .filter(
                 RolPermiso.rol_id == rol_id,
                 RolPermiso.activo == True,
@@ -265,7 +286,7 @@ class RolPermisoService:
                     accion_id=a.id,
                     accion_nombre=a.nombre,
                     accion_tecnica=a.nombre_tecnico,
-                    tiene_permiso=str(a.id) in permisos_rol_ids,
+                    tiene_permiso=(mid, str(a.id)) in permisos_rol_pares,
                 )
                 for a in acciones_definidas
             ]
@@ -331,6 +352,8 @@ class RolPermisoService:
         """
         Asigna una acción a un módulo para un rol. Inserta en rol_permisos.
         """
+        if not RolPermisoService._accion_pertenece_a_modulo(db, modulo_id, accion_id):
+            raise ValueError("La acción no pertenece al módulo indicado")
         existente = RolPermisoService.get_permiso_especifico(
             db, rol_id, modulo_id, accion_id
         )
@@ -372,7 +395,11 @@ class RolPermisoService:
         query = (
             db.query(Modulo.nombre_tecnico, Accion.nombre_tecnico)
             .join(RolPermiso, RolPermiso.modulo_id == Modulo.id)
-            .join(Accion, RolPermiso.accion_id == Accion.id)
+            .join(
+                Accion,
+                (RolPermiso.accion_id == Accion.id)
+                & (Accion.modulo_id == RolPermiso.modulo_id),
+            )
             .filter(
                 RolPermiso.rol_id == rol_id,
                 RolPermiso.activo == True,

@@ -25,7 +25,6 @@ from app.services.siniestro_acceso_service import (
     usuario_puede_editar_siniestro,
     usuario_puede_eliminar_siniestro,
 )
-from app.core.nivel_acceso import get_nivel_rol
 
 logger = logging.getLogger(__name__)
 
@@ -118,11 +117,6 @@ def create_siniestro(
     numero_siniestro y numero_reporte pueden repetirse (p. ej. S/N, N/A).
     El campo creado_por se establece automáticamente con el usuario actual.
     """
-    if get_nivel_rol(db, current_user) >= 4:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Su nivel de rol solo permite consultar siniestros asignados",
-        )
     try:
         siniestro = SiniestroService.create(db, current_user.empresa_id, payload, current_user.id)
     except HTTPException:
