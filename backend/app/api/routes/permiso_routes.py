@@ -143,7 +143,10 @@ def asignar_accion_modulo(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Módulo no encontrado")
     if not AccionService.get_accion_by_id(db, accion_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Acción no encontrada")
-    RolPermisoService.asignar_accion_modulo(db, rol_id, modulo_id, accion_id)
+    try:
+        RolPermisoService.asignar_accion_modulo(db, rol_id, modulo_id, accion_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {"message": "Acción asignada al módulo"}
 
 
@@ -267,9 +270,12 @@ def create_permiso(
             detail="Este permiso ya existe para el rol"
         )
     
-    nuevo_permiso = RolPermisoService.create_permiso(
-        db, permiso, creado_por=str(current_user.id)
-    )
+    try:
+        nuevo_permiso = RolPermisoService.create_permiso(
+            db, permiso, creado_por=str(current_user.id)
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return nuevo_permiso
 
 

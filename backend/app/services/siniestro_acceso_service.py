@@ -4,20 +4,22 @@ Alcance de datos por nivel de rol para siniestros (áreas, asignación, involucr
 Visibilidad (listado / ver detalle):
 - Niveles 0–1: toda la empresa (sin subconsulta).
 - Niveles 2–3: todos los siniestros de la empresa (sin filtrar por áreas del usuario).
-- Nivel 4: solo creados por el usuario o con asignación activa en SiniestroUsuario.
+- Nivel 4: solo con asignación activa en SiniestroUsuario.
 
 Edición / eliminación / mutaciones de expediente:
 - Niveles 0–1: si puede ver, puede editar.
 - Nivel 2: siniestros “del área” del usuario: intersección con áreas en `siniestro_areas`,
   o bien documentos/bitácora/flujo de trabajo del expediente cuyo `area_id` esté en las áreas del usuario.
 - Nivel 3: solo si tiene asignación activa al siniestro (SiniestroUsuario, cualquier rol en el caso).
-- Nivel 4: sin edición (solo lectura donde aplique ver).
+- Nivel 4: solo si tiene asignación activa al siniestro.
+
+Todos los niveles siguen sujetos a permisos asignados por rol_permisos en las rutas.
 """
 
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import false as sql_false, or_
+from sqlalchemy import false as sql_false
 from sqlalchemy.orm import Session
 
 from app.core.nivel_acceso import get_nivel_rol, usuario_bypass_areas
@@ -155,15 +157,12 @@ def subquery_siniestros_visibles(
     if nivel == 4:
         return db.query(Siniestro.id).filter(
             base_empresa,
-            or_(
-                Siniestro.creado_por == user.id,
-                Siniestro.id.in_(
-                    db.query(SiniestroUsuario.siniestro_id).filter(
-                        SiniestroUsuario.usuario_id == user.id,
-                        SiniestroUsuario.activo == True,
-                        SiniestroUsuario.eliminado == False,
-                    )
-                ),
+            Siniestro.id.in_(
+                db.query(SiniestroUsuario.siniestro_id).filter(
+                    SiniestroUsuario.usuario_id == user.id,
+                    SiniestroUsuario.activo == True,
+                    SiniestroUsuario.eliminado == False,
+                )
             ),
         )
 
@@ -207,10 +206,10 @@ def usuario_puede_ver_siniestro(
 
 def usuario_puede_editar_siniestro(db: Session, user, empresa_id: Optional[UUID], siniestro_id: UUID) -> bool:
     """
-    Nivel 4: sin edición de expediente.
     Nivel 3: solo si está asignado al siniestro (involucrado activo).
     Nivel 2: si el expediente está asociado a alguna de las áreas del usuario
     (siniestro_areas, documentos, bitácora o flujo por área).
+    Nivel 4: solo si está asignado al siniestro (involucrado activo).
     Niveles 0–1: si puede ver, puede editar.
     """
     if not usuario_puede_ver_siniestro(db, user, empresa_id, siniestro_id):
@@ -218,14 +217,39 @@ def usuario_puede_editar_siniestro(db: Session, user, empresa_id: Optional[UUID]
     nivel = get_nivel_rol(db, user)
     if nivel <= 1:
         return True
-    if nivel >= 4:
-        return False
     if nivel == 2:
         return _usuario_comparte_area_con_siniestro(db, user, siniestro_id)
-    # nivel == 3
+    if nivel in (3, 4):
+        return _usuario_asignado_a_siniestro(db, user.id, siniestro_id)
     return _usuario_asignado_a_siniestro(db, user.id, siniestro_id)
 
 
 def usuario_puede_eliminar_siniestro(db: Session, user, empresa_id: Optional[UUID], siniestro_id: UUID) -> bool:
     """Misma regla que editar (nivel 3–4 restringido)."""
     return usuario_puede_editar_siniestro(db, user, empresa_id, siniestro_id)
+
+
+def usuario_puede_crear_documento_siniestro(
+    db: Session,
+    user,
+    empresa_id: Optional[UUID],
+    siniestro_id: UUID,
+) -> bool:
+    """
+    Permite crear/subir documentos.
+    Usa la misma regla de edición del expediente.
+    """
+    return usuario_puede_editar_siniestro(db, user, empresa_id, siniestro_id)
+
+
+def usuario_puede_editar_documento_siniestro(
+    db: Session,
+    user,
+    empresa_id: Optional[UUID],
+    documento: Documento,
+) -> bool:
+    """
+    Permite modificar documentos existentes.
+    Usa la misma regla de edición del expediente.
+    """
+    return usuario_puede_editar_siniestro(db, user, empresa_id, documento.siniestro_id)

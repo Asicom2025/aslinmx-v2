@@ -63,22 +63,16 @@ export function usePermisos(): UsePermisosReturn {
       if (userLoading) return false;
       if (user?.rol?.nivel === 0) return true;
       const path = pathname.split("?")[0].replace(/\/$/, "") || "/";
+      const nivel = Number(user?.rol?.nivel ?? 99);
       const modulo = RUTA_A_MODULO[path];
       if (!modulo) return true;
       if (path === "/historico") {
-        const nivel = Number(user?.rol?.nivel ?? 99);
-        return nivel === 0 || nivel === 1;
+        return (nivel === 0 || nivel === 1) && can(modulo, ACCION.read);
       }
       if (modulo === "usuarios") {
         return (
           can(modulo, "read") ||
-          can(modulo, "ver_roles") ||
-          can(modulo, "crear_roles") ||
-          can(modulo, "editar_roles") ||
-          can(modulo, "eliminar_roles") ||
-          can(modulo, "create") ||
-          can(modulo, "update") ||
-          can(modulo, "delete")
+          can(modulo, "ver_roles")
         );
       }
       if (modulo === MODULO.configuracion) {

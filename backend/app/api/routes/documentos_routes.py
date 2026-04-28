@@ -32,6 +32,8 @@ from app.services.legal_service import (
 from app.services.auditoria_service import AuditoriaService
 from app.services.siniestro_acceso_service import (
     MSG_EXPEDIENTE_SOLO_LECTURA,
+    usuario_puede_crear_documento_siniestro,
+    usuario_puede_editar_documento_siniestro,
     usuario_puede_editar_siniestro,
     usuario_puede_ver_siniestro,
 )
@@ -64,8 +66,23 @@ def _assert_siniestro_documento_escritura(
     siniestro_id: UUID,
 ) -> None:
     _assert_siniestro_documento_lectura(db, current_user, siniestro_id)
-    if not usuario_puede_editar_siniestro(
+    if not usuario_puede_crear_documento_siniestro(
         db, current_user, current_user.empresa_id, siniestro_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MSG_EXPEDIENTE_SOLO_LECTURA,
+        )
+
+
+def _assert_documento_escritura(
+    db: Session,
+    current_user: User,
+    documento,
+) -> None:
+    _assert_siniestro_documento_lectura(db, current_user, documento.siniestro_id)
+    if not usuario_puede_editar_documento_siniestro(
+        db, current_user, current_user.empresa_id, documento
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -379,7 +396,7 @@ def create_documento(
     payload: DocumentoCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_permiso("siniestros", "generar_pdf")),
 ):
     """Crea un nuevo documento y registra en bitácora y notificación"""
     if not payload.usuario_subio:
@@ -441,13 +458,18 @@ def update_documento(
     payload: DocumentoUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("siniestros", "generar_pdf"),
+            ("siniestros", "subir_archivo"),
+        )
+    ),
 ):
     # Excluir campos de bitácora del payload para actualizar el documento
     existente = DocumentoService.get_by_id(db, documento_id)
     if not existente:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    _assert_siniestro_documento_escritura(db, current_user, existente.siniestro_id)
+    _assert_documento_escritura(db, current_user, existente)
     update_data = {k: v for k, v in payload.model_dump(exclude_unset=True).items()
                    if k not in ("horas_trabajadas_bitacora", "comentarios_bitacora")}
     doc_update = DocumentoUpdate(**update_data) if update_data else None
@@ -769,7 +791,7 @@ def delete_documento(
     documento = DocumentoService.get_by_id(db, documento_id)
     if not documento:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
-    _assert_siniestro_documento_escritura(db, current_user, documento.siniestro_id)
+    _assert_documento_escritura(db, current_user, documento)
     siniestro_id = documento.siniestro_id
     nombre_archivo = documento.nombre_archivo
     ok = DocumentoService.delete(db, documento_id)

@@ -29,7 +29,11 @@ def _tiene_permiso(db: Session, rol_id: UUID, modulo_tecnico: str, accion_tecnic
         db.query(RolPermiso)
         .join(Rol, Rol.id == RolPermiso.rol_id)
         .join(Modulo, RolPermiso.modulo_id == Modulo.id)
-        .join(Accion, RolPermiso.accion_id == Accion.id)
+        .join(
+            Accion,
+            (RolPermiso.accion_id == Accion.id)
+            & (Accion.modulo_id == RolPermiso.modulo_id),
+        )
         .filter(
             RolPermiso.rol_id == rol_id,
             RolPermiso.activo == True,

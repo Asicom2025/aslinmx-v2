@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
+import { ACCION, MODULO } from "@/lib/permisosConstants";
 import LogoDx from "@/assets/logos/logo_dx-legal.png";
 import {
   FiHome,
@@ -21,15 +22,32 @@ import TourButton from "@/components/ui/TourButton";
 import { FaFileContract } from "react-icons/fa";
 
 const baseLinks = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/siniestros", label: "Siniestros" },
-  { href: "/agenda", label: "Agenda" },
-  { href: "/usuarios", label: "Usuarios" },
-  { href: "/parametros", label: "Parámetros" },
-  { href: "/reportes", label: "Reportes" },
-  { href: "/configuracion", label: "Configuración" },
-  { href: "/historico", label: "Histórico" },
-  { href: "/soporte", label: "Ayuda y Soporte" },
+  { href: "/dashboard", label: "Dashboard", permisos: [[MODULO.dashboard, ACCION.read]] },
+  { href: "/siniestros", label: "Siniestros", permisos: [[MODULO.siniestros, ACCION.read]] },
+  { href: "/agenda", label: "Agenda", permisos: [[MODULO.agenda, ACCION.read]] },
+  {
+    href: "/usuarios",
+    label: "Usuarios",
+    permisos: [
+      [MODULO.usuarios, ACCION.read],
+      [MODULO.usuarios, ACCION.ver_roles],
+    ],
+  },
+  { href: "/parametros", label: "Parámetros", permisos: [[MODULO.parametros, ACCION.read]] },
+  { href: "/reportes", label: "Reportes", permisos: [[MODULO.reportes, ACCION.read]] },
+  {
+    href: "/configuracion",
+    label: "Configuración",
+    permisos: [
+      [MODULO.configuracion, ACCION.read],
+      [MODULO.configuracion, ACCION.leer_smtp],
+      [MODULO.configuracion, ACCION.leer_flujos],
+      [MODULO.configuracion, ACCION.ver_areas],
+      [MODULO.configuracion, ACCION.ver_tipos_de_documentos],
+    ],
+  },
+  { href: "/historico", label: "Histórico", permisos: [[MODULO.historico, ACCION.read]] },
+  { href: "/soporte", label: "Ayuda y Soporte", permisos: [[MODULO.soporte, ACCION.read]] },
 ];
 
 const iconMap: Record<string, JSX.Element> = {
@@ -47,8 +65,8 @@ const iconMap: Record<string, JSX.Element> = {
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  const { activeEmpresa } = useUser();
-  const { canAccessRoute } = usePermisos();
+  const { activeEmpresa, user, loading: userLoading } = useUser();
+  const { can } = usePermisos();
 
   const gradientStyle = useMemo(() => {
     const primary = activeEmpresa?.color_secundario || "#0A2E5C";
@@ -59,10 +77,16 @@ export default function Sidebar() {
 
   const logoSrc = activeEmpresa?.logo_url || LogoDx.src;
   const links = useMemo(() => {
+    if (userLoading) return [];
+    const nivel = Number(user?.rol?.nivel ?? 99);
     return baseLinks
       .filter((link) => link.href !== "/empresas")
-      .filter((link) => canAccessRoute(link.href));
-  }, [canAccessRoute]);
+      .filter((link) => {
+        if (nivel === 0) return true;
+        if (link.href === "/historico" && nivel !== 1) return false;
+        return link.permisos.some(([modulo, accion]) => can(modulo, accion));
+      });
+  }, [can, user?.rol?.nivel, userLoading]);
 
   useEffect(() => {
     const handler = (e: any) => {
