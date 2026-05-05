@@ -72,6 +72,8 @@ export interface ExtendedSiniestroFormState {
       celular: string;
       telefono_casa: string;
       telefono_oficina: string;
+      estado: string;
+      ciudad: string;
       email: string;
       direccion: string;
       colonia: string;
@@ -445,6 +447,8 @@ export default function SiniestroWizard({
             celular: "",
             telefono_casa: "",
             telefono_oficina: "",
+            estado: "",
+            ciudad: "",
             email: "",
             direccion: "",
             colonia: "",
@@ -479,6 +483,8 @@ export default function SiniestroWizard({
             celular: asegurado?.telefono || "",
             telefono_casa: asegurado?.tel_casa || "",
             telefono_oficina: asegurado?.tel_oficina || "",
+            estado: asegurado?.estado || "",
+            ciudad: asegurado?.ciudad || "",
             email: asegurado?.correo || "",
             direccion: asegurado?.direccion || "",
             colonia: asegurado?.colonia || "",

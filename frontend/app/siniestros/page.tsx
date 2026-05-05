@@ -83,6 +83,8 @@ const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
       celular: "",
       telefono_casa: "",
       telefono_oficina: "",
+      estado: "",
+      ciudad: "",
       email: "",
       direccion: "",
       colonia: "",
