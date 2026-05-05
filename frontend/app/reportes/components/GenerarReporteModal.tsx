@@ -373,38 +373,11 @@ export default function GenerarReporteModal({
           {/* Filtros de negocio para exportar siniestros */}
           {modulo === "siniestros" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {reporteDisponible.filtros_disponibles.includes("entidad_federativa") && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Entidad Federativa</label>
-                  <CustomSelect
-                    name="filtro_entidad_federativa"
-                    isMulti
-                    value={filtroAdicionalMulti("entidad_federativa")}
-                    onChange={(value) =>
-                      setFiltroAdicional(
-                        "entidad_federativa",
-                        Array.isArray(value) ? value : [],
-                      )
-                    }
-                    options={catalogos.entidadesFederativas.map((estado) => ({
-                      value: estado,
-                      label: estado,
-                    }))}
-                    placeholder="Todas (vacío = sin filtro)"
-                    usePortal={false}
-                  />
-                </div>
-              )}
-
               {reporteDisponible.filtros_disponibles.includes("geo_estado_id") && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Entidad federativa (catálogo geo)
+                    Entidad federativa
                   </label>
-                  <p className="text-xs text-gray-500 mb-1">
-                    Filtra por <code>estado_geografico_id</code> del asegurado. Si combinas con el filtro de
-                    texto arriba, se aplican ambos (AND).
-                  </p>
                   <CustomSelect
                     name="filtro_geo_estado_id"
                     isMulti
