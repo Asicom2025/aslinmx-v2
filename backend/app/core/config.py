@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     STRUCTURED_LOG_TARGET: str = "stdout"  # stdout | file | both
     HTTP_LOG_MAX_BODY_BYTES: int = 262144  # 256 KiB para body en logs y lectura request
 
+    # Google Maps (servidor): Places Details para normalizar place_id en asegurados (opcional).
+    # Distinta de NEXT_PUBLIC_GOOGLE_MAPS_API_KEY del frontend; restringir por IP/referrer en consola Google.
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
+
     # Cloudflare R2 (S3-compatible)
     R2_ACCOUNT_ID: Optional[str] = None
     R2_ACCESS_KEY_ID: Optional[str] = None

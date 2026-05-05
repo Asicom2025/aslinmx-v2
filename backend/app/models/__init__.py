@@ -54,6 +54,7 @@ from app.models.backup import (
 )
 from app.models.storage import StorageObject, ArchivoGenerado
 from app.models.legacy_temp import TmpSiniestroFile
+from app.models.geo_models import GeoPais, GeoEstado, GeoMunicipio
 
 __all__ = [
     "InvitacionCredencialAuditoria",
@@ -102,4 +103,7 @@ __all__ = [
     "StorageObject",
     "ArchivoGenerado",
     "TmpSiniestroFile",
+    "GeoPais",
+    "GeoEstado",
+    "GeoMunicipio",
 ]

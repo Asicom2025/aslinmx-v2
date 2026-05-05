@@ -89,6 +89,8 @@ async def listar_reportes_disponibles(
                 "asegurado_id", "asegurado_nombre", "asegurado_apellido_paterno", 
                 "asegurado_apellido_materno", "asegurado_nombre_completo", "asegurado_telefono",
                 "asegurado_ciudad", "asegurado_estado", "asegurado_empresa",
+                "asegurado_estado_catalogo", "asegurado_municipio_catalogo",
+                "asegurado_geo_estado_id", "asegurado_geo_municipio_id",
                 # Estado y Calificación
                 "estado_id", "estado_nombre", "estado_color",
                 "calificacion_id", "calificacion_nombre", "calificacion_color",
@@ -108,6 +110,7 @@ async def listar_reportes_disponibles(
                 "fecha_desde",
                 "fecha_hasta",
                 "entidad_federativa",
+                "geo_estado_id",
                 "institucion_id",
                 "autoridad_id",
                 "area_id",

@@ -11,7 +11,13 @@ import apiService from "@/lib/apiService";
 import { Notificacion } from "@/types/notificaciones";
 import { getUserDisplayName, getUserInitial } from "@/lib/userName";
 
-type BusquedaTab = "id" | "numero_siniestro" | "asegurado";
+type BusquedaTab =
+  | "id"
+  | "numero_siniestro"
+  | "asegurado"
+  | "numero_reporte"
+  | "tercero"
+  | "anio";
 
 /**
  * ID = clave proveniente - consecutivo - anualidad (ej. 102-001-25 o 1-001-25).
@@ -112,8 +118,13 @@ export default function Navbar() {
     try {
       const filters: any = { limit: 15, sin_filtrar_activo: true };
       if (activeSearchTab === "id") filters.busqueda_id = q;
-      else if (activeSearchTab === "numero_siniestro") filters.numero_siniestro = q;
+      else if (activeSearchTab === "numero_siniestro")
+        filters.numero_siniestro = q;
       else if (activeSearchTab === "asegurado") filters.asegurado_nombre = q;
+      else if (activeSearchTab === "numero_reporte")
+        filters.numero_reporte = q;
+      else if (activeSearchTab === "tercero") filters.tercero = q;
+      else if (activeSearchTab === "anio") filters.anio = q;
       const data = await apiService.getSiniestros(filters);
       setSearchResults(Array.isArray(data) ? data : []);
       setShowSearchDropdown(true);
@@ -165,7 +176,13 @@ export default function Navbar() {
       ? "Ej. 102-001-25 (proveniente-consecutivo-año)"
       : activeSearchTab === "numero_siniestro"
         ? "Núm. siniestro..."
-        : "Nombre del asegurado...";
+        : activeSearchTab === "asegurado"
+          ? "Nombre del asegurado..."
+          : activeSearchTab === "numero_reporte"
+            ? "Núm. reporte..."
+            : activeSearchTab === "tercero"
+              ? "Nombre del tercero..."
+              : "Año (ej. 25 o 2026)...";
 
   return (
     <>
@@ -225,25 +242,46 @@ export default function Navbar() {
             </span>
             {showSearchDropdown && (
               <div className="absolute top-full left-0 right-0 mt-0 bg-white text-gray-800 rounded-b-md shadow-lg ring-1 ring-black/10 z-50 max-h-[360px] flex flex-col">
-                <div className="flex border-b border-gray-200 shrink-0">
+                <div className="flex flex-wrap border-b border-gray-200 shrink-0">
                   <button
                     type="button"
                     onClick={() => setActiveSearchTab("id")}
-                    className={`px-4 py-2.5 text-sm font-medium ${activeSearchTab === "id" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                    className={`px-3 py-2 text-xs font-medium sm:px-4 sm:py-2.5 sm:text-sm ${activeSearchTab === "id" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
                   >
                     Por ID
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveSearchTab("numero_siniestro")}
-                    className={`px-4 py-2.5 text-sm font-medium ${activeSearchTab === "numero_siniestro" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                    className={`px-3 py-2 text-xs font-medium sm:px-4 sm:py-2.5 sm:text-sm ${activeSearchTab === "numero_siniestro" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
                   >
                     Num. Siniestro
                   </button>
                   <button
                     type="button"
+                    onClick={() => setActiveSearchTab("numero_reporte")}
+                    className={`px-3 py-2 text-xs font-medium sm:px-4 sm:py-2.5 sm:text-sm ${activeSearchTab === "numero_reporte" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                  >
+                    Reporte
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSearchTab("tercero")}
+                    className={`px-3 py-2 text-xs font-medium sm:px-4 sm:py-2.5 sm:text-sm ${activeSearchTab === "tercero" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                  >
+                    Tercero
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSearchTab("anio")}
+                    className={`px-3 py-2 text-xs font-medium sm:px-4 sm:py-2.5 sm:text-sm ${activeSearchTab === "anio" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                  >
+                    Año
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setActiveSearchTab("asegurado")}
-                    className={`px-4 py-2.5 text-sm font-medium ${activeSearchTab === "asegurado" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
+                    className={`px-3 py-2 text-xs font-medium sm:px-4 sm:py-2.5 sm:text-sm ${activeSearchTab === "asegurado" ? "text-white bg-gray-700" : "text-gray-600 hover:bg-gray-100"}`}
                   >
                     Asegurado
                   </button>
@@ -471,11 +509,11 @@ export default function Navbar() {
           ref={mobileSearchRef}
           className="fixed left-0 right-0 top-16 z-40 max-h-[min(75dvh,calc(100dvh-5rem))] flex flex-col border-b border-gray-200 bg-white text-gray-800 shadow-lg md:hidden"
         >
-          <div className="flex shrink-0 border-b border-gray-200">
+          <div className="flex shrink-0 flex-wrap border-b border-gray-200">
             <button
               type="button"
               onClick={() => setActiveSearchTab("id")}
-              className={`flex-1 px-2 py-2.5 text-xs font-medium sm:text-sm ${
+              className={`min-w-[30%] flex-1 px-2 py-2 text-[11px] font-medium sm:text-xs ${
                 activeSearchTab === "id" ? "bg-gray-800 text-white" : "text-gray-600"
               }`}
             >
@@ -484,7 +522,7 @@ export default function Navbar() {
             <button
               type="button"
               onClick={() => setActiveSearchTab("numero_siniestro")}
-              className={`flex-1 px-2 py-2.5 text-xs font-medium sm:text-sm ${
+              className={`min-w-[30%] flex-1 px-2 py-2 text-[11px] font-medium sm:text-xs ${
                 activeSearchTab === "numero_siniestro" ? "bg-gray-800 text-white" : "text-gray-600"
               }`}
             >
@@ -492,8 +530,35 @@ export default function Navbar() {
             </button>
             <button
               type="button"
+              onClick={() => setActiveSearchTab("numero_reporte")}
+              className={`min-w-[30%] flex-1 px-2 py-2 text-[11px] font-medium sm:text-xs ${
+                activeSearchTab === "numero_reporte" ? "bg-gray-800 text-white" : "text-gray-600"
+              }`}
+            >
+              Reporte
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSearchTab("tercero")}
+              className={`min-w-[30%] flex-1 px-2 py-2 text-[11px] font-medium sm:text-xs ${
+                activeSearchTab === "tercero" ? "bg-gray-800 text-white" : "text-gray-600"
+              }`}
+            >
+              Tercero
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSearchTab("anio")}
+              className={`min-w-[30%] flex-1 px-2 py-2 text-[11px] font-medium sm:text-xs ${
+                activeSearchTab === "anio" ? "bg-gray-800 text-white" : "text-gray-600"
+              }`}
+            >
+              Año
+            </button>
+            <button
+              type="button"
               onClick={() => setActiveSearchTab("asegurado")}
-              className={`flex-1 px-2 py-2.5 text-xs font-medium sm:text-sm ${
+              className={`min-w-[30%] flex-1 px-2 py-2 text-[11px] font-medium sm:text-xs ${
                 activeSearchTab === "asegurado" ? "bg-gray-800 text-white" : "text-gray-600"
               }`}
             >

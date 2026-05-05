@@ -5,7 +5,7 @@
 
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
@@ -54,6 +54,7 @@ type DashboardAwareFilters = {
   prioridad: "" | "baja" | "media" | "alta" | "critica";
   calificacion_id: string;
   asegurado_estado: string;
+  asegurado_geo_estado_id: string;
   fecha_registro_mes: string;
 };
 
@@ -66,6 +67,7 @@ const DEFAULT_FILTROS: DashboardAwareFilters = {
   prioridad: "",
   calificacion_id: "",
   asegurado_estado: "",
+  asegurado_geo_estado_id: "",
   fecha_registro_mes: "",
 };
 
@@ -81,14 +83,18 @@ const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
       celular: "",
       telefono_casa: "",
       telefono_oficina: "",
-      estado: "",
-      ciudad: "",
       email: "",
       direccion: "",
       colonia: "",
       municipio: "",
       codigo_postal: "",
       pais: "",
+      pais_id: "",
+      estado_geografico_id: "",
+      municipio_id: "",
+      google_place_id: "",
+      latitud: "",
+      longitud: "",
     },
   },
   generales: {
@@ -214,9 +220,8 @@ function SiniestrosPageContent() {
   const [filtersReady, setFiltersReady] = useState(false);
 
   // Filtros
-  const [filtros, setFiltros] = useState<DashboardAwareFilters>(
-    DEFAULT_FILTROS
-  );
+  const [filtros, setFiltros] =
+    useState<DashboardAwareFilters>(DEFAULT_FILTROS);
 
   // Límite de registros a cargar del backend
   const [limit, setLimit] = useState<number>(1000);
@@ -242,7 +247,9 @@ function SiniestrosPageContent() {
     observaciones: "",
     activo: true,
   });
-  const [extendedForm, setExtendedForm] = useState<ExtendedSiniestroFormState>(() => buildInitialExtendedForm());
+  const [extendedForm, setExtendedForm] = useState<ExtendedSiniestroFormState>(
+    () => buildInitialExtendedForm(),
+  );
   const [institucionesCatalogo, setInstitucionesCatalogo] = useState<
     CatalogOption[]
   >([]);
@@ -252,10 +259,10 @@ function SiniestrosPageContent() {
   const [aseguradosCatalogo, setAseguradosCatalogo] = useState<any[]>([]);
   const [provenientesCatalogo, setProvenientesCatalogo] = useState<any[]>([]);
   const [calificaciones, setCalificaciones] = useState<string[]>(
-    CALIFICACIONES_DEFAULT
+    CALIFICACIONES_DEFAULT,
   );
   const [calificacionesCatalogo, setCalificacionesCatalogo] = useState<any[]>(
-    []
+    [],
   );
   const [catalogosColores, setCatalogosColores] = useState<CatalogosColores>({
     estados: new Map(),
@@ -275,7 +282,7 @@ function SiniestrosPageContent() {
     }
     // Buscar por nombre en el catálogo
     const calificacion = calificacionesCatalogo.find(
-      (c: any) => c?.nombre === nombre
+      (c: any) => c?.nombre === nombre,
     );
     return calificacion?.id || null;
   };
@@ -306,21 +313,64 @@ function SiniestrosPageContent() {
 
     setFiltros({
       activo,
-      estado_id:
-        activo === "all" || activo === "false" ? "" : estado_id_raw,
+      estado_id: activo === "all" || activo === "false" ? "" : estado_id_raw,
       proveniente_id: searchParams.get("proveniente_id") || "",
       area_id: activo === "false" ? "" : area_id_raw,
-      usuario_asignado: activo === "false" ? "" : usuario_raw,
+      usuario_asignado: usuario_raw,
       prioridad:
         (searchParams.get("prioridad") as DashboardAwareFilters["prioridad"]) ||
         "",
       calificacion_id: searchParams.get("calificacion_id") || "",
       asegurado_estado: searchParams.get("asegurado_estado") || "",
+      asegurado_geo_estado_id: searchParams.get("asegurado_geo_estado_id") || "",
       fecha_registro_mes: searchParams.get("fecha_registro_mes") || "",
     });
     setLimit(Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 1000);
     setFiltersReady(true);
   }, [searchParams]);
+
+  const queryStringFromFiltros = useCallback(() => {
+    const p = new URLSearchParams();
+    if (filtros.activo !== "true") p.set("activo", filtros.activo);
+    if (filtros.estado_id) p.set("estado_id", filtros.estado_id);
+    if (filtros.proveniente_id) p.set("proveniente_id", filtros.proveniente_id);
+    if (filtros.area_id) p.set("area_id", filtros.area_id);
+    if (filtros.usuario_asignado)
+      p.set("usuario_asignado", filtros.usuario_asignado);
+    if (filtros.prioridad) p.set("prioridad", filtros.prioridad);
+    if (filtros.calificacion_id) p.set("calificacion_id", filtros.calificacion_id);
+    if (filtros.asegurado_geo_estado_id)
+      p.set("asegurado_geo_estado_id", filtros.asegurado_geo_estado_id);
+    if (filtros.asegurado_estado)
+      p.set("asegurado_estado", filtros.asegurado_estado);
+    if (filtros.fecha_registro_mes)
+      p.set("fecha_registro_mes", filtros.fecha_registro_mes);
+    if (limit !== 1000) p.set("limit", String(limit));
+    return p.toString();
+  }, [filtros, limit]);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const next = queryStringFromFiltros();
+    const curr = searchParams.toString();
+    const paramsEqual = (a: string, b: string) => {
+      const pa = new URLSearchParams(a);
+      const pb = new URLSearchParams(b);
+      const keys = new Set([...pa.keys(), ...pb.keys()]);
+      for (const k of keys) {
+        if ((pa.get(k) ?? "") !== (pb.get(k) ?? "")) return false;
+      }
+      return true;
+    };
+    if (paramsEqual(next, curr)) return;
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }, [
+    filtersReady,
+    pathname,
+    queryStringFromFiltros,
+    router,
+    searchParams,
+  ]);
 
   // Cargar siniestros al cambiar filtros o límite
   useEffect(() => {
@@ -367,8 +417,11 @@ function SiniestrosPageContent() {
       if (filtros.usuario_asignado)
         params.usuario_asignado = filtros.usuario_asignado;
       if (filtros.prioridad) params.prioridad = filtros.prioridad;
-      if (filtros.calificacion_id) params.calificacion_id = filtros.calificacion_id;
-      if (filtros.asegurado_estado)
+      if (filtros.calificacion_id)
+        params.calificacion_id = filtros.calificacion_id;
+      if (filtros.asegurado_geo_estado_id)
+        params.asegurado_geo_estado_id = filtros.asegurado_geo_estado_id;
+      else if (filtros.asegurado_estado)
         params.asegurado_estado = filtros.asegurado_estado;
       if (filtros.fecha_registro_mes)
         params.fecha_registro_mes = filtros.fecha_registro_mes;
@@ -463,10 +516,10 @@ function SiniestrosPageContent() {
           .map((item: any) => item?.nombre)
           .filter(
             (nombre: string): nombre is string =>
-              typeof nombre === "string" && nombre.trim().length > 0
+              typeof nombre === "string" && nombre.trim().length > 0,
           );
         setCalificaciones(
-          nombres.length > 0 ? nombres : CALIFICACIONES_DEFAULT
+          nombres.length > 0 ? nombres : CALIFICACIONES_DEFAULT,
         );
       } else {
         setCalificaciones(CALIFICACIONES_DEFAULT);
@@ -494,22 +547,31 @@ function SiniestrosPageContent() {
   const dashboardFilterLabels = useMemo(() => {
     const labels: string[] = [];
 
-    if (filtros.asegurado_estado) {
-      labels.push(`Estado geográfico: ${filtros.asegurado_estado}`);
+    if (filtros.asegurado_geo_estado_id || filtros.asegurado_estado) {
+      labels.push(
+        filtros.asegurado_estado
+          ? `Estado geográfico: ${filtros.asegurado_estado}`
+          : `Estado geográfico (ID): ${filtros.asegurado_geo_estado_id}`,
+      );
     }
     if (filtros.fecha_registro_mes) {
-      labels.push(`Mes de registro: ${formatMonthLabel(filtros.fecha_registro_mes)}`);
+      labels.push(
+        `Mes de registro: ${formatMonthLabel(filtros.fecha_registro_mes)}`,
+      );
     }
 
     return labels;
-  }, [filtros.asegurado_estado, filtros.fecha_registro_mes]);
+  }, [
+    filtros.asegurado_estado,
+    filtros.asegurado_geo_estado_id,
+    filtros.fecha_registro_mes,
+  ]);
 
   const clearFilters = () => {
     setFiltros(DEFAULT_FILTROS);
     setLimit(1000);
     router.replace(pathname);
   };
-
 
   const openEdit = async (siniestro: Siniestro) => {
     setEditing(siniestro);
@@ -521,18 +583,17 @@ function SiniestrosPageContent() {
     try {
       const areasRelaciones = await apiService.getAreasAdicionales(
         siniestro.id,
-        true
+        true,
       );
       areasIds = areasRelaciones.map((area: any) => area.area_id);
 
       const involucrados = await apiService.getInvolucrados(siniestro.id, true);
       // Ordenar por es_principal para mantener el orden
-      const involucradosOrdenados = involucrados
-        .sort((a: any, b: any) => {
-          if (a.es_principal && !b.es_principal) return -1;
-          if (!a.es_principal && b.es_principal) return 1;
-          return 0;
-        });
+      const involucradosOrdenados = involucrados.sort((a: any, b: any) => {
+        if (a.es_principal && !b.es_principal) return -1;
+        if (!a.es_principal && b.es_principal) return 1;
+        return 0;
+      });
       usuariosIds = involucradosOrdenados.map((inv: any) => inv.usuario_id);
     } catch (error: any) {
       console.error("Error al cargar relaciones:", error);
@@ -562,15 +623,17 @@ function SiniestrosPageContent() {
       ],
     };
     if ((siniestro.polizas || []).length > 1) {
-      initialExtended.generales.polizas = (siniestro.polizas || []).map((poliza, index) => ({
-        tempId: `${initialExtended.generales.polizas[0].tempId}-${index}`,
-        id: poliza.id,
-        numero_poliza: poliza.numero_poliza || "",
-        deducible: poliza.deducible ?? "",
-        reserva: poliza.reserva ?? "",
-        coaseguro: poliza.coaseguro ?? "",
-        suma_asegurada: poliza.suma_asegurada ?? "",
-      }));
+      initialExtended.generales.polizas = (siniestro.polizas || []).map(
+        (poliza, index) => ({
+          tempId: `${initialExtended.generales.polizas[0].tempId}-${index}`,
+          id: poliza.id,
+          numero_poliza: poliza.numero_poliza || "",
+          deducible: poliza.deducible ?? "",
+          reserva: poliza.reserva ?? "",
+          coaseguro: poliza.coaseguro ?? "",
+          suma_asegurada: poliza.suma_asegurada ?? "",
+        }),
+      );
     }
     // Cargar asegurado seleccionado si existe
     initialExtended.asegurado.seleccionadoId = siniestro.asegurado_id || null;
@@ -580,7 +643,7 @@ function SiniestrosPageContent() {
     // Cargar calificación: buscar el nombre desde el ID
     if (siniestro.calificacion_id) {
       const calificacion = calificacionesCatalogo.find(
-        (c: any) => c?.id === siniestro.calificacion_id
+        (c: any) => c?.id === siniestro.calificacion_id,
       );
       initialExtended.generales.calificacion = calificacion?.nombre || "";
     }
@@ -600,7 +663,7 @@ function SiniestrosPageContent() {
   const handleFormChange = (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >
+    >,
   ) => {
     const { name, value, type } = e.target;
     const numericFields = new Set([
@@ -615,10 +678,10 @@ function SiniestrosPageContent() {
         type === "checkbox"
           ? (e.target as HTMLInputElement).checked
           : numericFields.has(name)
-          ? value === "" || Number.isNaN(Number(value))
-            ? ""
-            : Number(value)
-          : value,
+            ? value === "" || Number.isNaN(Number(value))
+              ? ""
+              : Number(value)
+            : value,
     }));
   };
 
@@ -637,8 +700,58 @@ function SiniestrosPageContent() {
 
       const areasIds = extendedForm.generales.areas_ids || [];
       const usuariosIds = extendedForm.generales.usuarios_ids || [];
-      const aseguradoId = extendedForm.asegurado.seleccionadoId || null;
-      const polizasPayload = buildPolizasPayload(extendedForm.generales.polizas);
+      let aseguradoId = extendedForm.asegurado.seleccionadoId || null;
+      const n = extendedForm.asegurado.nuevo;
+      const trimOrNull = (s: string | undefined) => {
+        const t = (s || "").trim();
+        return t ? t : null;
+      };
+      if (
+        !aseguradoId &&
+        trimOrNull(n.nombre) &&
+        trimOrNull(n.apellido_paterno)
+      ) {
+        const correoNuevo = trimOrNull(n.email);
+        const uuidOrNull = (s: string | undefined) => {
+          const t = (s || "").trim();
+          return t ? t : null;
+        };
+        const numOrNull = (s: string | undefined) => {
+          const t = (s || "").trim();
+          if (!t) return null;
+          const x = Number(t);
+          return Number.isFinite(x) ? x : null;
+        };
+        const creado = await apiService.createAsegurado({
+          nombre: n.nombre.trim(),
+          apellido_paterno: trimOrNull(n.apellido_paterno),
+          apellido_materno: trimOrNull(n.apellido_materno),
+          telefono:
+            trimOrNull(n.celular) ||
+            trimOrNull(n.telefono_casa) ||
+            trimOrNull(n.telefono_oficina),
+          tel_casa: trimOrNull(n.telefono_casa),
+          tel_oficina: trimOrNull(n.telefono_oficina),
+          direccion: trimOrNull(n.direccion),
+          colonia: trimOrNull(n.colonia),
+          municipio: trimOrNull(n.municipio),
+          codigo_postal: trimOrNull(n.codigo_postal),
+          pais: trimOrNull(n.pais),
+          pais_id: uuidOrNull(n.pais_id),
+          estado_geografico_id: uuidOrNull(n.estado_geografico_id),
+          municipio_id: uuidOrNull(n.municipio_id),
+          google_place_id: trimOrNull(n.google_place_id),
+          latitud: numOrNull(n.latitud),
+          longitud: numOrNull(n.longitud),
+          empresa: null,
+          correo: correoNuevo,
+          activo: true,
+        });
+        aseguradoId = creado.id;
+      }
+      const polizasPayload = buildPolizasPayload(
+        extendedForm.generales.polizas,
+      );
 
       const {
         fecha_registro: _fr,
@@ -653,26 +766,38 @@ function SiniestrosPageContent() {
       } = form;
       const payload = {
         ...formRest,
-        numero_siniestro: form.numero_siniestro && form.numero_siniestro.trim() ? form.numero_siniestro : null,
+        numero_siniestro:
+          form.numero_siniestro && form.numero_siniestro.trim()
+            ? form.numero_siniestro
+            : null,
         fecha_registro: fechaRegistroDateTime,
         fecha_reporte: fechaRegistroDateTime,
         fecha_asignacion: fechaAsignacionDateTime,
-        ...(fechaSiniestroDateTime ? { fecha_siniestro: fechaSiniestroDateTime } : {}),
+        ...(fechaSiniestroDateTime
+          ? { fecha_siniestro: fechaSiniestroDateTime }
+          : {}),
         polizas: polizasPayload,
         descripcion_hechos:
           extendedForm.especificos.descripcion_html || form.descripcion_hechos,
         asegurado_id: aseguradoId,
         // Convertir strings vacíos a null para campos UUID opcionales
-        institucion_id: form.institucion_id && form.institucion_id.trim() !== "" ? form.institucion_id : null,
-        autoridad_id: form.autoridad_id && form.autoridad_id.trim() !== "" ? form.autoridad_id : null,
+        institucion_id:
+          form.institucion_id && form.institucion_id.trim() !== ""
+            ? form.institucion_id
+            : null,
+        autoridad_id:
+          form.autoridad_id && form.autoridad_id.trim() !== ""
+            ? form.autoridad_id
+            : null,
         // Nuevos campos
         proveniente_id: extendedForm.generales.proveniente_id || null,
         numero_reporte: extendedForm.generales.numero_reporte || null,
         calificacion_id: getCalificacionIdFromNombre(
-          extendedForm.generales.calificacion
+          extendedForm.generales.calificacion,
         ),
         forma_contacto: extendedForm.asegurado.formaContacto || null,
-        tipo_intervencion: extendedForm.especificos.tipo_intervencion?.trim() || null,
+        tipo_intervencion:
+          extendedForm.especificos.tipo_intervencion?.trim() || null,
         tercero: extendedForm.especificos.tercero?.trim() || null,
         nicho: extendedForm.especificos.nicho?.trim() || null,
         materia: extendedForm.especificos.materia?.trim() || null,
@@ -688,16 +813,16 @@ function SiniestrosPageContent() {
         // Obtener áreas y usuarios actuales desde las relaciones
         const areasActuales = await apiService.getAreasAdicionales(
           siniestroId,
-          true
+          true,
         );
         const usuariosActuales = await apiService.getInvolucrados(
           siniestroId,
-          true
+          true,
         );
 
         // Construir lista completa de áreas actuales
         const areasActualesIds: string[] = areasActuales.map(
-          (area: any) => area.area_id
+          (area: any) => area.area_id,
         );
 
         // Construir lista completa de usuarios actuales
@@ -708,10 +833,10 @@ function SiniestrosPageContent() {
         // Áreas: sincronizar todas las áreas seleccionadas
         const areasSeleccionadas = extendedForm.generales.areas_ids || [];
         const areasParaEliminar = areasActualesIds.filter(
-          (id: string) => !areasSeleccionadas.includes(id)
+          (id: string) => !areasSeleccionadas.includes(id),
         );
         const areasParaAgregar = areasSeleccionadas.filter(
-          (id: string) => !areasActualesIds.includes(id)
+          (id: string) => !areasActualesIds.includes(id),
         );
 
         // Eliminar áreas que ya no están seleccionadas
@@ -722,7 +847,7 @@ function SiniestrosPageContent() {
             } catch (error: any) {
               console.error(
                 `Error al eliminar área ${areaRelacion.id}:`,
-                error
+                error,
               );
             }
           }
@@ -739,7 +864,9 @@ function SiniestrosPageContent() {
               continue;
             }
             try {
-              console.log(`Agregando área ${areaId} al siniestro ${siniestroId}`);
+              console.log(
+                `Agregando área ${areaId} al siniestro ${siniestroId}`,
+              );
               const resultado = await apiService.addAreaAdicional(siniestroId, {
                 area_id: areaId,
                 activo: true,
@@ -749,28 +876,34 @@ function SiniestrosPageContent() {
               areasGuardadas.push(areaId);
             } catch (error: any) {
               let errorMsg = `Error desconocido al agregar área ${areaId}`;
-              
+
               // Intentar extraer el mensaje de error de diferentes formas
               try {
                 if (error.response?.data) {
                   const data = error.response.data;
                   if (data.detail) {
-                    if (typeof data.detail === 'string') {
+                    if (typeof data.detail === "string") {
                       errorMsg = data.detail;
-                    } else if (typeof data.detail === 'object') {
+                    } else if (typeof data.detail === "object") {
                       // Si es un objeto, intentar extraer el mensaje
-                      errorMsg = data.detail.message || data.detail.error || JSON.stringify(data.detail);
+                      errorMsg =
+                        data.detail.message ||
+                        data.detail.error ||
+                        JSON.stringify(data.detail);
                     }
                   } else if (data.message) {
                     errorMsg = data.message;
                   } else if (data.error) {
-                    errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+                    errorMsg =
+                      typeof data.error === "string"
+                        ? data.error
+                        : JSON.stringify(data.error);
                   } else {
                     errorMsg = JSON.stringify(data);
                   }
                 } else if (error.message) {
                   errorMsg = error.message;
-                } else if (typeof error === 'string') {
+                } else if (typeof error === "string") {
                   errorMsg = error;
                 } else {
                   // Como último recurso, convertir a string
@@ -781,27 +914,29 @@ function SiniestrosPageContent() {
                   }
                 }
               } catch (parseError) {
-                console.error('Error al parsear el error:', parseError);
+                console.error("Error al parsear el error:", parseError);
                 errorMsg = `Error al procesar el error: ${String(error)}`;
               }
-              
+
               console.error(`Error completo al agregar área ${areaId}:`, error);
               console.error(`Mensaje de error extraído:`, errorMsg);
               areasErrors.push(`Área ${areaId}: ${errorMsg}`);
             }
           }
-          
+
           // Verificar que todas las áreas se guardaron
           if (areasErrors.length > 0) {
             await swalError(
-              `${areasErrors.length} de ${areasParaAgregar.length} áreas no se pudieron guardar:\n${areasErrors.join('\n')}`
+              `${areasErrors.length} de ${areasParaAgregar.length} áreas no se pudieron guardar:\n${areasErrors.join("\n")}`,
             );
           } else if (areasGuardadas.length !== areasParaAgregar.length) {
             await swalError(
-              `No se pudieron guardar todas las áreas. Esperadas: ${areasParaAgregar.length}, Guardadas: ${areasGuardadas.length}`
+              `No se pudieron guardar todas las áreas. Esperadas: ${areasParaAgregar.length}, Guardadas: ${areasGuardadas.length}`,
             );
           } else {
-            console.log(`✅ Todas las áreas nuevas se guardaron correctamente: ${areasGuardadas.length} áreas`);
+            console.log(
+              `✅ Todas las áreas nuevas se guardaron correctamente: ${areasGuardadas.length} áreas`,
+            );
           }
         } else {
           console.log("No hay áreas nuevas para agregar");
@@ -810,10 +945,10 @@ function SiniestrosPageContent() {
         // Usuarios: sincronizar TODOS los usuarios seleccionados en siniestros_usuarios
         const usuariosSeleccionados = extendedForm.generales.usuarios_ids || [];
         const usuariosParaEliminar = usuariosActualesIds.filter(
-          (id: string) => !usuariosSeleccionados.includes(id)
+          (id: string) => !usuariosSeleccionados.includes(id),
         );
         const usuariosParaAgregar = usuariosSeleccionados.filter(
-          (id: string) => !usuariosActualesIds.includes(id)
+          (id: string) => !usuariosActualesIds.includes(id),
         );
 
         // Eliminar usuarios que ya no están seleccionados
@@ -824,7 +959,7 @@ function SiniestrosPageContent() {
             } catch (error: any) {
               console.error(
                 `Error al eliminar usuario ${usuarioRelacion.id}:`,
-                error
+                error,
               );
             }
           }
@@ -860,7 +995,7 @@ function SiniestrosPageContent() {
             } catch (error: any) {
               console.error(
                 `Error al actualizar usuario principal ${relacionPrimerUsuario.id}:`,
-                error
+                error,
               );
             }
           }
@@ -883,7 +1018,7 @@ function SiniestrosPageContent() {
         if (areasIds && areasIds.length > 0) {
           const areasErrors: string[] = [];
           const areasGuardadas: string[] = [];
-          
+
           // Intentar guardar todas las áreas
           for (const areaId of areasIds) {
             if (!areaId) {
@@ -891,7 +1026,9 @@ function SiniestrosPageContent() {
               continue;
             }
             try {
-              console.log(`Agregando área ${areaId} al siniestro ${siniestroId}`);
+              console.log(
+                `Agregando área ${areaId} al siniestro ${siniestroId}`,
+              );
               const resultado = await apiService.addAreaAdicional(siniestroId, {
                 area_id: areaId,
                 activo: true,
@@ -901,28 +1038,34 @@ function SiniestrosPageContent() {
               areasGuardadas.push(areaId);
             } catch (error: any) {
               let errorMsg = `Error desconocido al agregar área ${areaId}`;
-              
+
               // Intentar extraer el mensaje de error de diferentes formas
               try {
                 if (error.response?.data) {
                   const data = error.response.data;
                   if (data.detail) {
-                    if (typeof data.detail === 'string') {
+                    if (typeof data.detail === "string") {
                       errorMsg = data.detail;
-                    } else if (typeof data.detail === 'object') {
+                    } else if (typeof data.detail === "object") {
                       // Si es un objeto, intentar extraer el mensaje
-                      errorMsg = data.detail.message || data.detail.error || JSON.stringify(data.detail);
+                      errorMsg =
+                        data.detail.message ||
+                        data.detail.error ||
+                        JSON.stringify(data.detail);
                     }
                   } else if (data.message) {
                     errorMsg = data.message;
                   } else if (data.error) {
-                    errorMsg = typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+                    errorMsg =
+                      typeof data.error === "string"
+                        ? data.error
+                        : JSON.stringify(data.error);
                   } else {
                     errorMsg = JSON.stringify(data);
                   }
                 } else if (error.message) {
                   errorMsg = error.message;
-                } else if (typeof error === 'string') {
+                } else if (typeof error === "string") {
                   errorMsg = error;
                 } else {
                   // Como último recurso, convertir a string
@@ -933,10 +1076,10 @@ function SiniestrosPageContent() {
                   }
                 }
               } catch (parseError) {
-                console.error('Error al parsear el error:', parseError);
+                console.error("Error al parsear el error:", parseError);
                 errorMsg = `Error al procesar el error: ${String(error)}`;
               }
-              
+
               console.error(`Error completo al agregar área ${areaId}:`, error);
               console.error(`Mensaje de error extraído:`, errorMsg);
               areasErrors.push(`Área ${areaId}: ${errorMsg}`);
@@ -945,14 +1088,16 @@ function SiniestrosPageContent() {
           // Verificar que todas las áreas se guardaron
           if (areasErrors.length > 0) {
             await swalError(
-              `${areasErrors.length} de ${areasIds.length} áreas no se pudieron guardar:\n${areasErrors.join('\n')}`
+              `${areasErrors.length} de ${areasIds.length} áreas no se pudieron guardar:\n${areasErrors.join("\n")}`,
             );
           } else if (areasGuardadas.length !== areasIds.length) {
             await swalError(
-              `No se pudieron guardar todas las áreas. Esperadas: ${areasIds.length}, Guardadas: ${areasGuardadas.length}`
+              `No se pudieron guardar todas las áreas. Esperadas: ${areasIds.length}, Guardadas: ${areasGuardadas.length}`,
             );
           } else {
-            console.log(`✅ Todas las áreas se guardaron correctamente: ${areasGuardadas.length} áreas`);
+            console.log(
+              `✅ Todas las áreas se guardaron correctamente: ${areasGuardadas.length} áreas`,
+            );
           }
         } else {
           console.log("No hay áreas para guardar o areasIds está vacío");
@@ -970,7 +1115,7 @@ function SiniestrosPageContent() {
             } catch (error: any) {
               console.error(
                 `Error al agregar usuario ${usuariosIds[i]}:`,
-                error
+                error,
               );
             }
           }
@@ -990,7 +1135,7 @@ function SiniestrosPageContent() {
 
   const deleteSiniestro = async (id: string) => {
     const confirmed = await swalConfirmDelete(
-      "¿Está seguro de eliminar este siniestro? Esta acción no se puede deshacer."
+      "¿Está seguro de eliminar este siniestro? Esta acción no se puede deshacer.",
     );
     if (!confirmed) return;
     try {
@@ -1015,10 +1160,7 @@ function SiniestrosPageContent() {
       apellido_materno: asegurado.apellido_materno || "",
       email: asegurado.correo || "",
       telefono:
-        asegurado.telefono ||
-        asegurado.tel_oficina ||
-        asegurado.tel_casa ||
-        "",
+        asegurado.telefono || asegurado.tel_oficina || asegurado.tel_casa || "",
       estado: asegurado.estado || "",
       ciudad: asegurado.ciudad || "",
     };
@@ -1051,7 +1193,7 @@ function SiniestrosPageContent() {
   const getProvenienteNombre = (provenienteId?: string) => {
     if (!provenienteId) return "-";
     const proveniente = provenientesCatalogo.find(
-      (p: any) => p.id === provenienteId
+      (p: any) => p.id === provenienteId,
     );
     return proveniente?.nombre || "-";
   };
@@ -1059,7 +1201,7 @@ function SiniestrosPageContent() {
   const getProvenienteCodigo = (provenienteId?: string) => {
     if (!provenienteId) return "-";
     const proveniente = provenientesCatalogo.find(
-      (p: any) => p.id === provenienteId
+      (p: any) => p.id === provenienteId,
     );
     return proveniente?.codigo || "-";
   };
@@ -1068,19 +1210,29 @@ function SiniestrosPageContent() {
     if (!aseguradoId) return "-";
     // Normalizar IDs para comparación (por si vienen con diferentes formatos)
     const normalizedId = String(aseguradoId).trim();
-    const asegurado = aseguradosCatalog.find((a) => String(a.id).trim() === normalizedId);
+    const asegurado = aseguradosCatalog.find(
+      (a) => String(a.id).trim() === normalizedId,
+    );
     if (!asegurado) {
       // Si no se encuentra, intentar buscar directamente en el catálogo original
-      const aseguradoOriginal = aseguradosCatalogo.find((a: any) => String(a.id).trim() === normalizedId);
+      const aseguradoOriginal = aseguradosCatalogo.find(
+        (a: any) => String(a.id).trim() === normalizedId,
+      );
       if (aseguradoOriginal) {
-        const full = [aseguradoOriginal.nombre, aseguradoOriginal.apellido_paterno, aseguradoOriginal.apellido_materno]
+        const full = [
+          aseguradoOriginal.nombre,
+          aseguradoOriginal.apellido_paterno,
+          aseguradoOriginal.apellido_materno,
+        ]
           .filter(Boolean)
           .join(" ");
         return full || aseguradoOriginal.correo || "-";
       }
       // Debug: solo loguear si hay asegurados cargados pero no se encuentra el ID
       if (aseguradosCatalogo.length > 0) {
-        console.warn(`Asegurado no encontrado con ID: ${normalizedId}. Total asegurados cargados: ${aseguradosCatalogo.length}`);
+        console.warn(
+          `Asegurado no encontrado con ID: ${normalizedId}. Total asegurados cargados: ${aseguradosCatalogo.length}`,
+        );
       }
       return "-";
     }
@@ -1098,10 +1250,14 @@ function SiniestrosPageContent() {
     if (!aseguradoId) return "-";
     // Normalizar IDs para comparación
     const normalizedId = String(aseguradoId).trim();
-    const asegurado = aseguradosCatalog.find((a) => String(a.id).trim() === normalizedId);
+    const asegurado = aseguradosCatalog.find(
+      (a) => String(a.id).trim() === normalizedId,
+    );
     if (!asegurado) {
       // Si no se encuentra, intentar buscar directamente en el catálogo original
-      const aseguradoOriginal = aseguradosCatalogo.find((a: any) => String(a.id).trim() === normalizedId);
+      const aseguradoOriginal = aseguradosCatalogo.find(
+        (a: any) => String(a.id).trim() === normalizedId,
+      );
       if (aseguradoOriginal) {
         return aseguradoOriginal.correo || "-";
       }
@@ -1113,7 +1269,7 @@ function SiniestrosPageContent() {
   const getInstitucionNombre = (institucionId?: string) => {
     if (!institucionId) return "-";
     const institucion = institucionesCatalogo.find(
-      (i) => i.id === institucionId
+      (i) => i.id === institucionId,
     );
     return institucion?.nombre || "-";
   };
@@ -1146,7 +1302,9 @@ function SiniestrosPageContent() {
     if (!userId) return "-";
     const u = usuarios.find((x: any) => String(x.id) === String(userId));
     if (!u) return "-";
-    const parts = [u.nombre, u.apellido_paterno, u.apellido_materno].filter(Boolean);
+    const parts = [u.nombre, u.apellido_paterno, u.apellido_materno].filter(
+      Boolean,
+    );
     if (parts.length) return parts.join(" ");
     return u.email || u.username || String(userId);
   };
@@ -1178,6 +1336,56 @@ function SiniestrosPageContent() {
     return [...ps].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))[0] ?? null;
   };
 
+  const getSiniestroSearchText = useCallback(
+    (s: Siniestro) => {
+      const pp = polizaPrincipalListado(s);
+      const idLeg =
+        buildSiniestroIdLegible({
+          id_formato: s.id_formato,
+          codigoProveniente: getProvenienteCodigo(s.proveniente_id),
+          codigoSiniestro: s.codigo,
+          anualidad: s.anualidad,
+          fecha_registro: s.fecha_registro,
+          fecha_siniestro: s.fecha_siniestro,
+        }) || "";
+      const parts = [
+        s.id,
+        idLeg,
+        s.codigo,
+        getEstadoNombre(s.estado_id),
+        getCalificacionNombre(s.calificacion_id),
+        getProvenienteNombre(s.proveniente_id),
+        getProvenienteCodigo(s.proveniente_id),
+        s.numero_reporte,
+        s.numero_siniestro,
+        getAseguradoNombre(s.asegurado_id),
+        getAseguradoEmail(s.asegurado_id),
+        getInstitucionNombre(s.institucion_id),
+        getAutoridadNombre(s.autoridad_id),
+        s.ubicacion,
+        getFormaContactoLabel(s.forma_contacto),
+        pp?.numero_poliza,
+        prioridadLabel(s.prioridad),
+        s.activo ? "activo" : "inactivo",
+        getSiniestroAnualidadDisplay(s),
+        s.descripcion_hechos,
+        s.observaciones,
+        getUsuarioNombre(s.creado_por),
+        (s as { tercero?: string }).tercero,
+      ];
+      return parts.filter(Boolean).join(" ");
+    },
+    [
+      aseguradosCatalog,
+      aseguradosCatalogo,
+      autoridadesCatalogo,
+      catalogosColores,
+      institucionesCatalogo,
+      provenientesCatalogo,
+      usuarios,
+    ],
+  );
+
   // Columnas de la tabla
   const columns: ColumnDef<Siniestro>[] = [
     {
@@ -1188,7 +1396,9 @@ function SiniestrosPageContent() {
         <div className="flex gap-2">
           {canVerDetalle && (
             <button
-              onClick={() => router.push(`/siniestros/${row.original.id}`)}
+              onClick={() =>
+                window.open(`/siniestros/${row.original.id}`, '_blank', 'noopener,noreferrer')
+              }
               className="text-blue-600 hover:text-blue-800"
               title="Ver detalle"
             >
@@ -1224,7 +1434,7 @@ function SiniestrosPageContent() {
         const estadoNombre = getEstadoNombre(row.original.estado_id);
         const estadoColor = obtenerColorEstado(
           row.original.estado_id,
-          catalogosColores
+          catalogosColores,
         );
         const estilos = generarEstilosBadge(estadoColor);
         return (
@@ -1248,11 +1458,11 @@ function SiniestrosPageContent() {
       cell: ({ row, table }) => {
         const fluid = isDataTableFluidLayout(table);
         const calificacionNombre = getCalificacionNombre(
-          row.original.calificacion_id
+          row.original.calificacion_id,
         );
         const calificacionColor = obtenerColorCalificacion(
           row.original.calificacion_id,
-          catalogosColores
+          catalogosColores,
         );
         const estilos = generarEstilosBadge(calificacionColor);
         return (
@@ -1278,7 +1488,9 @@ function SiniestrosPageContent() {
         const codigo =
           buildSiniestroIdLegible({
             id_formato: row.original.id_formato,
-            codigoProveniente: getProvenienteCodigo(row.original.proveniente_id),
+            codigoProveniente: getProvenienteCodigo(
+              row.original.proveniente_id,
+            ),
             codigoSiniestro: row.original.codigo,
             anualidad: row.original.anualidad,
             fecha_registro: row.original.fecha_registro,
@@ -1441,8 +1653,7 @@ function SiniestrosPageContent() {
       header: "Fecha reporte",
       cell: ({ row, table }) => {
         const fluid = isDataTableFluidLayout(table);
-        const raw =
-          row.original.fecha_registro || row.original.fecha_siniestro;
+        const raw = row.original.fecha_registro || row.original.fecha_siniestro;
         if (!raw) return <span className="text-sm">—</span>;
         return (
           <span
@@ -1591,7 +1802,8 @@ function SiniestrosPageContent() {
     },
     {
       id: "poliza_suma_asegurada",
-      accessorFn: (row) => Number(polizaPrincipalListado(row)?.suma_asegurada ?? 0),
+      accessorFn: (row) =>
+        Number(polizaPrincipalListado(row)?.suma_asegurada ?? 0),
       header: "Suma asegurada",
       cell: ({ row }) => (
         <span className="text-sm tabular-nums">
@@ -1840,7 +2052,6 @@ function SiniestrosPageContent() {
                   if (v === "false") {
                     next.estado_id = "";
                     next.area_id = "";
-                    next.usuario_asignado = "";
                   }
                   return next;
                 });
@@ -1973,6 +2184,27 @@ function SiniestrosPageContent() {
             </span>
             <button
               type="button"
+              onClick={() => {
+                const mine = String(user?.id || "");
+                if (!mine) return;
+                setFiltros((prev) => ({
+                  ...prev,
+                  usuario_asignado:
+                    prev.usuario_asignado === mine ? "" : mine,
+                }));
+              }}
+              className={`inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                filtros.usuario_asignado === String(user?.id || "")
+                  ? "border-primary-500 bg-primary-50 text-primary-800"
+                  : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              {filtros.usuario_asignado === String(user?.id || "")
+                ? "Quitar solo mis asignados"
+                : "Solo mis asignados"}
+            </button>
+            <button
+              type="button"
               onClick={clearFilters}
               className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
             >
@@ -1998,6 +2230,7 @@ function SiniestrosPageContent() {
               data={siniestros}
               emptyText="No hay siniestros"
               size="compact"
+              getGlobalSearchText={getSiniestroSearchText}
             />
           )}
         </div>
@@ -2005,4 +2238,3 @@ function SiniestrosPageContent() {
     </div>
   );
 }
-

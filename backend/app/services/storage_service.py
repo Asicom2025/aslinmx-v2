@@ -176,10 +176,43 @@ class LocalStorageBackend(StorageBackend):
         return bool(path and path.exists() and path.is_file())
 
     def resolve_local_path(self, storage_path: str) -> Optional[Path]:
-        path = Path(storage_path)
-        if not path.is_absolute():
-            path = (Path.cwd() / path).resolve()
-        return path
+        raw = (storage_path or "").strip()
+        if not raw:
+            return None
+        root = self.root.resolve()
+
+        def _safe_under_root(candidate: Path) -> Optional[Path]:
+            try:
+                resolved = candidate.resolve()
+            except OSError:
+                return None
+            try:
+                resolved.relative_to(root)
+            except ValueError:
+                return None
+            return resolved if resolved.is_file() else None
+
+        # Preferencia: clave relativa al root configurado (p. ej. assets/usuarios/…)
+        direct = _safe_under_root(root / raw.lstrip("/\\"))
+        if direct:
+            return direct
+
+        path = Path(raw)
+        if path.is_absolute():
+            if path.is_file():
+                return path.resolve()
+            return _safe_under_root(path)
+
+        # Compat: rutas guardadas relativas al cwd del proceso que escribió el archivo
+        legacy_cwd = (Path.cwd() / raw).resolve()
+        if legacy_cwd.is_file():
+            try:
+                legacy_cwd.relative_to(root)
+                return legacy_cwd
+            except ValueError:
+                return legacy_cwd
+
+        return _safe_under_root(root / PurePosixPath(raw.replace("\\", "/")).as_posix().lstrip("/"))
 
     def _build_target_path(self, key: str) -> Path:
         normalized = _normalize_storage_key(key)
@@ -191,11 +224,17 @@ class LocalStorageBackend(StorageBackend):
         return candidate
 
     def _storage_path_from_absolute(self, path: Path) -> str:
+        resolved = path.resolve()
+        root = self.root.resolve()
+        try:
+            return resolved.relative_to(root).as_posix()
+        except ValueError:
+            pass
         cwd = Path.cwd().resolve()
         try:
-            return path.relative_to(cwd).as_posix()
+            return resolved.relative_to(cwd).as_posix()
         except ValueError:
-            return path.as_posix()
+            return resolved.as_posix()
 
     def _cleanup_empty_parents(self, path: Path) -> None:
         current = path

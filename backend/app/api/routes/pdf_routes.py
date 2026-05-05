@@ -29,6 +29,7 @@ from app.services.legal_service import (
 )
 from app.services.empresa_service import EmpresaService
 from app.models.user import User
+from app.models.geo_models import GeoEstado, GeoMunicipio
 from app.models.legal import (
     Area,
     Proveniente,
@@ -526,7 +527,39 @@ def _get_siniestro_asegurado_variables(
             if direccion and str(direccion).strip():
                 out["lugar_ocurrido"] = str(direccion).strip()
             else:
-                partes = [getattr(asegurado, "ciudad", None), getattr(asegurado, "estado", None)]
+                ciudad_nom = None
+                estado_nom = None
+                if getattr(asegurado, "municipio_id", None):
+                    gm = (
+                        db.query(GeoMunicipio)
+                        .filter(GeoMunicipio.id == asegurado.municipio_id)
+                        .first()
+                    )
+                    if gm and getattr(gm, "nombre", None):
+                        ciudad_nom = str(gm.nombre).strip()
+                if getattr(asegurado, "estado_geografico_id", None):
+                    ge = (
+                        db.query(GeoEstado)
+                        .filter(GeoEstado.id == asegurado.estado_geografico_id)
+                        .first()
+                    )
+                    if ge and getattr(ge, "nombre", None):
+                        estado_nom = str(ge.nombre).strip()
+                if not estado_nom and getattr(asegurado, "municipio_id", None):
+                    gm2 = (
+                        db.query(GeoMunicipio)
+                        .filter(GeoMunicipio.id == asegurado.municipio_id)
+                        .first()
+                    )
+                    if gm2 and getattr(gm2, "estado_id", None):
+                        ge2 = (
+                            db.query(GeoEstado)
+                            .filter(GeoEstado.id == gm2.estado_id)
+                            .first()
+                        )
+                        if ge2 and getattr(ge2, "nombre", None):
+                            estado_nom = str(ge2.nombre).strip()
+                partes = [ciudad_nom, estado_nom]
                 partes = [p for p in partes if p and str(p).strip()]
                 out["lugar_ocurrido"] = ", ".join(partes) if partes else ""
     # Compatibilidad con plantillas que usan {{radicado_en}}

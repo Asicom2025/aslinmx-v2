@@ -245,11 +245,20 @@ class AseguradoBase(BaseModel):
     telefono: Optional[str] = Field(None, max_length=20)
     tel_oficina: Optional[str] = Field(None, max_length=20)
     tel_casa: Optional[str] = Field(None, max_length=20)
-    ciudad: Optional[str] = Field(None, max_length=100)
-    estado: Optional[str] = Field(None, max_length=100)
+    direccion: Optional[str] = None
+    colonia: Optional[str] = Field(None, max_length=150)
+    municipio: Optional[str] = Field(None, max_length=150)
+    codigo_postal: Optional[str] = Field(None, max_length=20)
+    pais: Optional[str] = Field(None, max_length=100)
     empresa: Optional[str] = Field(None, max_length=50)
     correo: Optional[str] = Field(None, max_length=100)
     activo: bool = True
+    pais_id: Optional[UUID] = None
+    estado_geografico_id: Optional[UUID] = None
+    municipio_id: Optional[UUID] = None
+    google_place_id: Optional[str] = Field(None, max_length=255)
+    latitud: Optional[Decimal] = None
+    longitud: Optional[Decimal] = None
 
 
 class AseguradoCreate(AseguradoBase):
@@ -269,21 +278,34 @@ class AseguradoUpdate(BaseModel):
     telefono: Optional[str] = Field(None, max_length=20)
     tel_oficina: Optional[str] = Field(None, max_length=20)
     tel_casa: Optional[str] = Field(None, max_length=20)
-    ciudad: Optional[str] = Field(None, max_length=100)
-    estado: Optional[str] = Field(None, max_length=100)
+    direccion: Optional[str] = None
+    colonia: Optional[str] = Field(None, max_length=150)
+    municipio: Optional[str] = Field(None, max_length=150)
+    codigo_postal: Optional[str] = Field(None, max_length=20)
+    pais: Optional[str] = Field(None, max_length=100)
     empresa: Optional[str] = Field(None, max_length=50)
     correo: Optional[str] = Field(None, max_length=100)
     timerst_list: Optional[str] = Field(None, min_length=1, max_length=100)
     activo: Optional[bool] = None
+    pais_id: Optional[UUID] = None
+    estado_geografico_id: Optional[UUID] = None
+    municipio_id: Optional[UUID] = None
+    google_place_id: Optional[str] = Field(None, max_length=255)
+    latitud: Optional[Decimal] = None
+    longitud: Optional[Decimal] = None
 
 
 class AseguradoResponse(AseguradoBase):
     """Schema de respuesta de asegurado"""
+
     id: UUID
     timerst_list: str = Field(..., min_length=1, max_length=100)
     creado_en: datetime
     actualizado_en: datetime
     eliminado_en: Optional[datetime] = None
+    # Denormalizados desde geo_municipios / geo_estados (no son columnas en BD)
+    ciudad: Optional[str] = Field(None, max_length=100)
+    estado: Optional[str] = Field(None, max_length=100)
 
     class Config:
         from_attributes = True

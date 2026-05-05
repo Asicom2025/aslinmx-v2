@@ -4,7 +4,7 @@ Servicio para generación de reportes
 
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, selectinload, aliased
 from sqlalchemy import func, and_, or_
 from datetime import datetime
 from uuid import UUID
@@ -13,9 +13,26 @@ from app.models.legal import (
     Siniestro, Area, EstadoSiniestro, Entidad, Institucion, Autoridad, Proveniente,
     Asegurado, CalificacionSiniestro, SiniestroArea, SiniestroUsuario
 )
+from app.models.geo_models import GeoEstado, GeoMunicipio
 from app.services.export_service import ExportService
 from app.services.pdf_service import PDFService
 from app.services.legal_service import es_estado_cancelacion_por_nombre
+
+
+def _normalize_uuid_list(val: Any) -> List[UUID]:
+    """Convierte un UUID o lista de UUID (str/UUID) en lista de UUID; ignora inválidos."""
+    if val is None:
+        return []
+    items = val if isinstance(val, (list, tuple)) else [val]
+    out: List[UUID] = []
+    for x in items:
+        if x is None or (isinstance(x, str) and not x.strip()):
+            continue
+        try:
+            out.append(x if isinstance(x, UUID) else UUID(str(x)))
+        except (ValueError, TypeError):
+            continue
+    return out
 
 
 class ReporteService:
@@ -230,22 +247,36 @@ class ReporteService:
 
         adicionales = filtros.get("filtros_adicionales", {}) or {}
 
-        if adicionales.get("institucion_id"):
-            query = query.filter(Siniestro.institucion_id == adicionales["institucion_id"])
-        if adicionales.get("autoridad_id"):
-            query = query.filter(Siniestro.autoridad_id == adicionales["autoridad_id"])
-        if adicionales.get("proveniente_id"):
-            query = query.filter(Siniestro.proveniente_id == adicionales["proveniente_id"])
-        if adicionales.get("asegurado_id"):
-            query = query.filter(Siniestro.asegurado_id == adicionales["asegurado_id"])
-        if adicionales.get("calificacion_id"):
-            query = query.filter(Siniestro.calificacion_id == adicionales["calificacion_id"])
-        if adicionales.get("estado_id"):
-            query = query.filter(Siniestro.estado_id == adicionales["estado_id"])
-        if adicionales.get("prioridad"):
-            query = query.filter(Siniestro.prioridad == adicionales["prioridad"])
+        ids_inst = _normalize_uuid_list(adicionales.get("institucion_id"))
+        if ids_inst:
+            query = query.filter(Siniestro.institucion_id.in_(ids_inst))
+        ids_aut = _normalize_uuid_list(adicionales.get("autoridad_id"))
+        if ids_aut:
+            query = query.filter(Siniestro.autoridad_id.in_(ids_aut))
+        ids_prov = _normalize_uuid_list(adicionales.get("proveniente_id"))
+        if ids_prov:
+            query = query.filter(Siniestro.proveniente_id.in_(ids_prov))
+        ids_aseg = _normalize_uuid_list(adicionales.get("asegurado_id"))
+        if ids_aseg:
+            query = query.filter(Siniestro.asegurado_id.in_(ids_aseg))
+        ids_cal = _normalize_uuid_list(adicionales.get("calificacion_id"))
+        if ids_cal:
+            query = query.filter(Siniestro.calificacion_id.in_(ids_cal))
+        ids_est = _normalize_uuid_list(adicionales.get("estado_id"))
+        if ids_est:
+            query = query.filter(Siniestro.estado_id.in_(ids_est))
 
-        if adicionales.get("area_id"):
+        pr = adicionales.get("prioridad")
+        if pr:
+            if isinstance(pr, (list, tuple)):
+                vals = [str(x).strip() for x in pr if str(x).strip()]
+                if vals:
+                    query = query.filter(Siniestro.prioridad.in_(vals))
+            else:
+                query = query.filter(Siniestro.prioridad == str(pr).strip())
+
+        ids_area = _normalize_uuid_list(adicionales.get("area_id"))
+        if ids_area:
             query = query.join(
                 SiniestroArea,
                 and_(
@@ -253,10 +284,10 @@ class ReporteService:
                     SiniestroArea.activo == True,
                     SiniestroArea.eliminado == False,
                 ),
-            ).filter(SiniestroArea.area_id == adicionales["area_id"])
+            ).filter(SiniestroArea.area_id.in_(ids_area))
 
-        if adicionales.get("usuario_id"):
-            usuario_id = adicionales["usuario_id"]
+        ids_user = _normalize_uuid_list(adicionales.get("usuario_id"))
+        if ids_user:
             query = query.outerjoin(
                 SiniestroUsuario,
                 and_(
@@ -266,17 +297,49 @@ class ReporteService:
                 ),
             ).filter(
                 or_(
-                    Siniestro.creado_por == usuario_id,
-                    SiniestroUsuario.usuario_id == usuario_id,
+                    Siniestro.creado_por.in_(ids_user),
+                    SiniestroUsuario.usuario_id.in_(ids_user),
                 )
             )
 
-        if adicionales.get("entidad_federativa"):
-            estado_asegurado = str(adicionales["entidad_federativa"]).strip()
-            if estado_asegurado:
-                query = query.join(
-                    Asegurado, Asegurado.id == Siniestro.asegurado_id
-                ).filter(func.lower(Asegurado.estado) == estado_asegurado.lower())
+        ent_raw = adicionales.get("entidad_federativa")
+        limpios: List[str] = []
+        if ent_raw:
+            ent_list = ent_raw if isinstance(ent_raw, (list, tuple)) else [ent_raw]
+            limpios = [str(x).strip() for x in ent_list if str(x).strip()]
+        ids_geo_est = _normalize_uuid_list(adicionales.get("geo_estado_id"))
+        if limpios or ids_geo_est:
+            GeoEstadoDir = aliased(GeoEstado)
+            GeoMun = aliased(GeoMunicipio)
+            GeoEstadoMun = aliased(GeoEstado)
+            query = query.join(Asegurado, Asegurado.id == Siniestro.asegurado_id)
+            query = query.outerjoin(GeoEstadoDir, GeoEstadoDir.id == Asegurado.estado_geografico_id)
+            query = query.outerjoin(GeoMun, GeoMun.id == Asegurado.municipio_id)
+            query = query.outerjoin(GeoEstadoMun, GeoEstadoMun.id == GeoMun.estado_id)
+            conds = []
+            if limpios:
+                conds.append(
+                    or_(
+                        *[
+                            or_(
+                                func.lower(func.coalesce(GeoEstadoDir.nombre, "")) == e.lower(),
+                                func.lower(func.coalesce(GeoEstadoMun.nombre, "")) == e.lower(),
+                            )
+                            for e in limpios
+                        ]
+                    )
+                )
+            if ids_geo_est:
+                conds.append(
+                    or_(
+                        Asegurado.estado_geografico_id.in_(ids_geo_est),
+                        GeoMun.estado_id.in_(ids_geo_est),
+                    )
+                )
+            if len(conds) == 1:
+                query = query.filter(conds[0])
+            else:
+                query = query.filter(or_(*conds))
 
         if adicionales.get("fecha_reporte_mes"):
             mes = str(adicionales["fecha_reporte_mes"]).strip()
@@ -295,9 +358,9 @@ class ReporteService:
         adicionales_f = filtros.get("filtros_adicionales", {}) or {}
         estado_f = adicionales_f.get("estado_id")
         relajar_activo = False
-        if db is not None and empresa_id is not None and estado_f is not None:
-            try:
-                eid = estado_f if isinstance(estado_f, UUID) else UUID(str(estado_f))
+        estado_ids_relaj = _normalize_uuid_list(estado_f)
+        if db is not None and empresa_id is not None and estado_ids_relaj:
+            for eid in estado_ids_relaj:
                 row_e = (
                     db.query(EstadoSiniestro)
                     .filter(
@@ -310,8 +373,7 @@ class ReporteService:
                     getattr(row_e, "nombre", None)
                 ):
                     relajar_activo = True
-            except (ValueError, TypeError):
-                pass
+                    break
 
         query = query.filter(Siniestro.eliminado == False)  # noqa: E712
         if filtros.get("activo") is None and not relajar_activo:
@@ -391,9 +453,62 @@ class ReporteService:
                     resultado["asegurado_apellido_materno"] = asegurado.apellido_materno
                     resultado["asegurado_nombre_completo"] = f"{asegurado.nombre} {asegurado.apellido_paterno or ''} {asegurado.apellido_materno or ''}".strip()
                     resultado["asegurado_telefono"] = asegurado.telefono or asegurado.tel_oficina or asegurado.tel_casa
-                    resultado["asegurado_ciudad"] = asegurado.ciudad
-                    resultado["asegurado_estado"] = asegurado.estado
                     resultado["asegurado_empresa"] = asegurado.empresa
+                    geo_est = (
+                        db.query(GeoEstado)
+                        .filter(GeoEstado.id == asegurado.estado_geografico_id)
+                        .first()
+                        if asegurado.estado_geografico_id
+                        else None
+                    )
+                    geo_mun = (
+                        db.query(GeoMunicipio)
+                        .filter(GeoMunicipio.id == asegurado.municipio_id)
+                        .first()
+                        if asegurado.municipio_id
+                        else None
+                    )
+                    resultado["asegurado_ciudad"] = geo_mun.nombre if geo_mun else None
+                    geo_est_via_mun = None
+                    if geo_mun and geo_mun.estado_id:
+                        geo_est_via_mun = (
+                            db.query(GeoEstado)
+                            .filter(GeoEstado.id == geo_mun.estado_id)
+                            .first()
+                        )
+                    if geo_est:
+                        resultado["asegurado_estado"] = geo_est.nombre
+                    elif geo_est_via_mun:
+                        resultado["asegurado_estado"] = geo_est_via_mun.nombre
+                    else:
+                        resultado["asegurado_estado"] = None
+                    _cols_geo = columnas is None or any(
+                        c in (columnas or [])
+                        for c in (
+                            "asegurado_estado_catalogo",
+                            "asegurado_municipio_catalogo",
+                            "asegurado_geo_estado_id",
+                            "asegurado_geo_municipio_id",
+                        )
+                    )
+                    if _cols_geo:
+                        estado_cat = (
+                            geo_est.nombre
+                            if geo_est
+                            else (geo_est_via_mun.nombre if geo_est_via_mun else None)
+                        )
+                        resultado["asegurado_estado_catalogo"] = estado_cat
+                        resultado["asegurado_municipio_catalogo"] = (
+                            geo_mun.nombre if geo_mun else None
+                        )
+                        resultado["asegurado_geo_estado_id"] = (
+                            str(asegurado.estado_geografico_id)
+                            if asegurado.estado_geografico_id
+                            else None
+                        )
+                        resultado["asegurado_geo_municipio_id"] = (
+                            str(asegurado.municipio_id) if asegurado.municipio_id else None
+                        )
 
             # Estado del siniestro
             if registro.estado_id:

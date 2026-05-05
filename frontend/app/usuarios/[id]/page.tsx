@@ -592,7 +592,7 @@ export default function EditarUsuarioPage() {
                     <img
                       src={form.perfil.firma}
                       alt="Firma"
-                      className="max-h-24 w-auto object-contain border rounded bg-white"
+                      className="max-h-32 max-w-full w-full sm:max-w-md object-contain border rounded bg-white"
                     />
                     {canEditFirmas && (
                       <Button type="button" variant="secondary" size="sm" onClick={() => clearFirma("firma")}>
@@ -620,7 +620,7 @@ export default function EditarUsuarioPage() {
                     <img
                       src={form.perfil.firma_digital}
                       alt="Firma digital"
-                      className="max-h-24 w-auto object-contain border rounded bg-white"
+                      className="max-h-32 max-w-full w-full sm:max-w-md object-contain border rounded bg-white"
                     />
                     {canEditFirmas && (
                       <Button
