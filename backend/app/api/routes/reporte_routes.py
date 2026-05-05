@@ -109,7 +109,6 @@ async def listar_reportes_disponibles(
                 "activo",
                 "fecha_desde",
                 "fecha_hasta",
-                "entidad_federativa",
                 "geo_estado_id",
                 "institucion_id",
                 "autoridad_id",
