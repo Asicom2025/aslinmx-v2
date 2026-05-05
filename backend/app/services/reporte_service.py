@@ -302,44 +302,17 @@ class ReporteService:
                 )
             )
 
-        ent_raw = adicionales.get("entidad_federativa")
-        limpios: List[str] = []
-        if ent_raw:
-            ent_list = ent_raw if isinstance(ent_raw, (list, tuple)) else [ent_raw]
-            limpios = [str(x).strip() for x in ent_list if str(x).strip()]
         ids_geo_est = _normalize_uuid_list(adicionales.get("geo_estado_id"))
-        if limpios or ids_geo_est:
-            GeoEstadoDir = aliased(GeoEstado)
+        if ids_geo_est:
             GeoMun = aliased(GeoMunicipio)
-            GeoEstadoMun = aliased(GeoEstado)
             query = query.join(Asegurado, Asegurado.id == Siniestro.asegurado_id)
-            query = query.outerjoin(GeoEstadoDir, GeoEstadoDir.id == Asegurado.estado_geografico_id)
             query = query.outerjoin(GeoMun, GeoMun.id == Asegurado.municipio_id)
-            query = query.outerjoin(GeoEstadoMun, GeoEstadoMun.id == GeoMun.estado_id)
-            conds = []
-            if limpios:
-                conds.append(
-                    or_(
-                        *[
-                            or_(
-                                func.lower(func.coalesce(GeoEstadoDir.nombre, "")) == e.lower(),
-                                func.lower(func.coalesce(GeoEstadoMun.nombre, "")) == e.lower(),
-                            )
-                            for e in limpios
-                        ]
-                    )
+            query = query.filter(
+                or_(
+                    Asegurado.estado_geografico_id.in_(ids_geo_est),
+                    GeoMun.estado_id.in_(ids_geo_est),
                 )
-            if ids_geo_est:
-                conds.append(
-                    or_(
-                        Asegurado.estado_geografico_id.in_(ids_geo_est),
-                        GeoMun.estado_id.in_(ids_geo_est),
-                    )
-                )
-            if len(conds) == 1:
-                query = query.filter(conds[0])
-            else:
-                query = query.filter(or_(*conds))
+            )
 
         if adicionales.get("fecha_reporte_mes"):
             mes = str(adicionales["fecha_reporte_mes"]).strip()

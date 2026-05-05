@@ -4,7 +4,7 @@ Rutas API para estadísticas del dashboard
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy import func, and_, or_, nullslast
+from sqlalchemy import func, and_, or_, nullslast, cast, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import SQLAlchemyError
 import logging
@@ -61,6 +61,7 @@ def get_dashboard_stats(
                 q_tot = q_tot.filter(Siniestro.id.in_(alcance))
             total_siniestros = q_tot.scalar() or 0
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener total de siniestros: {str(e)}")
             total_siniestros = 0
 
@@ -75,6 +76,7 @@ def get_dashboard_stats(
                 q_act = q_act.filter(Siniestro.id.in_(alcance))
             siniestros_activos = q_act.scalar() or 0
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener siniestros activos: {str(e)}")
             siniestros_activos = 0
 
@@ -86,7 +88,10 @@ def get_dashboard_stats(
                 db.query(
                     nombre_grupo.label("nombre_grupo"),
                     func.min(
-                        func.coalesce(Asegurado.estado_geografico_id, GeoMunicipio.estado_id)
+                        func.coalesce(
+                            cast(Asegurado.estado_geografico_id, String),
+                            cast(GeoMunicipio.estado_id, String),
+                        )
                     ).label("geo_id"),
                     func.count(Siniestro.id).label("count"),
                 )
@@ -122,6 +127,7 @@ def get_dashboard_stats(
                 estados_out[key]["cantidad"] += int(cantidad or 0)
             siniestros_por_estado = list(estados_out.values())
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener siniestros por estado geográfico: {str(e)}")
             siniestros_por_estado = []
 
@@ -139,6 +145,7 @@ def get_dashboard_stats(
                 q_pri = q_pri.filter(Siniestro.id.in_(alcance))
             siniestros_por_prioridad = q_pri.group_by(Siniestro.prioridad).all()
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener siniestros por prioridad: {str(e)}")
             siniestros_por_prioridad = []
 
@@ -162,6 +169,7 @@ def get_dashboard_stats(
                 q_area = q_area.filter(Siniestro.id.in_(alcance))
             siniestros_por_area = q_area.group_by(Area.nombre).limit(10).all()
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener siniestros por área: {str(e)}")
             siniestros_por_area = []
 
@@ -177,6 +185,7 @@ def get_dashboard_stats(
                 q_crit = q_crit.filter(Siniestro.id.in_(alcance))
             siniestros_criticos = q_crit.scalar() or 0
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener siniestros críticos: {str(e)}")
             siniestros_criticos = 0
 
@@ -187,6 +196,7 @@ def get_dashboard_stats(
                 Notificacion.leida == False
             ).scalar() or 0
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener notificaciones no leídas: {str(e)}")
             notificaciones_no_leidas = 0
 
@@ -199,6 +209,7 @@ def get_dashboard_stats(
                 BitacoraActividad.fecha_actividad >= desde
             ).scalar() or 0
         except Exception as e:
+            db.rollback()
             logger.warning(f"Error al obtener actividades recientes: {str(e)}")
             actividades_recientes = 0
 

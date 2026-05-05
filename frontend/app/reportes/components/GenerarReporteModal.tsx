@@ -49,7 +49,6 @@ export default function GenerarReporteModal({
     calificaciones: [] as any[],
     estados: [] as any[],
     usuarios: [] as any[],
-    entidadesFederativas: [] as string[],
     geoEstados: [] as { id: string; nombre?: string }[],
   });
 
@@ -84,13 +83,6 @@ export default function GenerarReporteModal({
           apiService.getUsers(0, 1000),
         ]);
 
-        const estadosRaw = (asegurados || [])
-          .map((a: any) => (a?.estado || "").trim())
-          .filter(Boolean) as string[];
-        const estadosAsegurados: string[] = Array.from(
-          new Set<string>(estadosRaw),
-        ).sort((a: string, b: string) => a.localeCompare(b, "es"));
-
         let geoEstados: { id: string; nombre?: string }[] = [];
         try {
           const paises = (await apiService.getGeoPaises(true)) as { id: string; codigo_iso?: string }[];
@@ -114,7 +106,6 @@ export default function GenerarReporteModal({
           calificaciones: calificaciones || [],
           estados: estados || [],
           usuarios: usuarios || [],
-          entidadesFederativas: estadosAsegurados,
           geoEstados,
         });
       } catch {
