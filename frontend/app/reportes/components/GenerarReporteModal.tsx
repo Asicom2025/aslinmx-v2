@@ -50,6 +50,7 @@ export default function GenerarReporteModal({
     estados: [] as any[],
     usuarios: [] as any[],
     entidadesFederativas: [] as string[],
+    geoEstados: [] as { id: string; nombre?: string }[],
   });
 
   // Inicializar todas las columnas seleccionadas por defecto
@@ -90,6 +91,20 @@ export default function GenerarReporteModal({
           new Set<string>(estadosRaw),
         ).sort((a: string, b: string) => a.localeCompare(b, "es"));
 
+        let geoEstados: { id: string; nombre?: string }[] = [];
+        try {
+          const paises = (await apiService.getGeoPaises(true)) as { id: string; codigo_iso?: string }[];
+          const mx = (paises || []).find(
+            (p) => String(p.codigo_iso || "").toUpperCase() === "MX",
+          );
+          if (mx?.id) {
+            geoEstados = ((await apiService.getGeoEstados(String(mx.id), true)) ||
+              []) as { id: string; nombre?: string }[];
+          }
+        } catch {
+          geoEstados = [];
+        }
+
         setCatalogos({
           instituciones: instituciones || [],
           autoridades: autoridades || [],
@@ -100,6 +115,7 @@ export default function GenerarReporteModal({
           estados: estados || [],
           usuarios: usuarios || [],
           entidadesFederativas: estadosAsegurados,
+          geoEstados,
         });
       } catch {
         // Si falla algún catálogo, el usuario puede seguir exportando con otros filtros.
@@ -173,10 +189,13 @@ export default function GenerarReporteModal({
     onGenerar(request);
   };
 
-  const setFiltroAdicional = (key: string, value: string) => {
+  const setFiltroAdicional = (key: string, value: string | string[]) => {
     setFiltrosAdicionales((prev) => {
       const next = { ...prev };
-      if (!value) {
+      if (Array.isArray(value)) {
+        if (value.length === 0) delete next[key];
+        else next[key] = value;
+      } else if (!value) {
         delete next[key];
       } else {
         next[key] = value;
@@ -185,7 +204,17 @@ export default function GenerarReporteModal({
     });
   };
 
-  const filtroAdicional = (key: string): string => String(filtrosAdicionales[key] || "");
+  const filtroAdicional = (key: string): string =>
+    Array.isArray(filtrosAdicionales[key])
+      ? ""
+      : String(filtrosAdicionales[key] || "");
+
+  const filtroAdicionalMulti = (key: string): string[] => {
+    const v = filtrosAdicionales[key];
+    if (Array.isArray(v)) return v.map(String).filter(Boolean);
+    if (v != null && String(v).trim()) return [String(v)];
+    return [];
+  };
   const buildSimpleOptions = (
     items: any[],
     labelBuilder: (item: any) => string,
@@ -349,13 +378,45 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Entidad Federativa</label>
                   <CustomSelect
                     name="filtro_entidad_federativa"
-                    value={filtroAdicional("entidad_federativa")}
-                    onChange={(value) => setFiltroAdicional("entidad_federativa", String(value || ""))}
-                    options={[
-                      { value: "", label: "Todas" },
-                      ...catalogos.entidadesFederativas.map((estado) => ({ value: estado, label: estado })),
-                    ]}
-                    placeholder="Todas"
+                    isMulti
+                    value={filtroAdicionalMulti("entidad_federativa")}
+                    onChange={(value) =>
+                      setFiltroAdicional(
+                        "entidad_federativa",
+                        Array.isArray(value) ? value : [],
+                      )
+                    }
+                    options={catalogos.entidadesFederativas.map((estado) => ({
+                      value: estado,
+                      label: estado,
+                    }))}
+                    placeholder="Todas (vacío = sin filtro)"
+                    usePortal={false}
+                  />
+                </div>
+              )}
+
+              {reporteDisponible.filtros_disponibles.includes("geo_estado_id") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Entidad federativa (catálogo geo)
+                  </label>
+                  <p className="text-xs text-gray-500 mb-1">
+                    Filtra por <code>estado_geografico_id</code> del asegurado. Si combinas con el filtro de
+                    texto arriba, se aplican ambos (AND).
+                  </p>
+                  <CustomSelect
+                    name="filtro_geo_estado_id"
+                    isMulti
+                    value={filtroAdicionalMulti("geo_estado_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional("geo_estado_id", Array.isArray(value) ? value : [])
+                    }
+                    options={buildSimpleOptions(
+                      catalogos.geoEstados,
+                      (item) => item.nombre || "Sin nombre",
+                    )}
+                    placeholder="Todos (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -366,10 +427,16 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Institución</label>
                   <CustomSelect
                     name="filtro_institucion"
-                    value={filtroAdicional("institucion_id")}
-                    onChange={(value) => setFiltroAdicional("institucion_id", String(value || ""))}
-                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.instituciones, (item) => item.nombre || "Sin nombre")]}
-                    placeholder="Todas"
+                    isMulti
+                    value={filtroAdicionalMulti("institucion_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional(
+                        "institucion_id",
+                        Array.isArray(value) ? value : [],
+                      )
+                    }
+                    options={buildSimpleOptions(catalogos.instituciones, (item) => item.nombre || "Sin nombre")}
+                    placeholder="Todas (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -380,10 +447,16 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Autoridad</label>
                   <CustomSelect
                     name="filtro_autoridad"
-                    value={filtroAdicional("autoridad_id")}
-                    onChange={(value) => setFiltroAdicional("autoridad_id", String(value || ""))}
-                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.autoridades, (item) => item.nombre || "Sin nombre")]}
-                    placeholder="Todas"
+                    isMulti
+                    value={filtroAdicionalMulti("autoridad_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional(
+                        "autoridad_id",
+                        Array.isArray(value) ? value : [],
+                      )
+                    }
+                    options={buildSimpleOptions(catalogos.autoridades, (item) => item.nombre || "Sin nombre")}
+                    placeholder="Todas (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -394,10 +467,13 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Área</label>
                   <CustomSelect
                     name="filtro_area"
-                    value={filtroAdicional("area_id")}
-                    onChange={(value) => setFiltroAdicional("area_id", String(value || ""))}
-                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.areas, (item) => item.nombre || "Sin nombre")]}
-                    placeholder="Todas"
+                    isMulti
+                    value={filtroAdicionalMulti("area_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional("area_id", Array.isArray(value) ? value : [])
+                    }
+                    options={buildSimpleOptions(catalogos.areas, (item) => item.nombre || "Sin nombre")}
+                    placeholder="Todas (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -408,10 +484,16 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Proveniente</label>
                   <CustomSelect
                     name="filtro_proveniente"
-                    value={filtroAdicional("proveniente_id")}
-                    onChange={(value) => setFiltroAdicional("proveniente_id", String(value || ""))}
-                    options={[{ value: "", label: "Todos" }, ...buildSimpleOptions(catalogos.provenientes, (item) => item.nombre || "Sin nombre")]}
-                    placeholder="Todos"
+                    isMulti
+                    value={filtroAdicionalMulti("proveniente_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional(
+                        "proveniente_id",
+                        Array.isArray(value) ? value : [],
+                      )
+                    }
+                    options={buildSimpleOptions(catalogos.provenientes, (item) => item.nombre || "Sin nombre")}
+                    placeholder="Todos (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -422,19 +504,22 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Asegurado</label>
                   <CustomSelect
                     name="filtro_asegurado"
-                    value={filtroAdicional("asegurado_id")}
-                    onChange={(value) => setFiltroAdicional("asegurado_id", String(value || ""))}
-                    options={[
-                      { value: "", label: "Todos" },
-                      ...buildSimpleOptions(
-                        catalogos.asegurados,
-                        (item) =>
-                          [item.nombre, item.apellido_paterno, item.apellido_materno]
-                            .filter(Boolean)
-                            .join(" ") || "Sin nombre",
-                      ),
-                    ]}
-                    placeholder="Todos"
+                    isMulti
+                    value={filtroAdicionalMulti("asegurado_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional(
+                        "asegurado_id",
+                        Array.isArray(value) ? value : [],
+                      )
+                    }
+                    options={buildSimpleOptions(
+                      catalogos.asegurados,
+                      (item) =>
+                        [item.nombre, item.apellido_paterno, item.apellido_materno]
+                          .filter(Boolean)
+                          .join(" ") || "Sin nombre",
+                    )}
+                    placeholder="Todos (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -445,10 +530,16 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Calificación</label>
                   <CustomSelect
                     name="filtro_calificacion"
-                    value={filtroAdicional("calificacion_id")}
-                    onChange={(value) => setFiltroAdicional("calificacion_id", String(value || ""))}
-                    options={[{ value: "", label: "Todas" }, ...buildSimpleOptions(catalogos.calificaciones, (item) => item.nombre || "Sin nombre")]}
-                    placeholder="Todas"
+                    isMulti
+                    value={filtroAdicionalMulti("calificacion_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional(
+                        "calificacion_id",
+                        Array.isArray(value) ? value : [],
+                      )
+                    }
+                    options={buildSimpleOptions(catalogos.calificaciones, (item) => item.nombre || "Sin nombre")}
+                    placeholder="Todas (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -459,10 +550,13 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Estatus</label>
                   <CustomSelect
                     name="filtro_estado"
-                    value={filtroAdicional("estado_id")}
-                    onChange={(value) => setFiltroAdicional("estado_id", String(value || ""))}
-                    options={[{ value: "", label: "Todos" }, ...buildSimpleOptions(catalogos.estados, (item) => item.nombre || "Sin nombre")]}
-                    placeholder="Todos"
+                    isMulti
+                    value={filtroAdicionalMulti("estado_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional("estado_id", Array.isArray(value) ? value : [])
+                    }
+                    options={buildSimpleOptions(catalogos.estados, (item) => item.nombre || "Sin nombre")}
+                    placeholder="Todos (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -473,16 +567,18 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Prioridad</label>
                   <CustomSelect
                     name="filtro_prioridad"
-                    value={filtroAdicional("prioridad")}
-                    onChange={(value) => setFiltroAdicional("prioridad", String(value || ""))}
+                    isMulti
+                    value={filtroAdicionalMulti("prioridad")}
+                    onChange={(value) =>
+                      setFiltroAdicional("prioridad", Array.isArray(value) ? value : [])
+                    }
                     options={[
-                      { value: "", label: "Todas" },
                       { value: "baja", label: "Baja" },
                       { value: "media", label: "Media" },
                       { value: "alta", label: "Alta" },
                       { value: "critica", label: "Crítica" },
                     ]}
-                    placeholder="Todas"
+                    placeholder="Todas (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>
@@ -505,16 +601,16 @@ export default function GenerarReporteModal({
                   <label className="block text-sm font-medium text-gray-700 mb-2">Usuario</label>
                   <CustomSelect
                     name="filtro_usuario"
-                    value={filtroAdicional("usuario_id")}
-                    onChange={(value) => setFiltroAdicional("usuario_id", String(value || ""))}
-                    options={[
-                      { value: "", label: "Todos" },
-                      ...buildSimpleOptions(
-                        catalogos.usuarios,
-                        (item) => item.full_name || item.email || item.username || "Usuario",
-                      ),
-                    ]}
-                    placeholder="Todos"
+                    isMulti
+                    value={filtroAdicionalMulti("usuario_id")}
+                    onChange={(value) =>
+                      setFiltroAdicional("usuario_id", Array.isArray(value) ? value : [])
+                    }
+                    options={buildSimpleOptions(
+                      catalogos.usuarios,
+                      (item) => item.full_name || item.email || item.username || "Usuario",
+                    )}
+                    placeholder="Todos (vacío = sin filtro)"
                     usePortal={false}
                   />
                 </div>

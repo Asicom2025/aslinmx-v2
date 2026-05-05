@@ -154,6 +154,7 @@ export interface SiniestroFilters {
   usuario_asignado?: string;
   prioridad?: "baja" | "media" | "alta" | "critica";
   asegurado_estado?: string;
+  asegurado_geo_estado_id?: string;
   fecha_registro_mes?: string;
   busqueda_id?: string;
   numero_siniestro?: string;

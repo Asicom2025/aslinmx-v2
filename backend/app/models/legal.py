@@ -131,7 +131,7 @@ class Asegurado(Base):
     - id uuid PK
     - nombre, apellido_paterno, apellido_materno
     - telefono, tel_oficina, tel_casa
-    - ciudad, estado, empresa
+    - empresa; ubicación geográfica vía pais_id, estado_geografico_id, municipio_id
     - correo (contacto; no único)
     - timerst_list (identificador externo TimerST; único entre registros activos — ver migración en db/)
     """
@@ -147,12 +147,22 @@ class Asegurado(Base):
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     tel_oficina = Column(String(20))
     tel_casa = Column(String(20))
-    ciudad = Column(String(100))
-    estado = Column(String(100))
+    direccion = Column(Text, nullable=True)
+    colonia = Column(String(150), nullable=True)
+    municipio = Column(String(150), nullable=True)
+    codigo_postal = Column(String(20), nullable=True)
+    pais = Column(String(100), nullable=True)
     empresa = Column(String(50))
     correo = Column(String(100), nullable=True)
     timerst_list = Column(String(100), nullable=False)
     eliminado_en = Column(DateTime(timezone=True), nullable=True)
+
+    pais_id = Column(UUID(as_uuid=True), ForeignKey("geo_paises.id", ondelete="SET NULL"), nullable=True)
+    estado_geografico_id = Column(UUID(as_uuid=True), ForeignKey("geo_estados.id", ondelete="SET NULL"), nullable=True)
+    municipio_id = Column(UUID(as_uuid=True), ForeignKey("geo_municipios.id", ondelete="SET NULL"), nullable=True)
+    google_place_id = Column(String(255), nullable=True)
+    latitud = Column(Numeric(10, 7), nullable=True)
+    longitud = Column(Numeric(10, 7), nullable=True)
 
 
 class Proveniente(Base):

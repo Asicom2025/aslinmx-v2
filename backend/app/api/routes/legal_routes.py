@@ -55,6 +55,18 @@ from app.schemas.legal_schema import (
 )
 from app.services.auditoria_service import AuditoriaService
 from app.models.legal import Siniestro, Proveniente, ProvenienteContacto
+from app.schemas.geo_schema import (
+    GeoPaisResponse,
+    GeoEstadoResponse,
+    GeoMunicipioResponse,
+    GooglePlaceDetailsResponse,
+)
+from app.services.geo_catalog_service import GeoCatalogService
+from app.services.google_places_service import (
+    fetch_place_details,
+    google_maps_server_key_configured,
+    normalized_fields_from_details,
+)
 from app.services.legal_service import (
     RespuestaFormularioService,
     AreaService,
@@ -64,6 +76,8 @@ from app.services.legal_service import (
     InstitucionService,
     AutoridadService,
     AseguradoService,
+    asegurado_to_response,
+    asegurados_to_responses,
     ProvenienteService,
     ProvenienteContactoService,
     TiposDocumentoService,
@@ -646,6 +660,69 @@ async def importar_autoridades_csv(
     }
 
 
+# ===== CATÁLOGO GEO (país → estado → municipio) =====
+@router.get("/geo/paises", response_model=List[GeoPaisResponse])
+def list_geo_paises(
+    activo: Optional[bool] = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    return GeoCatalogService.list_paises(db, activo=activo)
+
+
+@router.get("/geo/estados", response_model=List[GeoEstadoResponse])
+def list_geo_estados(
+    pais_id: UUID = Query(..., description="ID del país (ej. México)"),
+    activo: Optional[bool] = Query(True),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    return GeoCatalogService.list_estados(db, pais_id, activo=activo)
+
+
+@router.get("/geo/municipios", response_model=List[GeoMunicipioResponse])
+def list_geo_municipios(
+    estado_id: UUID = Query(..., description="ID del estado federativo"),
+    q: Optional[str] = Query(None, description="Búsqueda por nombre (ILIKE)"),
+    activo: Optional[bool] = Query(True),
+    limit: int = Query(500, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    return GeoCatalogService.list_municipios(
+        db, estado_id, q=q, activo=activo, limit=limit, offset=offset
+    )
+
+
+@router.get("/geo/places/details", response_model=GooglePlaceDetailsResponse)
+def geo_place_details(
+    place_id: str = Query(..., min_length=1, max_length=256),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Normalización opcional vía Places Details (requiere GOOGLE_MAPS_API_KEY en servidor)."""
+    if not google_maps_server_key_configured():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google Places en servidor no está configurado (GOOGLE_MAPS_API_KEY).",
+        )
+    result = fetch_place_details(place_id.strip())
+    if not result:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail="No se pudo obtener el lugar desde Google.",
+        )
+    nf = normalized_fields_from_details(result)
+    loc = (result.get("geometry") or {}).get("location") or {}
+    return GooglePlaceDetailsResponse(
+        place_id=place_id.strip(),
+        formatted_address=nf.get("direccion") or result.get("formatted_address"),
+        latitud=nf.get("latitud") if nf.get("latitud") is not None else loc.get("lat"),
+        longitud=nf.get("longitud") if nf.get("longitud") is not None else loc.get("lng"),
+        raw_types=result.get("types"),
+    )
+
+
 # ===== ASEGURADOS =====
 @router.get("/asegurados", response_model=List[AseguradoResponse])
 def list_asegurados(
@@ -653,7 +730,8 @@ def list_asegurados(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return AseguradoService.list(db, current_user.empresa_id, activo)
+    rows = AseguradoService.list(db, current_user.empresa_id, activo)
+    return asegurados_to_responses(db, rows)
 
 
 @router.get("/asegurados/{asegurado_id}", response_model=AseguradoResponse)
@@ -665,7 +743,7 @@ def get_asegurado(
     asegurado = AseguradoService.get_by_id(db, asegurado_id, current_user.empresa_id)
     if not asegurado:
         raise HTTPException(status_code=404, detail="Asegurado no encontrado")
-    return asegurado
+    return asegurado_to_response(db, asegurado)
 
 
 @router.post("/asegurados", response_model=AseguradoResponse, status_code=status.HTTP_201_CREATED)
@@ -674,7 +752,8 @@ def create_asegurado(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    return AseguradoService.create(db, current_user.empresa_id, payload)
+    created = AseguradoService.create(db, current_user.empresa_id, payload)
+    return asegurado_to_response(db, created)
 
 
 @router.put("/asegurados/{asegurado_id}", response_model=AseguradoResponse)
@@ -687,7 +766,7 @@ def update_asegurado(
     asegurado = AseguradoService.update(db, asegurado_id, payload)
     if not asegurado:
         raise HTTPException(status_code=404, detail="Asegurado no encontrado")
-    return asegurado
+    return asegurado_to_response(db, asegurado)
 
 
 @router.delete("/asegurados/{asegurado_id}", status_code=status.HTTP_204_NO_CONTENT)

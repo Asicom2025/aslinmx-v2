@@ -6,43 +6,9 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import apiService from "@/lib/apiService";
 import { swalSuccess, swalError } from "@/lib/swal";
-
-const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-let googlePlacesPromise: Promise<void> | null = null;
-
-function loadGooglePlaces(): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
-  if (window.google?.maps?.places) {
-    return Promise.resolve();
-  }
-
-  if (!GOOGLE_MAPS_API_KEY) {
-    return Promise.reject(new Error("Google Maps API key no configurada"));
-  }
-
-  if (!googlePlacesPromise) {
-    googlePlacesPromise = new Promise((resolve, reject) => {
-      const existingScript = document.getElementById("google-maps-script");
-      if (existingScript) {
-        existingScript.addEventListener("load", () => resolve());
-        existingScript.addEventListener("error", (error) => reject(error));
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.id = "google-maps-script";
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&language=es`;
-      script.async = true;
-      script.defer = true;
-      script.onload = () => resolve();
-      script.onerror = (error) => reject(error);
-      document.body.appendChild(script);
-    });
-  }
-
-  return googlePlacesPromise;
-}
+import { loadGooglePlaces, parseGooglePlaceToPayload } from "@/lib/googlePlacesAddress";
+import { matchGeoIdsFromAddressTexts } from "@/lib/geoCatalogMatch";
+import GeoCascadeSelects, { type GeoCascadeValue } from "@/components/siniestros/GeoCascadeSelects";
 
 interface CrearAseguradoModalProps {
   open: boolean;
@@ -50,6 +16,10 @@ interface CrearAseguradoModalProps {
   onAseguradoCreado: (aseguradoId: string) => void;
   /** @deprecated El asegurado se crea en la tabla asegurados, no como usuario con rol. */
   aseguradoRolId?: string;
+}
+
+function emptyGeo(): GeoCascadeValue {
+  return { pais_id: "", estado_geografico_id: "", municipio_id: "" };
 }
 
 export default function CrearAseguradoModal({
@@ -68,17 +38,18 @@ export default function CrearAseguradoModal({
     direccion: "",
     colonia: "",
     municipio: "",
-    ciudad: "",
-    estado: "",
     codigo_postal: "",
     pais: "",
+    google_place_id: "",
+    latitud: "",
+    longitud: "",
   });
+  const [geoCascade, setGeoCascade] = useState<GeoCascadeValue>(emptyGeo());
   const [loading, setLoading] = useState(false);
   const addressInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) {
-      // Resetear formulario al cerrar
       setFormData({
         nombre: "",
         apellido_paterno: "",
@@ -90,11 +61,13 @@ export default function CrearAseguradoModal({
         direccion: "",
         colonia: "",
         municipio: "",
-        ciudad: "",
-        estado: "",
         codigo_postal: "",
         pais: "",
+        google_place_id: "",
+        latitud: "",
+        longitud: "",
       });
+      setGeoCascade(emptyGeo());
       return;
     }
 
@@ -126,38 +99,29 @@ export default function CrearAseguradoModal({
 
   const handleDireccionSeleccionada = (place: any) => {
     if (!place) return;
-    const components = place.address_components || [];
-    const getComponent = (types: string[]) => {
-      const component = components.find((item: any) =>
-        types.every((type) => item.types.includes(type))
-      );
-      return component ? component.long_name : "";
-    };
-
-    const formattedAddress = place.formatted_address || addressInputRef.current?.value || "";
-    const estado = getComponent(["administrative_area_level_1"]);
-    const ciudad =
-      getComponent(["locality"]) ||
-      getComponent(["administrative_area_level_2"]) ||
-      formData.ciudad;
-    const municipio = getComponent(["administrative_area_level_2"]) || formData.municipio;
-    const colonia =
-      getComponent(["sublocality", "sublocality_level_1"]) ||
-      getComponent(["neighborhood"]) ||
-      formData.colonia;
-    const codigoPostal = getComponent(["postal_code"]) || formData.codigo_postal;
-    const pais = getComponent(["country"]) || formData.pais;
-
+    const p = parseGooglePlaceToPayload(place);
     setFormData((prev) => ({
       ...prev,
-      direccion: formattedAddress,
-      estado: estado || prev.estado,
-      ciudad,
-      municipio,
-      colonia,
-      codigo_postal: codigoPostal,
-      pais,
+      direccion: p.direccion || prev.direccion,
+      municipio: p.municipio || prev.municipio,
+      colonia: p.colonia || prev.colonia,
+      codigo_postal: p.codigo_postal || prev.codigo_postal,
+      pais: p.pais || prev.pais,
+      google_place_id: p.google_place_id || prev.google_place_id,
+      latitud: p.latitud != null ? String(p.latitud) : prev.latitud,
+      longitud: p.longitud != null ? String(p.longitud) : prev.longitud,
     }));
+    void matchGeoIdsFromAddressTexts({
+      paisNombre: p.pais,
+      estadoNombre: p.estado,
+      municipioNombre: p.municipio,
+    }).then((geo) => {
+      setGeoCascade({
+        pais_id: geo.pais_id || "",
+        estado_geografico_id: geo.estado_geografico_id || "",
+        municipio_id: geo.municipio_id || "",
+      });
+    });
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -178,17 +142,41 @@ export default function CrearAseguradoModal({
 
     const correoTrim = formData.email?.trim() || "";
 
+    const uuidOrNull = (s: string) => {
+      const t = (s || "").trim();
+      return t ? t : null;
+    };
+    const numOrNull = (s: string) => {
+      const t = (s || "").trim();
+      if (!t) return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
+
     setLoading(true);
     try {
       const aseguradoData = {
         nombre: formData.nombre.trim(),
         apellido_paterno: formData.apellido_paterno.trim() || null,
         apellido_materno: formData.apellido_materno.trim() || null,
-        telefono: formData.celular?.trim() || formData.telefono_casa?.trim() || formData.telefono_oficina?.trim() || null,
+        telefono:
+          formData.celular?.trim() ||
+          formData.telefono_casa?.trim() ||
+          formData.telefono_oficina?.trim() ||
+          null,
         tel_casa: formData.telefono_casa?.trim() || null,
         tel_oficina: formData.telefono_oficina?.trim() || null,
-        ciudad: formData.ciudad?.trim() || null,
-        estado: formData.estado?.trim() || null,
+        direccion: formData.direccion?.trim() || null,
+        colonia: formData.colonia?.trim() || null,
+        municipio: formData.municipio?.trim() || null,
+        codigo_postal: formData.codigo_postal?.trim() || null,
+        pais: formData.pais?.trim() || null,
+        pais_id: uuidOrNull(geoCascade.pais_id),
+        estado_geografico_id: uuidOrNull(geoCascade.estado_geografico_id),
+        municipio_id: uuidOrNull(geoCascade.municipio_id),
+        google_place_id: formData.google_place_id?.trim() || null,
+        latitud: numOrNull(formData.latitud),
+        longitud: numOrNull(formData.longitud),
         empresa: null,
         correo: correoTrim ? correoTrim : null,
         activo: true,
@@ -210,7 +198,7 @@ export default function CrearAseguradoModal({
   return (
     <Modal open={open} onClose={onClose} title="Crear Nuevo Asegurado" maxWidthClass="max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <Input
             label="Nombre *"
             name="nombre"
@@ -241,7 +229,7 @@ export default function CrearAseguradoModal({
           onChange={handleChange}
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <Input
             label="Celular"
             name="celular"
@@ -271,29 +259,13 @@ export default function CrearAseguradoModal({
           placeholder="Escribe y selecciona una dirección"
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <GeoCascadeSelects value={geoCascade} onChange={setGeoCascade} disabled={loading} />
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Input
             label="Colonia"
             name="colonia"
             value={formData.colonia}
-            onChange={handleChange}
-          />
-          <Input
-            label="Municipio"
-            name="municipio"
-            value={formData.municipio}
-            onChange={handleChange}
-          />
-          <Input
-            label="Ciudad"
-            name="ciudad"
-            value={formData.ciudad}
-            onChange={handleChange}
-          />
-          <Input
-            label="Estado"
-            name="estado"
-            value={formData.estado}
             onChange={handleChange}
           />
           <Input
@@ -302,15 +274,9 @@ export default function CrearAseguradoModal({
             value={formData.codigo_postal}
             onChange={handleChange}
           />
-          <Input
-            label="País"
-            name="pais"
-            value={formData.pais}
-            onChange={handleChange}
-          />
         </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t">
+        <div className="flex justify-end gap-3 border-t pt-4">
           <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
             Cancelar
           </Button>

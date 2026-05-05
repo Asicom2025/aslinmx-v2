@@ -113,6 +113,11 @@ type DataTableProps<TData> = {
   enableColumnVisibility?: boolean;
   /** Visibilidad inicial antes de hidratar localStorage; también se aplica al restablecer layout. */
   initialColumnVisibility?: Record<string, boolean>;
+  /**
+   * Si se define, el buscador global filtra por este texto (coincide con lo que ve el usuario)
+   * en lugar de usar los valores crudos de las columnas (p. ej. UUIDs).
+   */
+  getGlobalSearchText?: (row: TData) => string;
 };
 
 export default function DataTable<TData>({ 
@@ -130,6 +135,7 @@ export default function DataTable<TData>({
   layoutStorageKey,
   enableColumnVisibility = false,
   initialColumnVisibility,
+  getGlobalSearchText,
 }: DataTableProps<TData>) {
   const [globalFilter, setGlobalFilter] = useState<string>("");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -234,8 +240,21 @@ export default function DataTable<TData>({
   const customizeLayout = Boolean(layoutStorageKey);
   const layoutActive = customizeLayout && prefsReady;
 
+  const displayData = useMemo(() => {
+    const base = data ?? [];
+    const needle = (globalFilter ?? "").trim().toLowerCase();
+    if (!enableSearch || !needle || !getGlobalSearchText) {
+      return base;
+    }
+    return base.filter((row) =>
+      (getGlobalSearchText(row) ?? "").toLowerCase().includes(needle),
+    );
+  }, [data, enableSearch, globalFilter, getGlobalSearchText]);
+
+  const tableGlobalFilter = getGlobalSearchText ? "" : globalFilter;
+
   const table = useReactTable<TData>({
-    data: data || [],
+    data: displayData,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -249,7 +268,7 @@ export default function DataTable<TData>({
     enableHiding: layoutActive && visibilityEnabled,
     onColumnVisibilityChange: layoutActive && visibilityEnabled ? setColumnVisibility : undefined,
     state: {
-      globalFilter,
+      globalFilter: tableGlobalFilter,
       sorting,
       ...(layoutActive
         ? {
@@ -273,11 +292,13 @@ export default function DataTable<TData>({
           size: 160,
         }
       : undefined,
-    globalFilterFn: (row, columnId, filterValue) => {
-      const v = row.getValue<any>(columnId);
-      const text = (v ?? "").toString().toLowerCase();
-      return text.includes((filterValue ?? "").toString().toLowerCase());
-    },
+    globalFilterFn: getGlobalSearchText
+      ? () => true
+      : (row, columnId, filterValue) => {
+          const v = row.getValue<any>(columnId);
+          const text = (v ?? "").toString().toLowerCase();
+          return text.includes((filterValue ?? "").toString().toLowerCase());
+        },
     meta: {
       fluidCells: layoutActive,
     },

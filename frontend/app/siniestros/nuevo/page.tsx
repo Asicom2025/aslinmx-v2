@@ -29,8 +29,7 @@ import {
 import { FiArrowLeft, FiPlus, FiTrash2, FiUser } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
-
-const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+import { loadGooglePlaces } from "@/lib/googlePlacesAddress";
 const CALIFICACIONES_DEFAULT = ["Excelente", "Bueno", "Regular", "Malo"];
 
 const contactoPreferencia = [
@@ -64,6 +63,12 @@ const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
       municipio: "",
       codigo_postal: "",
       pais: "",
+      pais_id: "",
+      estado_geografico_id: "",
+      municipio_id: "",
+      google_place_id: "",
+      latitud: "",
+      longitud: "",
     },
   },
   generales: {
@@ -220,34 +225,10 @@ export default function NuevoSiniestroPage() {
     loadCatalogos();
   }, [user]);
 
-  // Google Places
+  // Google Places (ubicación del siniestro; script compartido con modal/wizard)
   useEffect(() => {
     if (!addressInputRef.current) return;
     let autocomplete: any = null;
-
-    const loadGooglePlaces = (): Promise<void> => {
-      if (typeof window === "undefined") return Promise.resolve();
-      if (window.google?.maps?.places) return Promise.resolve();
-      if (!GOOGLE_MAPS_API_KEY) return Promise.reject(new Error("Google Maps API key no configurada"));
-
-      return new Promise((resolve, reject) => {
-        const existingScript = document.getElementById("google-maps-script");
-        if (existingScript) {
-          existingScript.addEventListener("load", () => resolve());
-          existingScript.addEventListener("error", reject);
-          return;
-        }
-
-        const script = document.createElement("script");
-        script.id = "google-maps-script";
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&language=es`;
-        script.async = true;
-        script.defer = true;
-        script.onload = () => resolve();
-        script.onerror = reject;
-        document.body.appendChild(script);
-      });
-    };
 
     loadGooglePlaces()
       .then(() => {
@@ -501,9 +482,20 @@ export default function NuevoSiniestroPage() {
         },
       }));
 
-      // La tabla asegurados tiene ciudad, estado; no tiene direccion. Armamos ubicación si hay datos.
-      if (asegurado?.ciudad || asegurado?.estado) {
-        const ubicacionPartes = [asegurado.ciudad, asegurado.estado].filter(Boolean);
+      // Ubicación en el siniestro: preferir dirección estructurada si existe en asegurados.
+      if (
+        asegurado?.direccion ||
+        asegurado?.ciudad ||
+        asegurado?.estado
+      ) {
+        const ubicacionPartes = [
+          asegurado.direccion,
+          [asegurado.colonia, asegurado.municipio].filter(Boolean).join(", "),
+          asegurado.ciudad,
+          asegurado.estado,
+          asegurado.codigo_postal,
+          asegurado.pais,
+        ].filter(Boolean);
         if (ubicacionPartes.length > 0) {
           setForm((prev) => ({
             ...prev,
@@ -1279,7 +1271,7 @@ export default function NuevoSiniestroPage() {
                   placeholder="Ingresa la dirección y selecciona desde las sugerencias"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                 />
-                {!GOOGLE_MAPS_API_KEY && (
+                {!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
                   <p className="mt-1 text-xs text-amber-600">
                     Configura <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> para habilitar las sugerencias de Google.
                   </p>

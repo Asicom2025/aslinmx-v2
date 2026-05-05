@@ -17,48 +17,14 @@ import apiService from "@/lib/apiService";
 import { swalError } from "@/lib/swal";
 import { buildPersonFullName } from "@/lib/userName";
 import { filtrarAbogadosPorAreas } from "@/lib/usuariosAreas";
+import { loadGooglePlaces, parseGooglePlaceToPayload } from "@/lib/googlePlacesAddress";
+import { matchGeoIdsFromAddressTexts } from "@/lib/geoCatalogMatch";
+import GeoCascadeSelects from "@/components/siniestros/GeoCascadeSelects";
 
 declare global {
   interface Window {
     google?: any;
   }
-}
-
-const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-
-let googlePlacesPromise: Promise<void> | null = null;
-
-function loadGooglePlaces(): Promise<void> {
-  if (typeof window === "undefined") return Promise.resolve();
-  if (window.google?.maps?.places) {
-    return Promise.resolve();
-  }
-
-  if (!GOOGLE_MAPS_API_KEY) {
-    return Promise.reject(new Error("Google Maps API key no configurada"));
-  }
-
-  if (!googlePlacesPromise) {
-    googlePlacesPromise = new Promise((resolve, reject) => {
-      const existingScript = document.getElementById("google-maps-script");
-      if (existingScript) {
-        existingScript.addEventListener("load", () => resolve());
-        existingScript.addEventListener("error", (error) => reject(error));
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.id = "google-maps-script";
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&libraries=places&language=es`;
-      script.async = true;
-      script.defer = true;
-      script.onload = () => resolve();
-      script.onerror = (error) => reject(error);
-      document.body.appendChild(script);
-    });
-  }
-
-  return googlePlacesPromise;
 }
 
 export interface SiniestroFormState {
@@ -106,14 +72,18 @@ export interface ExtendedSiniestroFormState {
       celular: string;
       telefono_casa: string;
       telefono_oficina: string;
-      estado: string;
-      ciudad: string;
       email: string;
       direccion: string;
       colonia: string;
       municipio: string;
       codigo_postal: string;
       pais: string;
+      pais_id: string;
+      estado_geografico_id: string;
+      municipio_id: string;
+      google_place_id: string;
+      latitud: string;
+      longitud: string;
     };
   };
   generales: {
@@ -299,26 +269,8 @@ export default function SiniestroWizard({
 
   const handleDireccionSeleccionada = (place: any) => {
     if (!place) return;
-    const components = place.address_components || [];
-    const getComponent = (types: string[]) => {
-      const component = components.find((item: any) => types.every((type) => item.types.includes(type)));
-      return component ? component.long_name : "";
-    };
-
-    const formattedAddress = place.formatted_address || addressInputRef.current?.value || "";
-    const estado = getComponent(["administrative_area_level_1"]);
-    const ciudad =
-      getComponent(["locality"]) ||
-      getComponent(["administrative_area_level_2"]) ||
-      extendedForm.asegurado.nuevo.ciudad;
-    const municipio =
-      getComponent(["administrative_area_level_2"]) || extendedForm.asegurado.nuevo.municipio;
-    const colonia =
-      getComponent(["sublocality", "sublocality_level_1"]) ||
-      getComponent(["neighborhood"]) ||
-      extendedForm.asegurado.nuevo.colonia;
-    const codigoPostal = getComponent(["postal_code"]) || extendedForm.asegurado.nuevo.codigo_postal;
-    const pais = getComponent(["country"]) || extendedForm.asegurado.nuevo.pais;
+    const p = parseGooglePlaceToPayload(place);
+    const formattedAddress = p.direccion || addressInputRef.current?.value || "";
 
     setExtendedForm((prev) => ({
       ...prev,
@@ -327,15 +279,35 @@ export default function SiniestroWizard({
         nuevo: {
           ...prev.asegurado.nuevo,
           direccion: formattedAddress,
-          estado: estado || prev.asegurado.nuevo.estado,
-          ciudad,
-          municipio,
-          colonia,
-          codigo_postal: codigoPostal,
-          pais,
+          municipio: p.municipio || prev.asegurado.nuevo.municipio,
+          colonia: p.colonia || prev.asegurado.nuevo.colonia,
+          codigo_postal: p.codigo_postal || prev.asegurado.nuevo.codigo_postal,
+          pais: p.pais || prev.asegurado.nuevo.pais,
+          google_place_id: p.google_place_id || prev.asegurado.nuevo.google_place_id,
+          latitud: p.latitud != null ? String(p.latitud) : prev.asegurado.nuevo.latitud,
+          longitud: p.longitud != null ? String(p.longitud) : prev.asegurado.nuevo.longitud,
         },
       },
     }));
+
+    void matchGeoIdsFromAddressTexts({
+      paisNombre: p.pais,
+      estadoNombre: p.estado,
+      municipioNombre: p.municipio,
+    }).then((geo) => {
+      setExtendedForm((prev) => ({
+        ...prev,
+        asegurado: {
+          ...prev.asegurado,
+          nuevo: {
+            ...prev.asegurado.nuevo,
+            pais_id: geo.pais_id || "",
+            estado_geografico_id: geo.estado_geografico_id || "",
+            municipio_id: geo.municipio_id || "",
+          },
+        },
+      }));
+    });
 
     setForm((prev) => ({
       ...prev,
@@ -473,14 +445,18 @@ export default function SiniestroWizard({
             celular: "",
             telefono_casa: "",
             telefono_oficina: "",
-            estado: "",
-            ciudad: "",
             email: "",
             direccion: "",
             colonia: "",
             municipio: "",
             codigo_postal: "",
             pais: "",
+            pais_id: "",
+            estado_geografico_id: "",
+            municipio_id: "",
+            google_place_id: "",
+            latitud: "",
+            longitud: "",
           },
         },
       }));
@@ -503,19 +479,31 @@ export default function SiniestroWizard({
             celular: asegurado?.telefono || "",
             telefono_casa: asegurado?.tel_casa || "",
             telefono_oficina: asegurado?.tel_oficina || "",
-            estado: asegurado?.estado || "",
-            ciudad: asegurado?.ciudad || "",
             email: asegurado?.correo || "",
-            direccion: "",
-            colonia: "",
-            municipio: "",
-            codigo_postal: "",
-            pais: "México",
+            direccion: asegurado?.direccion || "",
+            colonia: asegurado?.colonia || "",
+            municipio: asegurado?.municipio || "",
+            codigo_postal: asegurado?.codigo_postal || "",
+            pais: asegurado?.pais || "México",
+            pais_id: asegurado?.pais_id ? String(asegurado.pais_id) : "",
+            estado_geografico_id: asegurado?.estado_geografico_id
+              ? String(asegurado.estado_geografico_id)
+              : "",
+            municipio_id: asegurado?.municipio_id ? String(asegurado.municipio_id) : "",
+            google_place_id: asegurado?.google_place_id || "",
+            latitud:
+              asegurado?.latitud !== undefined && asegurado?.latitud !== null
+                ? String(asegurado.latitud)
+                : "",
+            longitud:
+              asegurado?.longitud !== undefined && asegurado?.longitud !== null
+                ? String(asegurado.longitud)
+                : "",
           },
         },
       }));
 
-      // La tabla asegurados tiene ciudad, estado; armamos ubicación si hay datos
+      // Ubicación legible desde catálogo geo (API devuelve ciudad/estado derivados)
       if (asegurado?.ciudad || asegurado?.estado) {
         const ubicacionPartes = [asegurado.ciudad, asegurado.estado].filter(Boolean);
         if (ubicacionPartes.length > 0) {
@@ -975,11 +963,34 @@ export default function SiniestroWizard({
                         placeholder="Ingresa la dirección y selecciona desde las sugerencias"
                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
                       />
-                      {!GOOGLE_MAPS_API_KEY && (
+                      {!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
                         <p className="mt-1 text-xs text-amber-600">
                           Configura <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> para habilitar las sugerencias de Google.
                         </p>
                       )}
+                    </div>
+                    <div className="md:col-span-3">
+                      <GeoCascadeSelects
+                        value={{
+                          pais_id: extendedForm.asegurado.nuevo.pais_id,
+                          estado_geografico_id: extendedForm.asegurado.nuevo.estado_geografico_id,
+                          municipio_id: extendedForm.asegurado.nuevo.municipio_id,
+                        }}
+                        onChange={(v) =>
+                          setExtendedForm((prev) => ({
+                            ...prev,
+                            asegurado: {
+                              ...prev.asegurado,
+                              nuevo: {
+                                ...prev.asegurado.nuevo,
+                                pais_id: v.pais_id,
+                                estado_geografico_id: v.estado_geografico_id,
+                                municipio_id: v.municipio_id,
+                              },
+                            },
+                          }))
+                        }
+                      />
                     </div>
                     <Input
                       label="Colonia"
@@ -989,39 +1000,11 @@ export default function SiniestroWizard({
                       placeholder="Colonia o barrio"
                     />
                     <Input
-                      label="Municipio / Delegación"
-                      name="asegurado_municipio"
-                      value={extendedForm.asegurado.nuevo.municipio}
-                      onChange={(event) => handleNuevoAseguradoChange("municipio", event.target.value)}
-                      placeholder="Municipio o delegación"
-                    />
-                    <Input
                       label="Código postal"
                       name="asegurado_codigo_postal"
                       value={extendedForm.asegurado.nuevo.codigo_postal}
                       onChange={(event) => handleNuevoAseguradoChange("codigo_postal", event.target.value)}
                       placeholder="00000"
-                    />
-                    <Input
-                      label="País"
-                      name="asegurado_pais"
-                      value={extendedForm.asegurado.nuevo.pais}
-                      onChange={(event) => handleNuevoAseguradoChange("pais", event.target.value)}
-                      placeholder="México"
-                    />
-                    <Input
-                      label="Estado"
-                      name="asegurado_estado"
-                      value={extendedForm.asegurado.nuevo.estado}
-                      onChange={(event) => handleNuevoAseguradoChange("estado", event.target.value)}
-                      placeholder="CDMX"
-                    />
-                    <Input
-                      label="Ciudad"
-                      name="asegurado_ciudad"
-                      value={extendedForm.asegurado.nuevo.ciudad}
-                      onChange={(event) => handleNuevoAseguradoChange("ciudad", event.target.value)}
-                      placeholder="Ciudad"
                     />
                     <CustomSelect
                       label="Forma de contacto"

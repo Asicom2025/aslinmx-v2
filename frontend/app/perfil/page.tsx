@@ -587,7 +587,7 @@ export default function PerfilPage() {
                     <img
                       src={form.perfil.firma}
                       alt="Firma"
-                      className="max-h-20 w-auto object-contain border rounded"
+                      className="max-h-32 max-w-full w-full sm:max-w-md object-contain border rounded bg-white"
                     />
                     <Button
                       type="button"
@@ -622,7 +622,7 @@ export default function PerfilPage() {
                     <img
                       src={form.perfil.firma_digital}
                       alt="Firma digital"
-                      className="max-h-20 w-auto object-contain border rounded"
+                      className="max-h-32 max-w-full w-full sm:max-w-md object-contain border rounded bg-white"
                     />
                     <Button
                       type="button"

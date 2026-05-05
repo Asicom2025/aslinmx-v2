@@ -880,6 +880,36 @@ const catalogService = {
     return res.data;
   },
 
+  // Catálogo geográfico (país → estado → municipio)
+  getGeoPaises: async (activo = true) => {
+    const res = await api.get(`/catalogos/geo/paises`, { params: { activo } });
+    return res.data;
+  },
+  getGeoEstados: async (paisId: string, activo = true) => {
+    const res = await api.get(`/catalogos/geo/estados`, {
+      params: { pais_id: paisId, activo },
+    });
+    return res.data;
+  },
+  getGeoMunicipios: async (
+    estadoId: string,
+    q?: string,
+    activo = true,
+    limit = 500,
+    offset = 0,
+  ) => {
+    const res = await api.get(`/catalogos/geo/municipios`, {
+      params: {
+        estado_id: estadoId,
+        q: q || undefined,
+        activo,
+        limit,
+        offset,
+      },
+    });
+    return res.data;
+  },
+
   // Asegurados
   getAsegurados: async (activo?: boolean) => {
     const params = activo !== undefined ? `?activo=${activo}` : "";
@@ -1054,9 +1084,13 @@ const siniestroService = {
     prioridad?: "baja" | "media" | "alta" | "critica";
     calificacion_id?: string;
     asegurado_estado?: string;
+    asegurado_geo_estado_id?: string;
     fecha_registro_mes?: string;
     busqueda_id?: string;
     numero_siniestro?: string;
+    numero_reporte?: string;
+    tercero?: string;
+    anio?: string;
     asegurado_nombre?: string;
     skip?: number;
     limit?: number;
@@ -1074,10 +1108,15 @@ const siniestroService = {
     if (filters?.usuario_asignado) params.append("usuario_asignado", filters.usuario_asignado);
     if (filters?.prioridad) params.append("prioridad", filters.prioridad);
     if (filters?.calificacion_id) params.append("calificacion_id", filters.calificacion_id);
+    if (filters?.asegurado_geo_estado_id?.trim())
+      params.append("asegurado_geo_estado_id", filters.asegurado_geo_estado_id.trim());
     if (filters?.asegurado_estado?.trim()) params.append("asegurado_estado", filters.asegurado_estado.trim());
     if (filters?.fecha_registro_mes?.trim()) params.append("fecha_registro_mes", filters.fecha_registro_mes.trim());
     if (filters?.busqueda_id?.trim()) params.append("busqueda_id", filters.busqueda_id.trim());
     if (filters?.numero_siniestro?.trim()) params.append("numero_siniestro", filters.numero_siniestro.trim());
+    if (filters?.numero_reporte?.trim()) params.append("numero_reporte", filters.numero_reporte.trim());
+    if (filters?.tercero?.trim()) params.append("tercero", filters.tercero.trim());
+    if (filters?.anio?.trim()) params.append("anio", filters.anio.trim());
     if (filters?.asegurado_nombre?.trim()) params.append("asegurado_nombre", filters.asegurado_nombre.trim());
     if (filters?.skip !== undefined) params.append("skip", String(filters.skip));
     if (filters?.limit !== undefined) params.append("limit", String(filters.limit));

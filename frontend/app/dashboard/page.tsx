@@ -47,6 +47,7 @@ type DashboardSiniestrosFilters = {
   area_id?: string;
   prioridad?: string;
   asegurado_estado?: string;
+  asegurado_geo_estado_id?: string;
   fecha_registro_mes?: string;
 };
 
@@ -56,7 +57,11 @@ interface DashboardStats {
   siniestros_criticos: number;
   notificaciones_no_leidas: number;
   actividades_recientes: number;
-  siniestros_por_estado: Array<{ nombre: string; cantidad: number }>;
+  siniestros_por_estado: Array<{
+    nombre: string;
+    cantidad: number;
+    geo_estado_id?: string | null;
+  }>;
   siniestros_por_prioridad: Array<{ prioridad: string; cantidad: number }>;
   siniestros_por_area: Array<{ nombre: string; cantidad: number }>;
 }
@@ -204,6 +209,10 @@ export default function DashboardPage() {
     "Veracruz": "mx-ve",
     "Yucatán": "mx-yu",
     "Zacatecas": "mx-za",
+    "México": "mx-mx",
+    "Veracruz de Ignacio de la Llave": "mx-ve",
+    "Coahuila de Zaragoza": "mx-co",
+    "Michoacán de Ocampo": "mx-mi",
   };
 
   const loadDashboardData = async () => {
@@ -339,7 +348,12 @@ export default function DashboardPage() {
             events: {
               click: () =>
                 openDashboardSiniestros({
-                  asegurado_estado: item.nombre,
+                  ...(item.geo_estado_id
+                    ? {
+                        asegurado_geo_estado_id: item.geo_estado_id,
+                        asegurado_estado: item.nombre,
+                      }
+                    : { asegurado_estado: item.nombre }),
                 }),
             },
           })) || [],
@@ -545,6 +559,17 @@ export default function DashboardPage() {
   // Configuración del mapa de México con siniestros por estado
   const mexicoMapChartOptions = useMemo((): Highcharts.Options => {
     const siniestrosPorEstado = stats?.siniestros_por_estado ?? [];
+    const openFiltroPorNombreEstadoStats = (nombreEstado: string) => {
+      const st = siniestrosPorEstado.find((s) => s.nombre === nombreEstado);
+      if (st?.geo_estado_id) {
+        openDashboardSiniestros({
+          asegurado_geo_estado_id: st.geo_estado_id,
+          asegurado_estado: st.nombre,
+        });
+      } else {
+        openDashboardSiniestros({ asegurado_estado: nombreEstado });
+      }
+    };
     if (!mexicoMapData) {
       return {
         chart: { type: "map", height: 500 },
@@ -597,9 +622,7 @@ export default function DashboardPage() {
           events: {
             click: () => {
               if (!cantidad) return;
-              openDashboardSiniestros({
-                asegurado_estado: nombreEstado,
-              });
+              openFiltroPorNombreEstadoStats(nombreEstado);
             },
           },
         };
@@ -714,9 +737,7 @@ export default function DashboardPage() {
         events: {
           click: () => {
             if (!cantidad) return;
-            openDashboardSiniestros({
-              asegurado_estado: nombreEstado,
-            });
+            openFiltroPorNombreEstadoStats(nombreCanonico || nombreEstado);
           },
         },
       };

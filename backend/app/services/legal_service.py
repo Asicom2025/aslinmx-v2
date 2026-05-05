@@ -2,10 +2,10 @@
 Servicios CRUD para catálogos legales
 """
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 from uuid import UUID, uuid4
 from sqlalchemy.orm import Session, joinedload, selectinload
-from sqlalchemy import func, extract, cast, or_, and_, case
+from sqlalchemy import func, extract, cast, or_, and_, case, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.types import Integer, String
 from datetime import datetime, timezone
@@ -17,6 +17,7 @@ from app.services.storage_metadata_service import StorageObjectService
 from app.services.storage_service import format_siniestro_id_legible, normalize_siniestro_consecutivo
 from app.utils.estado_normalization import normalizar_nombre_estado
 from app.core.nivel_acceso import usuario_bypass_areas
+from app.models.geo_models import GeoEstado, GeoMunicipio, GeoPais
 from app.models.legal import (
     Area,
     EstadoSiniestro,
@@ -56,6 +57,7 @@ from app.schemas.legal_schema import (
     AutoridadUpdate,
     AseguradoCreate,
     AseguradoUpdate,
+    AseguradoResponse,
     ProvenienteCreate,
     ProvenienteUpdate,
     ProvenienteContactoCreate,
@@ -451,6 +453,126 @@ class AutoridadService:
         return True
 
 
+def _merge_google_place_enrichment(data: dict) -> None:
+    """Completa dirección y lat/lng desde Places Details si hay GOOGLE_MAPS_API_KEY y google_place_id."""
+    from app.services.google_places_service import (
+        fetch_place_details,
+        normalized_fields_from_details,
+    )
+
+    pid = data.get("google_place_id")
+    if not pid or not str(pid).strip():
+        return
+    res = fetch_place_details(str(pid).strip())
+    if not res:
+        return
+    merged = normalized_fields_from_details(res)
+    for k in (
+        "direccion",
+        "pais",
+        "municipio",
+        "colonia",
+        "codigo_postal",
+        "latitud",
+        "longitud",
+    ):
+        cur = data.get(k)
+        if cur is None or (isinstance(cur, str) and not cur.strip()):
+            v = merged.get(k)
+            if v is not None and v != "":
+                data[k] = v
+
+
+def _hydrate_asegurado_texto_desde_geo_fks(
+    db: Session,
+    data: dict,
+    *,
+    pais_id: Optional[UUID],
+    estado_geografico_id: Optional[UUID],
+    municipio_id: Optional[UUID],
+) -> None:
+    """Sincroniza columnas texto pais/municipio con los nombres del catálogo geo cuando hay FK."""
+    if pais_id is not None:
+        gp = db.query(GeoPais).filter(GeoPais.id == pais_id).first()
+        if gp:
+            data["pais"] = gp.nombre
+    if municipio_id is not None:
+        gm = db.query(GeoMunicipio).filter(GeoMunicipio.id == municipio_id).first()
+        if gm:
+            data["municipio"] = gm.nombre
+
+
+def _validate_asegurado_geo_coherence(
+    db: Session,
+    *,
+    pais_id: Optional[UUID],
+    estado_geografico_id: Optional[UUID],
+    municipio_id: Optional[UUID],
+) -> None:
+    if pais_id is not None:
+        if not db.query(GeoPais).filter(GeoPais.id == pais_id).first():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="pais_id no válido")
+    if estado_geografico_id is not None:
+        e_row = db.query(GeoEstado).filter(GeoEstado.id == estado_geografico_id).first()
+        if not e_row:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="estado_geografico_id no válido")
+        if pais_id is not None and e_row.pais_id != pais_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="El estado geográfico no pertenece al país indicado",
+            )
+    if municipio_id is not None:
+        m_row = db.query(GeoMunicipio).filter(GeoMunicipio.id == municipio_id).first()
+        if not m_row:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="municipio_id no válido")
+        if estado_geografico_id is not None and m_row.estado_id != estado_geografico_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="El municipio no corresponde al estado geográfico indicado",
+            )
+        e_m = db.query(GeoEstado).filter(GeoEstado.id == m_row.estado_id).first()
+        if pais_id is not None and e_m is not None and e_m.pais_id != pais_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="El municipio no pertenece al país indicado",
+            )
+
+
+def asegurados_to_responses(db: Session, rows: List[Asegurado]) -> List[AseguradoResponse]:
+    """Serializa asegurados con ciudad/estado derivados del catálogo geo (no hay columnas texto en BD)."""
+    if not rows:
+        return []
+    mun_ids = {r.municipio_id for r in rows if r.municipio_id}
+    mun_by_id: Dict[Any, GeoMunicipio] = {}
+    if mun_ids:
+        mun_by_id = {m.id: m for m in db.query(GeoMunicipio).filter(GeoMunicipio.id.in_(mun_ids)).all()}
+    est_ids: Set[Any] = {r.estado_geografico_id for r in rows if r.estado_geografico_id}
+    for m in mun_by_id.values():
+        if m.estado_id:
+            est_ids.add(m.estado_id)
+    est_by_id: Dict[Any, GeoEstado] = {}
+    if est_ids:
+        est_by_id = {e.id: e for e in db.query(GeoEstado).filter(GeoEstado.id.in_(est_ids)).all()}
+    out: List[AseguradoResponse] = []
+    for a in rows:
+        mun_row = mun_by_id.get(a.municipio_id) if a.municipio_id else None
+        ciudad_nom = mun_row.nombre if mun_row else None
+        estado_nom: Optional[str] = None
+        if a.estado_geografico_id:
+            ge = est_by_id.get(a.estado_geografico_id)
+            estado_nom = ge.nombre if ge else None
+        if estado_nom is None and mun_row:
+            ge2 = est_by_id.get(mun_row.estado_id)
+            estado_nom = ge2.nombre if ge2 else None
+        base = AseguradoResponse.model_validate(a)
+        out.append(base.model_copy(update={"ciudad": ciudad_nom, "estado": estado_nom}))
+    return out
+
+
+def asegurado_to_response(db: Session, row: Asegurado) -> AseguradoResponse:
+    return asegurados_to_responses(db, [row])[0]
+
+
 class AseguradoService:
     @staticmethod
     def list(db: Session, empresa_id: UUID, activo: Optional[bool] = None) -> List[Asegurado]:
@@ -504,6 +626,23 @@ class AseguradoService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Ya existe un asegurado activo con el mismo timerst_list. Deje el campo vacío para generar uno automático o use otro valor.",
                 )
+        data.pop("ciudad", None)
+        data.pop("estado", None)
+        if data.get("google_place_id"):
+            _merge_google_place_enrichment(data)
+        _hydrate_asegurado_texto_desde_geo_fks(
+            db,
+            data,
+            pais_id=data.get("pais_id"),
+            estado_geografico_id=data.get("estado_geografico_id"),
+            municipio_id=data.get("municipio_id"),
+        )
+        _validate_asegurado_geo_coherence(
+            db,
+            pais_id=data.get("pais_id"),
+            estado_geografico_id=data.get("estado_geografico_id"),
+            municipio_id=data.get("municipio_id"),
+        )
         asegurado = Asegurado(**data)
         db.add(asegurado)
         try:
@@ -546,6 +685,28 @@ class AseguradoService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Ya existe otro asegurado activo con el mismo timerst_list.",
                 )
+        data.pop("ciudad", None)
+        data.pop("estado", None)
+        if data.get("google_place_id"):
+            _merge_google_place_enrichment(data)
+        eff_pais = data.get("pais_id", asegurado.pais_id)
+        eff_est = data.get("estado_geografico_id", asegurado.estado_geografico_id)
+        eff_mun = data.get("municipio_id", asegurado.municipio_id)
+        sync_txt: dict = {}
+        _hydrate_asegurado_texto_desde_geo_fks(
+            db,
+            sync_txt,
+            pais_id=eff_pais,
+            estado_geografico_id=eff_est,
+            municipio_id=eff_mun,
+        )
+        data.update(sync_txt)
+        _validate_asegurado_geo_coherence(
+            db,
+            pais_id=eff_pais,
+            estado_geografico_id=eff_est,
+            municipio_id=eff_mun,
+        )
         for k, v in data.items():
             setattr(asegurado, k, v)
         try:
@@ -1184,9 +1345,13 @@ class SiniestroService:
         prioridad: Optional[str] = None,
         calificacion_id: Optional[UUID] = None,
         asegurado_estado: Optional[str] = None,
+        asegurado_geo_estado_id: Optional[UUID] = None,
         fecha_registro_mes: Optional[str] = None,
         busqueda_id: Optional[str] = None,
         numero_siniestro_q: Optional[str] = None,
+        numero_reporte: Optional[str] = None,
+        tercero: Optional[str] = None,
+        anio_busqueda: Optional[str] = None,
         asegurado_nombre: Optional[str] = None,
         skip: int = 0,
         limit: int = 100,
@@ -1196,6 +1361,9 @@ class SiniestroService:
         Lista siniestros con filtros opcionales.
         busqueda_id: búsqueda por numero_reporte (formato 102-001-25 o sin guiones).
         numero_siniestro_q: búsqueda por texto en numero_siniestro (ilike).
+        numero_reporte: ilike sobre numero_reporte.
+        tercero: ilike sobre tercero.
+        anio_busqueda: año calendario 4 dígitos o 2 (anualidad) sobre fecha_registro/fecha_siniestro.
         asegurado_nombre: búsqueda por nombre del asegurado (ilike en nombre + apellidos).
         """
         q = db.query(Siniestro).options(selectinload(Siniestro.polizas)).filter(
@@ -1331,6 +1499,20 @@ class SiniestroService:
                 q = q.distinct()
         if numero_siniestro_q and numero_siniestro_q.strip():
             q = q.filter(Siniestro.numero_siniestro.ilike(f"%{numero_siniestro_q.strip()}%"))
+        if numero_reporte and numero_reporte.strip():
+            q = q.filter(Siniestro.numero_reporte.ilike(f"%{numero_reporte.strip()}%"))
+        if tercero and str(tercero).strip():
+            q = q.filter(Siniestro.tercero.ilike(f"%{str(tercero).strip()}%"))
+        if anio_busqueda and str(anio_busqueda).strip():
+            raw_anio = "".join(c for c in str(anio_busqueda).strip() if c.isdigit())
+            if raw_anio:
+                fecha_ref = func.coalesce(Siniestro.fecha_registro, Siniestro.fecha_siniestro)
+                year_expr = cast(extract("year", fecha_ref), Integer)
+                if len(raw_anio) >= 4:
+                    q = q.filter(year_expr == int(raw_anio[:4]))
+                else:
+                    yy = int(raw_anio[-2:].zfill(2))
+                    q = q.filter(func.mod(year_expr, 100) == yy)
         if asegurado_nombre and asegurado_nombre.strip():
             q = q.outerjoin(Asegurado, Siniestro.asegurado_id == Asegurado.id).filter(
                 func.concat(
@@ -1341,33 +1523,37 @@ class SiniestroService:
                     func.coalesce(Asegurado.apellido_materno, ""),
                 ).ilike(f"%{asegurado_nombre.strip()}%")
             ).distinct()
-        if asegurado_estado and asegurado_estado.strip():
+        if asegurado_geo_estado_id is not None:
+            q = q.filter(
+                Siniestro.asegurado_id.in_(
+                    select(Asegurado.id).where(
+                        Asegurado.estado_geografico_id == asegurado_geo_estado_id,
+                        Asegurado.eliminado_en.is_(None),
+                    )
+                )
+            )
+        elif asegurado_estado and asegurado_estado.strip():
             estado_objetivo = normalizar_nombre_estado(asegurado_estado.strip())
-            candidate_ids = [
-                siniestro_id for (siniestro_id,) in q.with_entities(Siniestro.id).distinct().all()
+            geo_rows_db = db.query(GeoEstado.id, GeoEstado.nombre).all()
+            matching_geo_ids = [
+                gid
+                for gid, nm in geo_rows_db
+                if nm is not None and normalizar_nombre_estado(str(nm).strip()) == estado_objetivo
             ]
-            if not candidate_ids:
+            if not matching_geo_ids:
                 return []
-
-            estados_por_siniestro = db.query(
-                Siniestro.id,
-                Asegurado.estado,
-            ).outerjoin(
-                Asegurado,
-                Siniestro.asegurado_id == Asegurado.id,
-            ).filter(
-                Siniestro.id.in_(candidate_ids)
-            ).all()
-
-            siniestro_ids_filtrados = [
-                siniestro_id
-                for siniestro_id, estado_raw in estados_por_siniestro
-                if normalizar_nombre_estado(estado_raw) == estado_objetivo
-            ]
-            if not siniestro_ids_filtrados:
-                return []
-
-            q = q.filter(Siniestro.id.in_(siniestro_ids_filtrados))
+            mun_sub = select(GeoMunicipio.id).where(GeoMunicipio.estado_id.in_(matching_geo_ids))
+            q = q.filter(
+                Siniestro.asegurado_id.in_(
+                    select(Asegurado.id).where(
+                        Asegurado.eliminado_en.is_(None),
+                        or_(
+                            Asegurado.estado_geografico_id.in_(matching_geo_ids),
+                            Asegurado.municipio_id.in_(mun_sub),
+                        ),
+                    )
+                )
+            )
         
         siniestros = q.order_by(Siniestro.creado_en.desc()).offset(skip).limit(limit).all()
         

@@ -45,10 +45,20 @@ def list_siniestros(
     usuario_asignado: Optional[UUID] = Query(None, description="Filtrar por usuario asignado"),
     prioridad: Optional[str] = Query(None, description="Filtrar por prioridad (baja, media, alta, critica)"),
     calificacion_id: Optional[UUID] = Query(None, description="Filtrar por calificación"),
-    asegurado_estado: Optional[str] = Query(None, description="Filtrar por estado geográfico del asegurado"),
+    asegurado_estado: Optional[str] = Query(None, description="Filtrar por estado geográfico del asegurado (texto legado)"),
+    asegurado_geo_estado_id: Optional[UUID] = Query(
+        None,
+        description="Filtrar por geo_estados.id del asegurado (prioritario sobre asegurado_estado)",
+    ),
     fecha_registro_mes: Optional[str] = Query(None, description="Filtrar por mes de registro en formato YYYY-MM"),
     busqueda_id: Optional[str] = Query(None, description="Buscar por ID/numero_reporte (ej. 102-001-25 o 10200125)"),
     numero_siniestro: Optional[str] = Query(None, description="Buscar por número de siniestro (texto libre)"),
+    numero_reporte: Optional[str] = Query(None, description="Buscar por número de reporte (texto libre, ilike)"),
+    tercero: Optional[str] = Query(None, description="Buscar por nombre de tercero (texto libre, ilike)"),
+    anio: Optional[str] = Query(
+        None,
+        description="Año de fecha_registro/fecha_siniestro: 4 dígitos (2025) o 2 (25)",
+    ),
     asegurado_nombre: Optional[str] = Query(None, description="Buscar por nombre del asegurado"),
     skip: int = Query(0, ge=0, description="Número de registros a saltar"),
     limit: int = Query(1000, ge=1, le=10000, description="Número máximo de registros a retornar"),
@@ -57,7 +67,7 @@ def list_siniestros(
 ):
     """
     Lista todos los siniestros con filtros opcionales.
-    Búsqueda: busqueda_id (formato 102-001-25), numero_siniestro (texto), asegurado_nombre.
+    Búsqueda: busqueda_id (formato 102-001-25), numero_siniestro, numero_reporte, tercero, anio, asegurado_nombre.
     """
     return SiniestroService.list(
         db=db,
@@ -71,9 +81,13 @@ def list_siniestros(
         prioridad=prioridad,
         calificacion_id=calificacion_id,
         asegurado_estado=asegurado_estado,
+        asegurado_geo_estado_id=asegurado_geo_estado_id,
         fecha_registro_mes=fecha_registro_mes,
         busqueda_id=busqueda_id,
         numero_siniestro_q=numero_siniestro,
+        numero_reporte=numero_reporte,
+        tercero=tercero,
+        anio_busqueda=anio,
         asegurado_nombre=asegurado_nombre,
         skip=skip,
         limit=limit,

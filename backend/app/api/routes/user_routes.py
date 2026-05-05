@@ -6,6 +6,7 @@ Endpoints para operaciones CRUD de usuarios y autenticación
 import csv
 import io
 import base64
+import logging
 from datetime import datetime
 from typing import List, Optional
 
@@ -66,6 +67,7 @@ from app.services.storage_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _audit_auth(
@@ -114,10 +116,19 @@ def _build_profile_asset_inline_data_url(asset_value: Optional[str]) -> Optional
         return raw
     if not (raw.startswith("r2://") or "/" in raw):
         return raw
+    storage = get_storage_service()
     try:
-        content = get_storage_service().get_bytes(raw)
-    except Exception:
-        return raw
+        content = storage.get_bytes(raw)
+    except Exception as exc:
+        logger.warning("get_bytes falló para asset de perfil; se intenta URL firmada o null", exc_info=True)
+        if raw.startswith("r2://"):
+            try:
+                signed = storage.get_download_url(raw, expires_in=3600)
+                if signed:
+                    return signed
+            except Exception:
+                logger.warning("No se pudo generar URL firmada para asset R2", exc_info=True)
+        return None
     mime = "image/png"
     if "." in raw:
         ext = raw.rsplit(".", 1)[-1].lower()

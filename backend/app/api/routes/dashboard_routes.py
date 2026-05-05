@@ -3,8 +3,8 @@ Rutas API para estadísticas del dashboard
 """
 from typing import Dict, Any
 from fastapi import APIRouter, Depends, Query, HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, nullslast
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import func, and_, or_, nullslast
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import SQLAlchemyError
 import logging
@@ -24,6 +24,7 @@ from app.models.legal import (
     Asegurado,
 )
 from app.models.flujo_trabajo import SiniestroEtapa
+from app.models.geo_models import GeoEstado, GeoMunicipio
 from app.utils.estado_normalization import normalizar_nombre_estado
 
 logger = logging.getLogger(__name__)
@@ -77,44 +78,51 @@ def get_dashboard_stats(
             logger.warning(f"Error al obtener siniestros activos: {str(e)}")
             siniestros_activos = 0
 
-        # Siniestros por estado (GEOGRÁFICO) del ASEGURADO
-        # Se agrupa por la columna Asegurado.estado (ej. "Puebla", "Jalisco", etc.)
-        # Se normalizan los nombres inconsistentes antes de agrupar
+        # Siniestros por estado geográfico del asegurado (catálogo geo vía FK o municipio).
         try:
+            GeoEstadoMun = aliased(GeoEstado)
+            nombre_grupo = func.coalesce(GeoEstado.nombre, GeoEstadoMun.nombre, "Sin estado")
             q_geo = (
                 db.query(
-                    Asegurado.estado.label("estado"),
+                    nombre_grupo.label("nombre_grupo"),
+                    func.min(
+                        func.coalesce(Asegurado.estado_geografico_id, GeoMunicipio.estado_id)
+                    ).label("geo_id"),
                     func.count(Siniestro.id).label("count"),
                 )
                 .join(Siniestro, Siniestro.asegurado_id == Asegurado.id)
+                .outerjoin(GeoEstado, GeoEstado.id == Asegurado.estado_geografico_id)
+                .outerjoin(GeoMunicipio, GeoMunicipio.id == Asegurado.municipio_id)
+                .outerjoin(GeoEstadoMun, GeoEstadoMun.id == GeoMunicipio.estado_id)
                 .filter(
                     Siniestro.empresa_id == empresa_id,
                     Siniestro.eliminado == False,
                     Siniestro.activo == True,
-                    Asegurado.estado.isnot(None),
-                    Asegurado.estado != "",
+                    or_(
+                        Asegurado.estado_geografico_id.isnot(None),
+                        Asegurado.municipio_id.isnot(None),
+                    ),
                 )
             )
             if alcance is not None:
                 q_geo = q_geo.filter(Siniestro.id.in_(alcance))
-            siniestros_por_estado_raw = q_geo.group_by(Asegurado.estado).all()
-            
-            # Normalizar y consolidar estados
-            estados_consolidados: Dict[str, int] = {}
-            for estado_raw, cantidad in siniestros_por_estado_raw:
-                estado_normalizado = normalizar_nombre_estado(estado_raw)
-                if estado_normalizado in estados_consolidados:
-                    estados_consolidados[estado_normalizado] += cantidad
-                else:
-                    estados_consolidados[estado_normalizado] = cantidad
-            
-            # Convertir a lista de tuplas para mantener compatibilidad
-            siniestros_por_estado = [
-                (estado, cantidad) 
-                for estado, cantidad in estados_consolidados.items()
-            ]
+            siniestros_por_estado_raw = q_geo.group_by(nombre_grupo).all()
+
+            estados_out: Dict[str, Dict[str, Any]] = {}
+            for nombre_grupo, geo_id, cantidad in siniestros_por_estado_raw:
+                ng = (nombre_grupo or "").strip() or "Sin estado"
+                key = f"geo:{geo_id}" if geo_id else f"txt:{normalizar_nombre_estado(ng)}"
+                display = ng if geo_id else normalizar_nombre_estado(ng)
+                if key not in estados_out:
+                    estados_out[key] = {
+                        "nombre": display,
+                        "cantidad": 0,
+                        "geo_estado_id": str(geo_id) if geo_id else None,
+                    }
+                estados_out[key]["cantidad"] += int(cantidad or 0)
+            siniestros_por_estado = list(estados_out.values())
         except Exception as e:
-            logger.warning(f"Error al obtener siniestros por estado (asegurado.estado): {str(e)}")
+            logger.warning(f"Error al obtener siniestros por estado geográfico: {str(e)}")
             siniestros_por_estado = []
 
         # Siniestros por prioridad
@@ -200,10 +208,13 @@ def get_dashboard_stats(
             "siniestros_criticos": siniestros_criticos or 0,
             "notificaciones_no_leidas": notificaciones_no_leidas or 0,
             "actividades_recientes": actividades_recientes or 0,
-            # nombre = nombre del estado (geográfico) del asegurado
             "siniestros_por_estado": [
-                {"nombre": estado or "Sin estado", "cantidad": cantidad}
-                for estado, cantidad in siniestros_por_estado
+                {
+                    "nombre": item["nombre"],
+                    "cantidad": item["cantidad"],
+                    "geo_estado_id": item.get("geo_estado_id"),
+                }
+                for item in siniestros_por_estado
             ],
             "siniestros_por_prioridad": [
                 {"prioridad": prioridad, "cantidad": cantidad} 
