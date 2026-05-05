@@ -5,7 +5,7 @@
 
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
@@ -228,6 +228,9 @@ function SiniestrosPageContent() {
   // Límite de registros a cargar del backend
   const [limit, setLimit] = useState<number>(1000);
 
+  // Contador para cancelar respuestas desactualizadas (race condition)
+  const loadVersionRef = useRef(0);
+
   // Estado para edición (si se necesita en el futuro)
   const [editing, setEditing] = useState<Siniestro | null>(null);
   const [form, setForm] = useState<SiniestroFormState>({
@@ -313,7 +316,7 @@ function SiniestrosPageContent() {
     const area_id_raw = searchParams.get("area_id") || "";
     const usuario_raw = searchParams.get("usuario_asignado") || "";
 
-    setFiltros({
+    const newFiltros: DashboardAwareFilters = {
       activo,
       estado_id: activo === "all" || activo === "false" ? "" : estado_id_raw,
       proveniente_id: searchParams.get("proveniente_id") || "",
@@ -326,8 +329,19 @@ function SiniestrosPageContent() {
       asegurado_estado: searchParams.get("asegurado_estado") || "",
       asegurado_geo_estado_id: searchParams.get("asegurado_geo_estado_id") || "",
       fecha_registro_mes: searchParams.get("fecha_registro_mes") || "",
+    };
+
+    // Solo actualizar si los valores realmente cambiaron para evitar re-renders y doble carga
+    setFiltros((prev) => {
+      const keys = Object.keys(newFiltros) as Array<keyof DashboardAwareFilters>;
+      for (const k of keys) {
+        if (prev[k] !== newFiltros[k]) return newFiltros;
+      }
+      return prev; // mismos valores → devolver la misma referencia, sin re-render
     });
-    setLimit(Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 1000);
+
+    const newLimit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 1000;
+    setLimit((prev) => (prev === newLimit ? prev : newLimit));
     setFiltersReady(true);
   }, [searchParams]);
 
@@ -404,6 +418,10 @@ function SiniestrosPageContent() {
   };
 
   const loadSiniestros = async () => {
+    // Capturar la versión actual para detectar llamadas desactualizadas
+    loadVersionRef.current += 1;
+    const myVersion = loadVersionRef.current;
+
     try {
       setSiniestrosLoading(true);
       const params: any = {};
@@ -431,15 +449,22 @@ function SiniestrosPageContent() {
       if (limit) params.limit = limit;
 
       const data = await apiService.getSiniestros(params);
+
+      // Ignorar la respuesta si ya se inició una carga más reciente
+      if (myVersion !== loadVersionRef.current) return;
+
       setSiniestros(data);
     } catch (e: any) {
+      if (myVersion !== loadVersionRef.current) return;
       if (e.response?.status === 401) {
         router.push("/login");
         return;
       }
       swalError(e.response?.data?.detail || "Error al cargar siniestros");
     } finally {
-      setSiniestrosLoading(false);
+      if (myVersion === loadVersionRef.current) {
+        setSiniestrosLoading(false);
+      }
     }
   };
 
