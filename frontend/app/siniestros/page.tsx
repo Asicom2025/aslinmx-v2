@@ -230,6 +230,9 @@ function SiniestrosPageContent() {
 
   // Contador para cancelar respuestas desactualizadas (race condition)
   const loadVersionRef = useRef(0);
+  // Ref para indicar que filtros fueron actualizados desde la URL (no por el usuario)
+  // Evita el bucle infinito entre el efecto URL→filtros y el efecto filtros→URL
+  const justSyncedFromURLRef = useRef(false);
 
   // Estado para edición (si se necesita en el futuro)
   const [editing, setEditing] = useState<Siniestro | null>(null);
@@ -335,7 +338,11 @@ function SiniestrosPageContent() {
     setFiltros((prev) => {
       const keys = Object.keys(newFiltros) as Array<keyof DashboardAwareFilters>;
       for (const k of keys) {
-        if (prev[k] !== newFiltros[k]) return newFiltros;
+        if (prev[k] !== newFiltros[k]) {
+          // Marcar que el cambio vino de la URL para que el efecto filtros→URL no haga un replace innecesario
+          justSyncedFromURLRef.current = true;
+          return newFiltros;
+        }
       }
       return prev; // mismos valores → devolver la misma referencia, sin re-render
     });
@@ -367,6 +374,12 @@ function SiniestrosPageContent() {
 
   useEffect(() => {
     if (!filtersReady) return;
+    // Si filtros acaban de ser actualizados desde la URL (navegación externa),
+    // omitir este ciclo para evitar el bucle infinito URL→filtros→URL
+    if (justSyncedFromURLRef.current) {
+      justSyncedFromURLRef.current = false;
+      return;
+    }
     const next = queryStringFromFiltros();
     const curr = searchParams.toString();
     const paramsEqual = (a: string, b: string) => {
