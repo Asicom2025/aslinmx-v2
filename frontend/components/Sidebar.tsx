@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
 import { ACCION, MODULO } from "@/lib/permisosConstants";
@@ -65,8 +65,19 @@ const iconMap: Record<string, JSX.Element> = {
 export default function Sidebar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { activeEmpresa, user, loading: userLoading } = useUser();
   const { can } = usePermisos();
+
+  // Si ya estamos exactamente en esa ruta, preservar los parámetros de la URL
+  // para que filtros activos (ej. "Solo mis asignados") no se pierdan al hacer clic
+  const getLinkHref = (href: string) => {
+    if (pathname === href) {
+      const qs = searchParams.toString();
+      return qs ? `${href}?${qs}` : href;
+    }
+    return href;
+  };
 
   const gradientStyle = useMemo(() => {
     const primary = activeEmpresa?.color_secundario || "#0A2E5C";
@@ -164,7 +175,7 @@ export default function Sidebar() {
         {links.map((item) => (
           <Link
             key={item.href}
-            href={item.href}
+            href={getLinkHref(item.href)}
             className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/10"
             onClick={() => setOpen(false)}
           >

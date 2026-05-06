@@ -233,6 +233,8 @@ function SiniestrosPageContent() {
   // Ref para indicar que filtros fueron actualizados desde la URL (no por el usuario)
   // Evita el bucle infinito entre el efecto URL→filtros y el efecto filtros→URL
   const justSyncedFromURLRef = useRef(false);
+  // Controla que el localStorage de "solo mis asignados" se aplique solo una vez por montaje
+  const localStorageAppliedRef = useRef(false);
 
   // Estado para edición (si se necesita en el futuro)
   const [editing, setEditing] = useState<Siniestro | null>(null);
@@ -400,6 +402,20 @@ function SiniestrosPageContent() {
     router,
     searchParams,
   ]);
+
+  // Restaurar preferencia "Solo mis asignados" desde localStorage al montar la página
+  useEffect(() => {
+    if (!user || !filtersReady || localStorageAppliedRef.current) return;
+    localStorageAppliedRef.current = true;
+    // Solo aplicar si la URL no trae ya un usuario_asignado explícito
+    const urlHasFilter = Boolean(searchParams.get("usuario_asignado"));
+    if (!urlHasFilter && user.id) {
+      const saved = localStorage.getItem("siniestros_solo_mis_asignados");
+      if (saved === "true") {
+        setFiltros((prev) => ({ ...prev, usuario_asignado: String(user.id) }));
+      }
+    }
+  }, [user, filtersReady, searchParams]);
 
   // Cargar siniestros al cambiar filtros o límite
   useEffect(() => {
@@ -608,6 +624,7 @@ function SiniestrosPageContent() {
   ]);
 
   const clearFilters = () => {
+    localStorage.removeItem("siniestros_solo_mis_asignados");
     setFiltros(DEFAULT_FILTROS);
     setLimit(1000);
     router.replace(pathname);
@@ -2227,10 +2244,15 @@ function SiniestrosPageContent() {
               onClick={() => {
                 const mine = String(user?.id || "");
                 if (!mine) return;
+                const isActive = filtros.usuario_asignado === mine;
+                if (isActive) {
+                  localStorage.removeItem("siniestros_solo_mis_asignados");
+                } else {
+                  localStorage.setItem("siniestros_solo_mis_asignados", "true");
+                }
                 setFiltros((prev) => ({
                   ...prev,
-                  usuario_asignado:
-                    prev.usuario_asignado === mine ? "" : mine,
+                  usuario_asignado: isActive ? "" : mine,
                 }));
               }}
               className={`inline-flex items-center justify-center rounded-md border px-3 py-2 text-sm font-medium transition-colors ${

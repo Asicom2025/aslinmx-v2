@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Navbar from "@/components/Navbar";
 import Sidebar from "@/components/Sidebar";
 import ImpersonationBanner from "@/components/ImpersonationBanner";
@@ -7,7 +8,9 @@ import ImpersonationBanner from "@/components/ImpersonationBanner";
 export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen">
-      <Sidebar />
+      <Suspense fallback={null}>
+        <Sidebar />
+      </Suspense>
       <Navbar />
       <main className="w-full min-w-0 !pt-16 lg:pl-64 bg-gray-50 min-h-screen pb-safe">
         <ImpersonationBanner />
