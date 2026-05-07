@@ -2,8 +2,10 @@
 Servicio para exportación de datos a Excel, CSV y PDF
 """
 
+import html
 import io
 import csv
+from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
 # Importaciones opcionales para evitar errores si no están instaladas
@@ -32,6 +34,17 @@ except ImportError:
 
 class ExportService:
     """Servicio para exportar datos a diferentes formatos"""
+
+    @staticmethod
+    def _scalar_for_export_cell(value: Any) -> Any:
+        """Normaliza valores para celda CSV/Excel; decodifica entidades HTML en texto."""
+        if isinstance(value, bool):
+            return "Sí" if value else "No"
+        if value is None:
+            return ""
+        if isinstance(value, (int, float, Decimal)):
+            return value
+        return html.unescape(str(value))
 
     @staticmethod
     def export_to_excel(
@@ -108,13 +121,7 @@ class ExportService:
             for col_num, header in enumerate(headers, 1):
                 cell = ws.cell(row=row_num, column=col_num)
                 value = row_data.get(header, '')
-                # Formatear valores especiales
-                if isinstance(value, bool):
-                    cell.value = "Sí" if value else "No"
-                elif value is None:
-                    cell.value = ""
-                else:
-                    cell.value = str(value)
+                cell.value = ExportService._scalar_for_export_cell(value)
                 if header in texto_cols:
                     cell.number_format = "@"
                 cell.border = border
@@ -163,12 +170,8 @@ class ExportService:
             filtered_row = {}
             for header in headers:
                 value = row.get(header, '')
-                if isinstance(value, bool):
-                    filtered_row[header] = "Sí" if value else "No"
-                elif value is None:
-                    filtered_row[header] = ""
-                else:
-                    filtered_row[header] = str(value)
+                v = ExportService._scalar_for_export_cell(value)
+                filtered_row[header] = "" if v == "" else str(v)
             writer.writerow(filtered_row)
 
         return output.getvalue()
@@ -237,11 +240,12 @@ class ExportService:
             for row_idx, row_data in enumerate(datos, start=row + 1):
                 for col_idx, header in enumerate(headers):
                     value = row_data.get(header, '')
-                    if isinstance(value, bool):
-                        value = "Sí" if value else "No"
-                    elif value is None:
-                        value = ""
-                    worksheet.write(row_idx, col_idx, value, data_format)
+                    worksheet.write(
+                        row_idx,
+                        col_idx,
+                        ExportService._scalar_for_export_cell(value),
+                        data_format,
+                    )
 
         # Agregar hojas adicionales
         if hojas:
@@ -260,11 +264,12 @@ class ExportService:
                     for row_idx, row_data in enumerate(datos_hoja, start=1):
                         for col_idx, header in enumerate(headers):
                             value = row_data.get(header, '')
-                            if isinstance(value, bool):
-                                value = "Sí" if value else "No"
-                            elif value is None:
-                                value = ""
-                            worksheet.write(row_idx, col_idx, value, data_format)
+                            worksheet.write(
+                                row_idx,
+                                col_idx,
+                                ExportService._scalar_for_export_cell(value),
+                                data_format,
+                            )
 
         workbook.close()
         output.seek(0)

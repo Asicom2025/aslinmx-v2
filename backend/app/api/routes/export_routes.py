@@ -100,7 +100,7 @@ async def exportar_datos(
         elif formato == "csv":
             csv_content = ExportService.export_to_csv(datos=datos, columnas=columnas)
             archivo_bytes = csv_content.encode('utf-8')
-            media_type = "text/csv"
+            media_type = "text/csv; charset=utf-8"
             nombre_archivo += ".csv"
         else:
             raise HTTPException(status_code=400, detail="Formato no soportado")

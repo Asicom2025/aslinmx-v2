@@ -286,7 +286,7 @@ export default function SiniestroDetailPage() {
 
   // Estado para subir archivo (fotos, PDF, etc.) como documento
   const [showUploadDocModal, setShowUploadDocModal] = useState(false);
-  const [uploadDocFile, setUploadDocFile] = useState<File | null>(null);
+  const [uploadDocFiles, setUploadDocFiles] = useState<File[]>([]);
   const [uploadDocDescripcion, setUploadDocDescripcion] = useState("");
   const [uploadDocSaving, setUploadDocSaving] = useState(false);
   const [uploadDocTipoId, setUploadDocTipoId] = useState("");
@@ -3199,7 +3199,7 @@ export default function SiniestroDetailPage() {
       swalError("No tiene permiso para subir archivos a este expediente.");
       return;
     }
-    setUploadDocFile(null);
+    setUploadDocFiles([]);
     setUploadDocDescripcion("");
     setUploadRequisitoSeleccionadoId("");
     setUploadDocCategoriaId("");
@@ -3223,7 +3223,7 @@ export default function SiniestroDetailPage() {
   }, [puedeSubirArchivoExpediente]);
   const handleCloseUploadDocModal = () => {
     setShowUploadDocModal(false);
-    setUploadDocFile(null);
+    setUploadDocFiles([]);
     setUploadDocDescripcion("");
     setUploadDocTipoId("");
     setUploadDocCategoriaId("");
@@ -3375,7 +3375,7 @@ export default function SiniestroDetailPage() {
       swalError("No tiene permiso para subir archivos a este expediente.");
       return;
     }
-    if (!uploadDocFile || !siniestroId) return;
+    if (!uploadDocFiles.length || !siniestroId) return;
     if (
       uploadModalEtapaContext &&
       uploadEtapaRequisitos.length > 0 &&
@@ -3399,7 +3399,7 @@ export default function SiniestroDetailPage() {
       const horasNum = uploadDocHoras.trim()
         ? parseFloat(uploadDocHoras)
         : undefined;
-      await apiService.uploadDocumento(siniestroId, uploadDocFile, {
+      await apiService.uploadDocumento(siniestroId, uploadDocFiles, {
         descripcion: uploadDocDescripcion.trim() || undefined,
         area_id: areaIdForContext || undefined,
         flujo_trabajo_id: flujoId,
@@ -3411,7 +3411,11 @@ export default function SiniestroDetailPage() {
           horasNum != null && !Number.isNaN(horasNum) ? horasNum : undefined,
         comentarios: uploadDocComentario.trim() || undefined,
       });
-      await swalSuccess("Archivo subido correctamente");
+      await swalSuccess(
+        uploadDocFiles.length > 1
+          ? `${uploadDocFiles.length} archivos subidos correctamente`
+          : "Archivo subido correctamente",
+      );
       handleCloseUploadDocModal();
       await loadDocumentosSiniestro();
       await loadDocumentosFiltrados(areaIdForContext, flujoId);
@@ -5812,19 +5816,27 @@ export default function SiniestroDetailPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Archivo *
+              Archivos * (uno o más)
             </label>
             <input
               type="file"
+              multiple
               accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:cursor-pointer"
-              onChange={(e) => setUploadDocFile(e.target.files?.[0] || null)}
+              onChange={(e) =>
+                setUploadDocFiles(
+                  e.target.files ? Array.from(e.target.files) : [],
+                )
+              }
             />
-            {uploadDocFile && (
-              <p className="mt-1 text-xs text-gray-500">
-                {uploadDocFile.name} ({(uploadDocFile.size / 1024).toFixed(1)}{" "}
-                KB)
-              </p>
+            {uploadDocFiles.length > 0 && (
+              <ul className="mt-1 text-xs text-gray-500 list-disc list-inside space-y-0.5 max-h-32 overflow-y-auto">
+                {uploadDocFiles.map((f, i) => (
+                  <li key={`${f.name}-${i}`}>
+                    {f.name} ({(f.size / 1024).toFixed(1)} KB)
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
           <div>
@@ -5874,14 +5886,18 @@ export default function SiniestroDetailPage() {
               variant="primary"
               onClick={handleSubmitUploadDoc}
               disabled={
-                !uploadDocFile ||
+                uploadDocFiles.length === 0 ||
                 uploadDocSaving ||
                 (uploadEsVistaEtapaPdf &&
                   uploadEtapaRequisitos.length > 0 &&
                   !uploadRequisitoSeleccionadoId)
               }
             >
-              {uploadDocSaving ? "Subiendo…" : "Subir archivo"}
+              {uploadDocSaving
+                ? "Subiendo…"
+                : uploadDocFiles.length > 1
+                  ? "Subir archivos"
+                  : "Subir archivo"}
             </Button>
           </div>
         </div>
@@ -7901,6 +7917,7 @@ function BitacoraList({
             id: "descripcion",
             header: "Descripción",
             accessorKey: "descripcion",
+            meta: { allowWrapInFluid: true },
             cell: ({ row }: any) => (
               <div className="flex flex-col">
                 <span className="text-sm text-gray-900">
@@ -8038,9 +8055,9 @@ function BitacoraList({
         searchPlaceholder="Buscar en descripción o comentarios..."
         enablePagination={true}
         enableSorting={true}
-        pageSize={10}
+        pageSize={15}
         size="default"
-        maxTextLength={80}
+        maxTextLength={300}
       />
 
       {/* Modal para nueva actividad */}

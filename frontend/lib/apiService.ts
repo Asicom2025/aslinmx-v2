@@ -1473,10 +1473,10 @@ const documentoService = {
     return response.data;
   },
 
-  /** Sube un archivo (foto, PDF, etc.) como documento del siniestro. */
+  /** Sube uno o más archivos (foto, PDF, etc.) como documento(s) del siniestro. */
   uploadDocumento: async (
     siniestroId: string,
-    file: File,
+    files: File | File[],
     options?: {
       descripcion?: string;
       area_id?: string;
@@ -1491,7 +1491,10 @@ const documentoService = {
   ) => {
     const form = new FormData();
     form.append("siniestro_id", siniestroId);
-    form.append("file", file);
+    const fileList = Array.isArray(files) ? files : [files];
+    for (const file of fileList) {
+      form.append("files", file);
+    }
     if (options?.descripcion) form.append("descripcion", options.descripcion);
     if (options?.area_id) form.append("area_id", options.area_id);
     if (options?.flujo_trabajo_id) form.append("flujo_trabajo_id", options.flujo_trabajo_id);

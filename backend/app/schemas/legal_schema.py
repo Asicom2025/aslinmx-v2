@@ -801,6 +801,10 @@ class SiniestroResponse(SiniestroBase):
         default=None,
         description="Capacidad de edición del expediente para el usuario autenticado (detalle).",
     )
+    usuarios_asignados_ids: List[UUID] = Field(
+        default_factory=list,
+        description="IDs de abogados asignados activos al siniestro.",
+    )
 
     class Config:
         from_attributes = True

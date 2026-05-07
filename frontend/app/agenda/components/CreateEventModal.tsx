@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { FiX } from "react-icons/fi";
 
 interface CreateEventModalProps {
@@ -9,6 +10,7 @@ interface CreateEventModalProps {
   onSuccess: () => void;
   selectedDate?: Date;
   selectedSlot?: { start: Date; end: Date };
+  calendarId: string;
 }
 
 interface EventFormData {
@@ -19,6 +21,7 @@ interface EventFormData {
   endDate: string;
   endTime: string;
   location: string;
+  generateMeet: boolean;
   attendees: string; // Lista de emails separados por comas
 }
 
@@ -28,6 +31,7 @@ export default function CreateEventModal({
   onSuccess,
   selectedDate,
   selectedSlot,
+  calendarId,
 }: CreateEventModalProps) {
   const [formData, setFormData] = useState<EventFormData>({
     title: "",
@@ -37,10 +41,25 @@ export default function CreateEventModal({
     endDate: "",
     endTime: "",
     location: "",
+    generateMeet: true,
     attendees: "",
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
 
   // Inicializar fechas cuando se abre el modal
   useEffect(() => {
@@ -56,6 +75,7 @@ export default function CreateEventModal({
         endDate: formatDateForInput(end),
         endTime: formatTimeForInput(end),
         location: "",
+        generateMeet: true,
         attendees: "",
       });
       setError(null);
@@ -108,10 +128,12 @@ export default function CreateEventModal({
         .filter((email) => email.length > 0)
         .map((email) => ({ email }));
 
+      const description = (formData.description || "").trim();
+
       // Crear el evento
-      const event = {
+      const event: any = {
         summary: formData.title,
-        description: formData.description || undefined,
+        description: description || undefined,
         location: formData.location || undefined,
         start: {
           dateTime: startDateTime.toISOString(),
@@ -130,11 +152,27 @@ export default function CreateEventModal({
           ],
         },
       };
+      if (formData.generateMeet) {
+        event.conferenceData = {
+          createRequest: {
+            requestId: `aslin-${Date.now()}`,
+            conferenceSolutionKey: {
+              type: "hangoutsMeet",
+            },
+          },
+        };
+      }
 
-      const response = await window.gapi.client.calendar.events.insert({
-        calendarId: "primary",
+      const insertParams: any = {
+        calendarId,
+        sendUpdates: attendeesList.length > 0 ? "all" : "none",
         resource: event,
-      });
+      };
+      if (formData.generateMeet) {
+        insertParams.conferenceDataVersion = 1;
+      }
+
+      const response = await window.gapi.client.calendar.events.insert(insertParams);
 
       if (response.status === 200) {
         onSuccess();
@@ -150,11 +188,11 @@ export default function CreateEventModal({
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex h-dvh w-screen items-center justify-center overflow-y-auto bg-black/50 p-4 pt-safe pb-safe">
+      <div className="w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-lg bg-white shadow-xl">
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-gray-900">Nueva Reunión</h2>
@@ -320,6 +358,24 @@ export default function CreateEventModal({
               />
             </div>
 
+            <label className="flex items-start gap-3 rounded-md border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              <input
+                type="checkbox"
+                checked={formData.generateMeet}
+                onChange={(e) =>
+                  setFormData({ ...formData, generateMeet: e.target.checked })
+                }
+                className="mt-1 h-4 w-4 rounded border-blue-300 text-primary-600 focus:ring-primary-500"
+                disabled={loading}
+              />
+              <span>
+                <span className="block font-medium">Generar Google Meet</span>
+                <span className="text-blue-700">
+                  Si está activo, Google Calendar creará automáticamente el enlace de videollamada.
+                </span>
+              </span>
+            </label>
+
             <div>
               <label
                 htmlFor="attendees"
@@ -363,7 +419,8 @@ export default function CreateEventModal({
           </form>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

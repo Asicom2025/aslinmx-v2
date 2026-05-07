@@ -5,7 +5,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import {
@@ -14,14 +14,26 @@ import {
   Event as RBCEvent,
   Views,
   SlotInfo,
+  View,
 } from "react-big-calendar";
-import { format, parse, startOfWeek, getDay } from "date-fns";
+import {
+  addDays,
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  format,
+  getDay,
+  parse,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
 import { es } from "date-fns/locale";
 import { FiPlus, FiLogOut, FiCheckCircle } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 import CreateEventModal from "./components/CreateEventModal";
-import DeleteEventModal from "./components/DeleteEventModal";
+import EventDetailModal from "./components/EventDetailModal";
 import {
   saveGoogleToken,
   getStoredGoogleToken,
@@ -54,6 +66,23 @@ const localizer = dateFnsLocalizer({
 interface CalendarEvent extends RBCEvent {
   id: string;
   description?: string;
+  location?: string;
+  htmlLink?: string;
+  hangoutLink?: string;
+  meetLink?: string;
+  creatorEmail?: string;
+  organizerEmail?: string;
+  attendees?: { email: string; displayName?: string; responseStatus?: string }[];
+  calendarId?: string;
+  calendarName?: string;
+}
+
+interface GoogleCalendarListItem {
+  id: string;
+  summary: string;
+  primary?: boolean;
+  backgroundColor?: string;
+  accessRole?: string;
 }
 
 const GOOGLE_CALENDAR_CLIENT_ID =
@@ -68,25 +97,44 @@ const GOOGLE_CALENDAR_DISCOVERY_DOCS = [
 
 export default function AgendaPage() {
   useTour("tour-agenda", { autoStart: true });
-  useEffect(() => {
-    console.log("CLIENT_ID frontend:", GOOGLE_CALENDAR_CLIENT_ID);
-    console.log("API_KEY frontend:", GOOGLE_CALENDAR_API_KEY);
-    if (typeof window !== "undefined") {
-      console.log("ORIGIN frontend:", window.location.origin);
-    }
-  }, []);
-
   const router = useRouter();
   const { user, loading } = useUser();
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const [loadingEvents, setLoadingEvents] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<{ start: Date; end: Date } | undefined>();
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
+  const [calendars, setCalendars] = useState<GoogleCalendarListItem[]>([]);
+  const [selectedCalendarId, setSelectedCalendarId] = useState("primary");
+  const [isCreateCalendarOpen, setIsCreateCalendarOpen] = useState(false);
+  const [newCalendarName, setNewCalendarName] = useState("");
+  const [creatingCalendar, setCreatingCalendar] = useState(false);
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [calendarView, setCalendarView] = useState<View>(Views.WEEK);
+
+  const visibleRange = useMemo(() => {
+    if (calendarView === Views.MONTH) {
+      return {
+        start: startOfWeek(startOfMonth(calendarDate), { weekStartsOn: 1 }),
+        end: endOfWeek(endOfMonth(calendarDate), { weekStartsOn: 1 }),
+      };
+    }
+    if (calendarView === Views.DAY) {
+      return { start: startOfDay(calendarDate), end: endOfDay(calendarDate) };
+    }
+    if (calendarView === Views.AGENDA) {
+      return { start: startOfDay(calendarDate), end: endOfDay(addDays(calendarDate, 30)) };
+    }
+    return {
+      start: startOfWeek(calendarDate, { weekStartsOn: 1 }),
+      end: endOfWeek(calendarDate, { weekStartsOn: 1 }),
+    };
+  }, [calendarDate, calendarView]);
 
   // Autenticación base del sistema
   useEffect(() => {
@@ -97,43 +145,6 @@ export default function AgendaPage() {
       return;
     }
   }, [user, loading, router]);
-
-  // Intentar restaurar sesión de Google Calendar al cargar
-  useEffect(() => {
-    const restoreGoogleSession = async () => {
-      if (!isGoogleTokenValid()) {
-        return;
-      }
-
-      const storedToken = getStoredGoogleToken();
-      if (!storedToken) {
-        return;
-      }
-
-      try {
-        // Inicializar cliente de Google
-        const ok = await initGoogleClient();
-        if (!ok) {
-          return;
-        }
-
-        // Configurar el token guardado
-        window.gapi.client.setToken({
-          access_token: storedToken,
-        });
-
-        // Verificar que el token funciona intentando cargar eventos
-        await loadGoogleEvents();
-        setIsConnected(true);
-      } catch (err: any) {
-        console.error("Error al restaurar sesión de Google:", err);
-        // Si el token no funciona, limpiarlo
-        clearGoogleToken();
-      }
-    };
-
-    restoreGoogleSession();
-  }, []); // Solo ejecutar una vez al montar
 
   const ensureGapiLoaded = useCallback((): Promise<void> => {
     if (typeof window === "undefined") return Promise.resolve();
@@ -219,23 +230,72 @@ export default function AgendaPage() {
     });
   }, []);
 
+  const loadCalendars = useCallback(async () => {
+    if (typeof window === "undefined" || !window.gapi?.client?.calendar) {
+      return [];
+    }
+
+    try {
+      const rawItems: any[] = [];
+      let pageToken: string | undefined;
+
+      do {
+        const response = await window.gapi.client.calendar.calendarList.list({
+          maxResults: 250,
+          pageToken,
+          showDeleted: false,
+          showHidden: true,
+        });
+        rawItems.push(...(response.result.items || []));
+        pageToken = response.result.nextPageToken;
+      } while (pageToken);
+
+      const items: GoogleCalendarListItem[] = rawItems.map(
+        (item: any) => ({
+          id: item.id,
+          summary: item.summary || item.id,
+          primary: !!item.primary,
+          backgroundColor: item.backgroundColor,
+          accessRole: item.accessRole,
+        }),
+      );
+      setCalendars(items);
+
+      setSelectedCalendarId((current) => {
+        if (items.some((calendar) => calendar.id === current)) return current;
+        return (items.find((calendar) => calendar.primary) || items[0])?.id || "primary";
+      });
+      return items;
+    } catch (err: any) {
+      console.error("Error al cargar calendarios de Google Calendar:", err);
+      if (err.status === 401 || err.code === 401) {
+        clearGoogleToken();
+        setIsConnected(false);
+        setError("Tu sesión de Google Calendar expiró. Por favor, vuelve a conectar.");
+      } else {
+        setError("No se pudieron cargar tus calendarios de Google Calendar.");
+      }
+      return [];
+    }
+  }, []);
+
   const loadGoogleEvents = useCallback(async () => {
     if (typeof window === "undefined" || !window.gapi?.client?.calendar) {
       return;
     }
 
     try {
-      const now = new Date();
-      const in30days = new Date();
-      in30days.setDate(now.getDate() + 30);
+      setLoadingEvents(true);
+      setError(null);
+      const activeCalendar = calendars.find((calendar) => calendar.id === selectedCalendarId);
 
       const response = await window.gapi.client.calendar.events.list({
-        calendarId: "primary",
-        timeMin: now.toISOString(),
-        timeMax: in30days.toISOString(),
+        calendarId: selectedCalendarId,
+        timeMin: visibleRange.start.toISOString(),
+        timeMax: visibleRange.end.toISOString(),
         showDeleted: false,
         singleEvents: true,
-        maxResults: 50,
+        maxResults: 250,
         orderBy: "startTime",
       });
 
@@ -254,6 +314,19 @@ export default function AgendaPage() {
             end: new Date(endStr),
             allDay: !item.start?.dateTime,
             description: item.description,
+            location: item.location,
+            htmlLink: item.htmlLink,
+            hangoutLink: item.hangoutLink,
+            meetLink:
+              item.hangoutLink ||
+              item.conferenceData?.entryPoints?.find(
+                (entry: any) => entry.entryPointType === "video",
+              )?.uri,
+            creatorEmail: item.creator?.email,
+            organizerEmail: item.organizer?.email,
+            attendees: item.attendees || [],
+            calendarId: selectedCalendarId,
+            calendarName: activeCalendar?.summary,
           } as CalendarEvent;
         })
         .filter((e: CalendarEvent | null): e is CalendarEvent => e !== null);
@@ -270,8 +343,41 @@ export default function AgendaPage() {
       } else {
         setError("No se pudieron cargar los eventos de Google Calendar.");
       }
+    } finally {
+      setLoadingEvents(false);
     }
-  }, []);
+  }, [calendars, selectedCalendarId, visibleRange]);
+
+  useEffect(() => {
+    const restoreGoogleSession = async () => {
+      if (!isGoogleTokenValid()) return;
+
+      const storedToken = getStoredGoogleToken();
+      if (!storedToken) return;
+
+      try {
+        const ok = await initGoogleClient();
+        if (!ok) return;
+
+        window.gapi.client.setToken({
+          access_token: storedToken,
+        });
+
+        await loadCalendars();
+        setIsConnected(true);
+      } catch (err: any) {
+        console.error("Error al restaurar sesión de Google:", err);
+        clearGoogleToken();
+      }
+    };
+
+    restoreGoogleSession();
+  }, [initGoogleClient, loadCalendars]);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    loadGoogleEvents();
+  }, [isConnected, loadGoogleEvents]);
 
   const handleSelectSlot = (slotInfo: SlotInfo) => {
     if (!isConnected) {
@@ -292,45 +398,15 @@ export default function AgendaPage() {
 
   const handleSelectEvent = (event: CalendarEvent) => {
     setSelectedEvent(event);
-    setIsDeleteModalOpen(true);
-  };
-
-  const handleDeleteEvent = async () => {
-    if (!selectedEvent || !window.gapi?.client?.calendar) {
-      throw new Error("No se puede eliminar el evento");
-    }
-
-    try {
-      const response = await window.gapi.client.calendar.events.delete({
-        calendarId: "primary",
-        eventId: selectedEvent.id,
-        sendUpdates: "all", // Enviar notificaciones a los asistentes
-      });
-
-      if (response.status === 200 || response.status === 204) {
-        // Recargar eventos después de eliminar
-        await loadGoogleEvents();
-      } else {
-        throw new Error("No se pudo eliminar el evento");
-      }
-    } catch (err: any) {
-      console.error("Error al eliminar evento:", err);
-      
-      // Si el error es de autenticación, limpiar token
-      if (err.status === 401 || err.code === 401) {
-        clearGoogleToken();
-        setIsConnected(false);
-        throw new Error("Tu sesión expiró. Por favor, vuelve a conectar.");
-      }
-      
-      throw new Error(err.message || "Error al eliminar el evento");
-    }
+    setIsDetailModalOpen(true);
   };
 
   const handleDisconnectGoogle = () => {
     clearGoogleToken();
     setIsConnected(false);
     setEvents([]);
+    setCalendars([]);
+    setSelectedCalendarId("primary");
     setError(null);
     
     // Limpiar token de gapi si está configurado
@@ -380,7 +456,7 @@ export default function AgendaPage() {
               });
 
               setIsConnected(true);
-              await loadGoogleEvents();
+              await loadCalendars();
               setLoadingCalendar(false);
               resolve();
             },
@@ -397,6 +473,46 @@ export default function AgendaPage() {
       console.error("Error al conectar con Google Calendar:", err);
       setError("No se pudo conectar con Google Calendar.");
       setLoadingCalendar(false);
+    }
+  };
+
+  const handleCreateCalendar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const summary = newCalendarName.trim();
+    if (!summary) {
+      setError("Escribe el nombre del calendario.");
+      return;
+    }
+    if (!window.gapi?.client?.calendar) {
+      setError("Google Calendar API no está inicializada.");
+      return;
+    }
+
+    setCreatingCalendar(true);
+    setError(null);
+    try {
+      const response = await window.gapi.client.calendar.calendars.insert({
+        resource: {
+          summary,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+      });
+      const createdId = response.result?.id;
+      await loadCalendars();
+      if (createdId) setSelectedCalendarId(createdId);
+      setNewCalendarName("");
+      setIsCreateCalendarOpen(false);
+    } catch (err: any) {
+      console.error("Error al crear calendario:", err);
+      if (err.status === 401 || err.code === 401) {
+        clearGoogleToken();
+        setIsConnected(false);
+        setError("Tu sesión de Google Calendar expiró. Por favor, vuelve a conectar.");
+      } else {
+        setError(err.message || "No se pudo crear el calendario.");
+      }
+    } finally {
+      setCreatingCalendar(false);
     }
   };
 
@@ -417,8 +533,37 @@ export default function AgendaPage() {
     <div className="container-app w-full space-y-4 py-4 sm:space-y-5 sm:py-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <h1 className="mb-1 text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Agenda</h1>
-          <TourButton tour="tour-agenda" label="Ver guía" />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <h1 className="text-fluid-2xl font-bold text-gray-900 sm:text-3xl">Agenda</h1>
+            {isConnected && (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <select
+                  value={selectedCalendarId}
+                  onChange={(e) => setSelectedCalendarId(e.target.value)}
+                  className="min-h-10 max-w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 sm:max-w-xs"
+                  aria-label="Seleccionar calendario"
+                >
+                  {calendars.map((calendar) => (
+                    <option key={calendar.id} value={calendar.id}>
+                      {calendar.summary}
+                      {calendar.primary ? " (Principal)" : ""}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setIsCreateCalendarOpen(true)}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <FiPlus className="h-4 w-4" />
+                  Crear Calendario
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="mt-1">
+            <TourButton tour="tour-agenda" label="Ver guía" />
+          </div>
           <p className="mt-1 text-sm text-gray-600">
             Visualiza tus próximas citas sincronizadas con Google Calendar.
           </p>
@@ -482,6 +627,9 @@ export default function AgendaPage() {
                 <FiCheckCircle className="w-3 h-3" />
                 Conectado a Google Calendar
               </span>
+              {loadingEvents && (
+                <span className="text-xs text-gray-500">Actualizando eventos...</span>
+              )}
               {isGoogleTokenValid() && (
                 <span className="text-xs text-gray-500">
                   (Sesión guardada)
@@ -500,7 +648,7 @@ export default function AgendaPage() {
 
       <div
         data-tour="agenda-calendario"
-        className="min-h-[min(70dvh,32rem)] overflow-x-auto rounded-lg bg-white p-2 shadow sm:p-4 md:h-[70vh] md:min-h-0"
+        className="h-[calc(100dvh-18rem)] min-h-[34rem] overflow-x-auto rounded-lg bg-white p-2 shadow sm:p-4"
       >
         <Calendar
           localizer={localizer}
@@ -508,7 +656,10 @@ export default function AgendaPage() {
           startAccessor="start"
           endAccessor="end"
           views={[Views.MONTH, Views.WEEK, Views.DAY, Views.AGENDA]}
-          defaultView={Views.WEEK}
+          date={calendarDate}
+          view={calendarView}
+          onNavigate={(date) => setCalendarDate(date)}
+          onView={(view) => setCalendarView(view)}
           step={30}
           timeslots={2}
           style={{ height: "100%" }}
@@ -537,17 +688,69 @@ export default function AgendaPage() {
         }}
         onSuccess={handleEventCreated}
         selectedSlot={selectedSlot}
+        calendarId={selectedCalendarId}
       />
 
-      <DeleteEventModal
-        isOpen={isDeleteModalOpen}
+      <EventDetailModal
+        isOpen={isDetailModalOpen}
         onClose={() => {
-          setIsDeleteModalOpen(false);
+          setIsDetailModalOpen(false);
           setSelectedEvent(null);
         }}
-        onConfirm={handleDeleteEvent}
-        eventTitle={String(selectedEvent?.title ?? "")}
+        event={selectedEvent}
       />
+
+      {isCreateCalendarOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Crear Calendario</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Se agregará a la misma cuenta de Google Calendar conectada.
+              </p>
+            </div>
+            <form onSubmit={handleCreateCalendar} className="space-y-4">
+              <div>
+                <label
+                  htmlFor="calendarName"
+                  className="mb-1 block text-sm font-medium text-gray-700"
+                >
+                  Nombre del calendario
+                </label>
+                <input
+                  id="calendarName"
+                  value={newCalendarName}
+                  onChange={(e) => setNewCalendarName(e.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Ej: Reuniones comerciales"
+                  disabled={creatingCalendar}
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-3 border-t pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreateCalendarOpen(false);
+                    setNewCalendarName("");
+                  }}
+                  disabled={creatingCalendar}
+                  className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingCalendar}
+                  className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {creatingCalendar ? "Creando..." : "Crear calendario"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

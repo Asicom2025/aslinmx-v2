@@ -71,6 +71,9 @@ const DEFAULT_FILTROS: DashboardAwareFilters = {
   fecha_registro_mes: "",
 };
 
+/** Query de filtros guardada al volver desde el detalle sin query en la URL (p. ej. misma pestaña /siniestros). */
+const SINIESTROS_FILTROS_SESSION_KEY = "siniestros_filtros_url";
+
 const buildInitialExtendedForm = (): ExtendedSiniestroFormState => ({
   asegurado: {
     seleccionadoId: null,
@@ -307,8 +310,16 @@ function SiniestrosPageContent() {
   }, [router, loading, user]);
 
   useEffect(() => {
-    const activoParam = searchParams.get("activo");
-    const limitParam = Number(searchParams.get("limit"));
+    const urlRaw = searchParams.toString();
+    const stored =
+      typeof window !== "undefined"
+        ? sessionStorage.getItem(SINIESTROS_FILTROS_SESSION_KEY)
+        : null;
+    const effectiveQs = urlRaw || stored || "";
+    const sp = new URLSearchParams(effectiveQs);
+
+    const activoParam = sp.get("activo");
+    const limitParam = Number(sp.get("limit"));
 
     const activo: ActivoFilterValue =
       activoParam === "all"
@@ -317,23 +328,23 @@ function SiniestrosPageContent() {
           ? "false"
           : "true";
 
-    const estado_id_raw = searchParams.get("estado_id") || "";
-    const area_id_raw = searchParams.get("area_id") || "";
-    const usuario_raw = searchParams.get("usuario_asignado") || "";
+    const estado_id_raw = sp.get("estado_id") || "";
+    const area_id_raw = sp.get("area_id") || "";
+    const usuario_raw = sp.get("usuario_asignado") || "";
 
     const newFiltros: DashboardAwareFilters = {
       activo,
       estado_id: activo === "all" || activo === "false" ? "" : estado_id_raw,
-      proveniente_id: searchParams.get("proveniente_id") || "",
+      proveniente_id: sp.get("proveniente_id") || "",
       area_id: activo === "false" ? "" : area_id_raw,
       usuario_asignado: usuario_raw,
       prioridad:
-        (searchParams.get("prioridad") as DashboardAwareFilters["prioridad"]) ||
+        (sp.get("prioridad") as DashboardAwareFilters["prioridad"]) ||
         "",
-      calificacion_id: searchParams.get("calificacion_id") || "",
-      asegurado_estado: searchParams.get("asegurado_estado") || "",
-      asegurado_geo_estado_id: searchParams.get("asegurado_geo_estado_id") || "",
-      fecha_registro_mes: searchParams.get("fecha_registro_mes") || "",
+      calificacion_id: sp.get("calificacion_id") || "",
+      asegurado_estado: sp.get("asegurado_estado") || "",
+      asegurado_geo_estado_id: sp.get("asegurado_geo_estado_id") || "",
+      fecha_registro_mes: sp.get("fecha_registro_mes") || "",
     };
 
     // Solo actualizar si los valores realmente cambiaron para evitar re-renders y doble carga
@@ -383,6 +394,13 @@ function SiniestrosPageContent() {
       return;
     }
     const next = queryStringFromFiltros();
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(SINIESTROS_FILTROS_SESSION_KEY, next);
+      } catch {
+        /* quota / modo privado */
+      }
+    }
     const curr = searchParams.toString();
     const paramsEqual = (a: string, b: string) => {
       const pa = new URLSearchParams(a);
@@ -1428,6 +1446,7 @@ function SiniestrosPageContent() {
         s.descripcion_hechos,
         s.observaciones,
         getUsuarioNombre(s.creado_por),
+        ...(s.usuarios_asignados_ids ?? []).map((id) => getUsuarioNombre(id)),
         (s as { tercero?: string }).tercero,
       ];
       return parts.filter(Boolean).join(" ");
@@ -1971,6 +1990,35 @@ function SiniestrosPageContent() {
             title={!fluid && v !== "—" ? v : undefined}
           >
             {v}
+          </span>
+        );
+      },
+    },
+    {
+      id: "abogados_asignados",
+      header: "Abogado(s) asignado(s)",
+      accessorFn: (row) =>
+        (row.usuarios_asignados_ids ?? [])
+          .map((id) => getUsuarioNombre(id))
+          .filter((n) => n && n !== "-")
+          .join(", ") || "—",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const texto =
+          (row.original.usuarios_asignados_ids ?? [])
+            .map((id) => getUsuarioNombre(id))
+            .filter((n) => n && n !== "-")
+            .join(", ") || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[160px]"
+            }
+            title={texto !== "—" ? texto : undefined}
+          >
+            {texto}
           </span>
         );
       },

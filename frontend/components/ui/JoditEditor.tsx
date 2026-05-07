@@ -582,6 +582,21 @@ export default function JoditEditorComponent({
           overflow-x: auto !important;
           -webkit-overflow-scrolling: touch !important;
         }
+
+        /* Viñetas y numeración visibles (Tailwind Preflight suele quitar list-style en todo el documento). */
+        .jodit-wysiwyg ul {
+          list-style-type: disc !important;
+          padding-left: 1.75rem !important;
+          margin: 0.5rem 0 !important;
+        }
+        .jodit-wysiwyg ol {
+          list-style-type: decimal !important;
+          padding-left: 1.75rem !important;
+          margin: 0.5rem 0 !important;
+        }
+        .jodit-wysiwyg li {
+          display: list-item !important;
+        }
         
         /* Estilos para pantalla completa */
         .jodit-container.jodit_fullsize {

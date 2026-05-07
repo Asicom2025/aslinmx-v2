@@ -15,6 +15,127 @@ from app.schemas.pdf_schema import PageSize, PageOrientation
 class PDFService:
     """Servicio para generar PDFs desde HTML"""
 
+    _IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+    _HTML_ATTR_RE_TEMPLATE = r"""\b{attr}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"""
+    _CSS_SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(px|pt|cm|mm|in|%)?\s*$", re.IGNORECASE)
+
+    @staticmethod
+    def _get_html_attr(tag: str, attr: str) -> Optional[str]:
+        pattern = PDFService._HTML_ATTR_RE_TEMPLATE.format(attr=re.escape(attr))
+        match = re.search(pattern, tag, re.IGNORECASE)
+        if not match:
+            return None
+        return next((group for group in match.groups() if group is not None), "")
+
+    @staticmethod
+    def _replace_or_add_html_attr(tag: str, attr: str, value: str) -> str:
+        pattern = PDFService._HTML_ATTR_RE_TEMPLATE.format(attr=re.escape(attr))
+        replacement = f'{attr}="{value}"'
+        if re.search(pattern, tag, re.IGNORECASE):
+            return re.sub(
+                pattern,
+                lambda _match: replacement,
+                tag,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+
+        insert_at = -2 if tag.endswith("/>") else -1
+        return f"{tag[:insert_at]} {replacement}{tag[insert_at:]}"
+
+    @staticmethod
+    def _parse_inline_style(style: str) -> Dict[str, str]:
+        declarations: Dict[str, str] = {}
+        for raw_decl in (style or "").split(";"):
+            if ":" not in raw_decl:
+                continue
+            prop, value = raw_decl.split(":", 1)
+            prop = prop.strip().lower()
+            value = value.strip()
+            if prop:
+                declarations[prop] = value
+        return declarations
+
+    @staticmethod
+    def _format_inline_style(declarations: Dict[str, str]) -> str:
+        return "; ".join(
+            f"{prop}: {value}" for prop, value in declarations.items() if value
+        )
+
+    @staticmethod
+    def _normalize_css_size(value: Optional[str]) -> Optional[str]:
+        """
+        Convierte dimensiones HTML/Jodit a valores CSS que WeasyPrint respeta.
+        - width="87" => 87px
+        - width="87px" / "2cm" / "50%" se conserva con unidad.
+        """
+        if value is None:
+            return None
+        raw = str(value).strip()
+        if not raw:
+            return None
+
+        match = PDFService._CSS_SIZE_RE.match(raw)
+        if not match:
+            return None
+
+        number, unit = match.group(1), (match.group(2) or "px").lower()
+        return f"{number}{unit}"
+
+    @staticmethod
+    def _normalize_jodit_image_dimensions_for_pdf(html: str) -> str:
+        """
+        Jodit suele guardar el redimensionado como atributos HTML:
+        <img src="data:image/png;base64,..." width="87" height="56">
+
+        WeasyPrint aplica nuestro CSS global de imágenes (`height: auto`) por encima de
+        esos atributos presentacionales en varios casos. Antes de renderizar, copiamos
+        esas dimensiones a `style` inline para que el PDF respete el tamaño visto en Jodit.
+        """
+        if not html:
+            return html
+
+        def normalize_img(match: re.Match) -> str:
+            tag = match.group(0)
+            style_attr = PDFService._get_html_attr(tag, "style") or ""
+            style = PDFService._parse_inline_style(style_attr)
+
+            attr_width = PDFService._normalize_css_size(
+                PDFService._get_html_attr(tag, "width")
+            )
+            attr_height = PDFService._normalize_css_size(
+                PDFService._get_html_attr(tag, "height")
+            )
+            style_width = PDFService._normalize_css_size(style.get("width"))
+            style_height = PDFService._normalize_css_size(style.get("height"))
+
+            width = style_width or attr_width
+            height = style_height or attr_height
+
+            if not width and not height:
+                return tag
+
+            if width:
+                style["width"] = width
+                # Si la imagen fue redimensionada a px desde Jodit, evitar que otra regla
+                # global la estire de nuevo. Para porcentajes, mantenerla responsiva.
+                style["max-width"] = "100%" if width.endswith("%") else width
+            else:
+                style.setdefault("max-width", "100%")
+
+            if height:
+                style["height"] = height
+                style.setdefault("object-fit", "contain")
+            else:
+                style["height"] = "auto"
+
+            style.setdefault("display", "inline-block")
+            return PDFService._replace_or_add_html_attr(
+                tag, "style", PDFService._format_inline_style(style)
+            )
+
+        return PDFService._IMG_TAG_RE.sub(normalize_img, html)
+
     @staticmethod
     def replace_variables(html_content: str, variables: Optional[Dict[str, Any]] = None) -> str:
         """
@@ -337,6 +458,9 @@ class PDFService:
         # Reemplazar variables en el HTML
         html_with_variables = PDFService.replace_variables(html_content, variables)
         html_with_variables = PDFService._ensure_pdf_firma_class_on_signature_imgs(
+            html_with_variables
+        )
+        html_with_variables = PDFService._normalize_jodit_image_dimensions_for_pdf(
             html_with_variables
         )
 
