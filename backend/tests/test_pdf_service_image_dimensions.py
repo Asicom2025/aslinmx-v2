@@ -1,0 +1,54 @@
+import sys
+import types
+
+
+weasyprint = types.ModuleType("weasyprint")
+weasyprint.HTML = object
+weasyprint.CSS = object
+sys.modules["weasyprint"] = weasyprint
+
+weasyprint_text = types.ModuleType("weasyprint.text")
+weasyprint_fonts = types.ModuleType("weasyprint.text.fonts")
+weasyprint_fonts.FontConfiguration = object
+sys.modules["weasyprint.text"] = weasyprint_text
+sys.modules["weasyprint.text.fonts"] = weasyprint_fonts
+
+from app.services.pdf_service import PDFService
+
+
+def test_jodit_image_width_and_height_attrs_are_copied_to_inline_style():
+    html = '<p><img src="data:image/png;base64,AAAA" width="87" height="56"></p>'
+
+    result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
+
+    assert 'width="87"' in result
+    assert 'height="56"' in result
+    assert 'style="width: 87px; max-width: 87px; height: 56px;' in result
+    assert "object-fit: contain" in result
+
+
+def test_jodit_image_keeps_existing_style_and_adds_missing_height():
+    html = '<img src="x.png" style="margin: 4px; width: 80px" height="40"/>'
+
+    result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
+
+    assert "margin: 4px" in result
+    assert "width: 80px" in result
+    assert "max-width: 80px" in result
+    assert "height: 40px" in result
+
+
+def test_percent_width_stays_responsive_for_pdf_page_width():
+    html = '<img src="x.png" width="50%" height="20">'
+
+    result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
+
+    assert "width: 50%" in result
+    assert "max-width: 100%" in result
+    assert "height: 20px" in result
+
+
+def test_images_without_jodit_dimensions_are_left_untouched():
+    html = '<p><img src="x.png" alt="Sin dimensiones"></p>'
+
+    assert PDFService._normalize_jodit_image_dimensions_for_pdf(html) == html

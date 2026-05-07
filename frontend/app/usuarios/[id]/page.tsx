@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
@@ -31,6 +31,7 @@ interface User {
   rol?: { id: string; nombre: string } | null;
   areas?: { id: string; nombre: string }[] | null;
   perfil?: {
+    foto_de_perfil?: string | null;
     nombre?: string;
     apellido_paterno?: string;
     apellido_materno?: string;
@@ -70,6 +71,7 @@ export default function EditarUsuarioPage() {
   const [twoFA, setTwoFA] = useState({ enable: false, code: "", otpauth: "" });
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [savingSecurity, setSavingSecurity] = useState(false);
+  const inputFotoPerfilRef = useRef<HTMLInputElement>(null);
 
   const [form, setForm] = useState({
     email: "",
@@ -81,6 +83,7 @@ export default function EditarUsuarioPage() {
     two_factor_enabled: false,
     password: "",
     perfil: {
+      foto_de_perfil: "",
       nombre: "",
       apellido_paterno: "",
       apellido_materno: "",
@@ -195,6 +198,7 @@ export default function EditarUsuarioPage() {
         two_factor_enabled: !!data.two_factor_enabled,
         password: "",
         perfil: {
+          foto_de_perfil: data.perfil?.foto_de_perfil || "",
           nombre: data.perfil?.nombre || data.nombre || "",
           apellido_paterno: data.perfil?.apellido_paterno || data.apellido_paterno || "",
           apellido_materno: data.perfil?.apellido_materno || data.apellido_materno || "",
@@ -248,6 +252,31 @@ export default function EditarUsuarioPage() {
     }
   };
 
+  const handleFotoPerfilFile = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) {
+      swalError("Selecciona un archivo de imagen (PNG, JPG, etc.)");
+      e.target.value = "";
+      return;
+    }
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, {
+        maxEdge: 960,
+        mime: "image/jpeg",
+        quality: 0.82,
+      });
+      setForm((prev) => ({
+        ...prev,
+        perfil: { ...prev.perfil, foto_de_perfil: dataUrl },
+      }));
+    } catch {
+      swalError("No se pudo procesar la foto. Prueba con otra imagen o un archivo más pequeño.");
+    }
+    e.target.value = "";
+  };
+
   const handleFirmaFile = async (
     field: "firma" | "firma_digital",
     e: React.ChangeEvent<HTMLInputElement>,
@@ -277,6 +306,13 @@ export default function EditarUsuarioPage() {
       swalError("No se pudo procesar la imagen de firma. Prueba con otro archivo.");
     }
     e.target.value = "";
+  };
+
+  const clearFotoPerfil = () => {
+    setForm((prev) => ({
+      ...prev,
+      perfil: { ...prev.perfil, foto_de_perfil: "" },
+    }));
   };
 
   const clearFirma = (field: "firma" | "firma_digital") => {
@@ -370,6 +406,14 @@ export default function EditarUsuarioPage() {
     );
   }
 
+  const profilePreviewUser = {
+    ...user,
+    perfil: {
+      ...(user.perfil || {}),
+      ...form.perfil,
+    },
+  };
+
   return (
     <div className="container-app w-full space-y-4 py-4 sm:space-y-6 sm:py-6">
       {/* Header */}
@@ -396,14 +440,36 @@ export default function EditarUsuarioPage() {
       <div className="rounded-xl bg-degradado-primario text-white shadow">
         <div className="flex flex-col gap-4 p-4 sm:p-6 md:flex-row md:items-center md:justify-between">
           <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-            <div className="w-16 h-16 rounded-full bg-white/25 grid place-items-center text-2xl font-semibold">
-              <span>
-                {getUserInitial(user)}
-              </span>
-            </div>
+            <button
+              type="button"
+              onClick={() => puedeEditarUsuario && inputFotoPerfilRef.current?.click()}
+              className="w-16 h-16 rounded-full bg-white/25 overflow-hidden grid place-items-center text-2xl font-semibold shrink-0 transition-shadow hover:ring-2 hover:ring-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 disabled:cursor-default disabled:hover:ring-0"
+              title={puedeEditarUsuario ? "Cambiar foto de perfil" : "Foto de perfil"}
+              disabled={!puedeEditarUsuario}
+            >
+              {form.perfil.foto_de_perfil ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={form.perfil.foto_de_perfil}
+                  alt="Foto de perfil"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{getUserInitial(profilePreviewUser)}</span>
+              )}
+            </button>
+            <input
+              ref={inputFotoPerfilRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              aria-label="Seleccionar foto de perfil"
+              onChange={handleFotoPerfilFile}
+              disabled={!puedeEditarUsuario}
+            />
             <div>
               <h2 className="text-xl md:text-2xl font-bold leading-tight">
-                {getUserDisplayName(user, user.email)}
+                {getUserDisplayName(profilePreviewUser, user.email)}
               </h2>
               <p className="text-white/80 text-sm md:text-base">
                 {user.rol?.nombre || "Sin rol"} ·{" "}
@@ -573,6 +639,52 @@ export default function EditarUsuarioPage() {
               value={form.perfil.cedula_profesional}
               onChange={(e) => onChange("perfil", "cedula_profesional", e.target.value)}
             />
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Foto de perfil
+              </label>
+              <p className="text-sm text-gray-500 mb-2">
+                Se mostrará en el menú y en el perfil del usuario. Formatos: PNG, JPG.
+              </p>
+              {form.perfil.foto_de_perfil ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={form.perfil.foto_de_perfil}
+                    alt="Vista previa"
+                    className="w-20 h-20 rounded-full object-cover border border-gray-200"
+                  />
+                  {puedeEditarUsuario && (
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => inputFotoPerfilRef.current?.click()}
+                        className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Cambiar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearFotoPerfil}
+                        className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : puedeEditarUsuario ? (
+                <button
+                  type="button"
+                  onClick={() => inputFotoPerfilRef.current?.click()}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  Seleccionar imagen
+                </button>
+              ) : (
+                <p className="text-sm text-gray-400">Sin foto registrada</p>
+              )}
+            </div>
           </div>
 
           <div className="md:col-span-2 space-y-3 pt-2 border-t border-gray-100">

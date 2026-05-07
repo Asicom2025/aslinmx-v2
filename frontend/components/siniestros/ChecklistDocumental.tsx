@@ -71,7 +71,7 @@ interface RequisitoRowProps {
   siniestroId: string;
   areaId?: string;
   flujoTrabajoId?: string;
-  onUpload: (requisito: RequisitoDocumento, file: File) => Promise<void>;
+  onUpload: (requisito: RequisitoDocumento, files: File[]) => Promise<void>;
   onGenerar: (requisito: RequisitoDocumento) => void;
   onRefresh: () => void;
 }
@@ -91,11 +91,12 @@ function RequisitoRow({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const list = e.target.files;
+    const files = list ? Array.from(list) : [];
+    if (!files.length) return;
     setUploading(true);
     try {
-      await onUpload(requisito, file);
+      await onUpload(requisito, files);
       onRefresh();
     } finally {
       setUploading(false);
@@ -147,6 +148,7 @@ function RequisitoRow({
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 className="hidden"
                 onChange={handleFileChange}
                 disabled={uploading}
@@ -261,8 +263,8 @@ export default function ChecklistDocumental({
     cargar();
   }, [cargar]);
 
-  const handleUpload = async (requisito: RequisitoDocumento, file: File) => {
-    await apiService.uploadDocumento(siniestroId, file, {
+  const handleUpload = async (requisito: RequisitoDocumento, files: File[]) => {
+    await apiService.uploadDocumento(siniestroId, files, {
       area_id: areaId,
       flujo_trabajo_id: flujoTrabajoId,
       etapa_flujo_id: etapaId,

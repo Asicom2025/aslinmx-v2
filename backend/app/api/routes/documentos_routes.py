@@ -511,27 +511,23 @@ def update_documento(
     return _build_documento_response(documento, request=request)
 
 
-@router.post("/upload", response_model=DocumentoResponse, status_code=status.HTTP_201_CREATED)
-def upload_documento_archivo(
+def _upload_documento_archivo_single(
+    *,
     request: Request,
-    siniestro_id: UUID = Form(...),
-    file: UploadFile = File(...),
-    descripcion: Optional[str] = Form(None),
-    area_id: Optional[UUID] = Form(None),
-    flujo_trabajo_id: Optional[UUID] = Form(None),
-    etapa_flujo_id: Optional[UUID] = Form(None),
-    tipo_documento_id: Optional[UUID] = Form(None),
-    plantilla_documento_id: Optional[UUID] = Form(None),
-    requisito_documento_id: Optional[UUID] = Form(None, description="ID del requisito documental al que pertenece"),
-    horas_trabajadas: Optional[float] = Form(None, description="Horas para bitácora"),
-    comentarios: Optional[str] = Form(None, description="Comentario para bitácora"),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_permiso("siniestros", "subir_archivo")),
-):
-    """
-    Sube un archivo (foto, PDF, etc.) como documento del siniestro.
-    Acepta imágenes, PDF, documentos Office y texto.
-    """
+    db: Session,
+    current_user: User,
+    siniestro_id: UUID,
+    file: UploadFile,
+    descripcion: Optional[str],
+    area_id: Optional[UUID],
+    flujo_trabajo_id: Optional[UUID],
+    etapa_flujo_id: Optional[UUID],
+    tipo_documento_id: Optional[UUID],
+    plantilla_documento_id: Optional[UUID],
+    requisito_documento_id: Optional[UUID],
+    horas_trabajadas: Optional[float],
+    comentarios: Optional[str],
+) -> DocumentoResponse:
     empresa_audit = getattr(current_user, "empresa_id", None)
 
     if not file.filename or not file.filename.strip():
@@ -774,6 +770,56 @@ def upload_documento_archivo(
     )
 
     return _build_documento_response(documento, request=request)
+
+
+@router.post("/upload", response_model=List[DocumentoResponse], status_code=status.HTTP_201_CREATED)
+def upload_documento_archivo(
+    request: Request,
+    siniestro_id: UUID = Form(...),
+    files: List[UploadFile] = File(..., description="Uno o varios archivos del expediente"),
+    descripcion: Optional[str] = Form(None),
+    area_id: Optional[UUID] = Form(None),
+    flujo_trabajo_id: Optional[UUID] = Form(None),
+    etapa_flujo_id: Optional[UUID] = Form(None),
+    tipo_documento_id: Optional[UUID] = Form(None),
+    plantilla_documento_id: Optional[UUID] = Form(None),
+    requisito_documento_id: Optional[UUID] = Form(None, description="ID del requisito documental al que pertenece"),
+    horas_trabajadas: Optional[float] = Form(None, description="Horas para bitácora"),
+    comentarios: Optional[str] = Form(None, description="Comentario para bitácora"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("siniestros", "subir_archivo")),
+):
+    """
+    Sube uno o más archivos (foto, PDF, etc.) como documentos del siniestro.
+    Acepta imágenes, PDF, documentos Office y texto.
+    Horas y comentarios de bitácora se aplican solo al último archivo del lote.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="No se proporcionaron archivos")
+    n = len(files)
+    out: List[DocumentoResponse] = []
+    for idx, uf in enumerate(files):
+        horas_eff = horas_trabajadas if idx == n - 1 else None
+        com_eff = comentarios if idx == n - 1 else None
+        out.append(
+            _upload_documento_archivo_single(
+                request=request,
+                db=db,
+                current_user=current_user,
+                siniestro_id=siniestro_id,
+                file=uf,
+                descripcion=descripcion,
+                area_id=area_id,
+                flujo_trabajo_id=flujo_trabajo_id,
+                etapa_flujo_id=etapa_flujo_id,
+                tipo_documento_id=tipo_documento_id,
+                plantilla_documento_id=plantilla_documento_id,
+                requisito_documento_id=requisito_documento_id,
+                horas_trabajadas=horas_eff,
+                comentarios=com_eff,
+            )
+        )
+    return out
 
 
 @router.delete("/{documento_id}", status_code=status.HTTP_204_NO_CONTENT)

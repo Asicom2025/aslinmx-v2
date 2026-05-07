@@ -2,7 +2,8 @@
 Rutas API para gestión de siniestros
 """
 import logging
-from typing import List, Optional
+from collections import defaultdict
+from typing import Dict, List, Optional, Set, Tuple
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -25,10 +26,39 @@ from app.services.siniestro_acceso_service import (
     usuario_puede_editar_siniestro,
     usuario_puede_eliminar_siniestro,
 )
+from app.models.legal import SiniestroUsuario
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/siniestros", tags=["Siniestros"])
+
+
+def _usuarios_asignados_por_siniestro(db: Session, siniestro_ids: List[UUID]) -> Dict[UUID, List[UUID]]:
+    """Abogados asignados activos por siniestro_id (principal primero, luego por fecha)."""
+    if not siniestro_ids:
+        return {}
+    rows = (
+        db.query(SiniestroUsuario)
+        .filter(
+            SiniestroUsuario.siniestro_id.in_(siniestro_ids),
+            SiniestroUsuario.activo.is_(True),
+            SiniestroUsuario.eliminado.is_(False),
+        )
+        .order_by(
+            SiniestroUsuario.es_principal.desc(),
+            SiniestroUsuario.creado_en.asc(),
+        )
+        .all()
+    )
+    m: Dict[UUID, List[UUID]] = defaultdict(list)
+    seen: Set[Tuple[UUID, UUID]] = set()
+    for r in rows:
+        key = (r.siniestro_id, r.usuario_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        m[r.siniestro_id].append(r.usuario_id)
+    return dict(m)
 
 
 # ===== SINIESTROS =====
@@ -69,7 +99,7 @@ def list_siniestros(
     Lista todos los siniestros con filtros opcionales.
     Búsqueda: busqueda_id (formato 102-001-25), numero_siniestro, numero_reporte, tercero, anio, asegurado_nombre.
     """
-    return SiniestroService.list(
+    rows = SiniestroService.list(
         db=db,
         empresa_id=current_user.empresa_id,
         activo=activo,
@@ -93,6 +123,15 @@ def list_siniestros(
         limit=limit,
         current_user=current_user,
     )
+    if not rows:
+        return []
+    asignados_map = _usuarios_asignados_por_siniestro(db, [r.id for r in rows])
+    out: List[SiniestroResponse] = []
+    for s in rows:
+        dumped = SiniestroResponse.model_validate(s).model_dump()
+        dumped["usuarios_asignados_ids"] = asignados_map.get(s.id, [])
+        out.append(SiniestroResponse(**dumped))
+    return out
 
 
 @router.get("/{siniestro_id}", response_model=SiniestroResponse)
@@ -110,14 +149,14 @@ def get_siniestro(
     siniestro = SiniestroService.get_by_id(db, siniestro_id, current_user.empresa_id)
     if not siniestro:
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
-    setattr(
-        siniestro,
-        "puede_editar_expediente",
-        usuario_puede_editar_siniestro(
-            db, current_user, current_user.empresa_id, siniestro_id
-        ),
+    puede_editar = usuario_puede_editar_siniestro(
+        db, current_user, current_user.empresa_id, siniestro_id
     )
-    return siniestro
+    ids_map = _usuarios_asignados_por_siniestro(db, [siniestro.id])
+    dumped = SiniestroResponse.model_validate(siniestro).model_dump()
+    dumped["puede_editar_expediente"] = puede_editar
+    dumped["usuarios_asignados_ids"] = ids_map.get(siniestro.id, [])
+    return SiniestroResponse(**dumped)
 
 
 @router.post("", response_model=SiniestroResponse, status_code=status.HTTP_201_CREATED)

@@ -198,7 +198,7 @@ export default function DashboardPage() {
     "Nuevo León": "mx-nl",
     "Oaxaca": "mx-oa",
     "Puebla": "mx-pu",
-    "Querétaro": "mx-qe",
+    "Querétaro": "mx-qt",
     "Quintana Roo": "mx-qr",
     "San Luis Potosí": "mx-sl",
     "Sinaloa": "mx-si",
@@ -621,7 +621,6 @@ export default function DashboardPage() {
           value: cantidad,
           events: {
             click: () => {
-              if (!cantidad) return;
               openFiltroPorNombreEstadoStats(nombreEstado);
             },
           },
@@ -736,7 +735,6 @@ export default function DashboardPage() {
         value: cantidad,
         events: {
           click: () => {
-            if (!cantidad) return;
             openFiltroPorNombreEstadoStats(nombreCanonico || nombreEstado);
           },
         },

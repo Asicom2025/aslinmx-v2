@@ -68,6 +68,8 @@ export interface Siniestro {
   eliminado_en?: string;
   /** GET detalle: si el usuario puede mutar expediente (API; false = solo lectura). */
   puede_editar_expediente?: boolean | null;
+  /** IDs de abogados asignados activos (listado y detalle). */
+  usuarios_asignados_ids?: string[];
 }
 
 export interface SiniestroCreate {
