@@ -119,7 +119,7 @@ class PDFService:
                 style["width"] = width
                 # Si la imagen fue redimensionada a px desde Jodit, evitar que otra regla
                 # global la estire de nuevo. Para porcentajes, mantenerla responsiva.
-                style["max-width"] = "100%" if width.endswith("%") else width
+                style.setdefault("max-width", "100%" if width.endswith("%") else width)
             else:
                 style.setdefault("max-width", "100%")
 

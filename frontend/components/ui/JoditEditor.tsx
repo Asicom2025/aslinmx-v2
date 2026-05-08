@@ -23,6 +23,88 @@ type JoditEditorProps = {
   height?: number;
 };
 
+const CSS_SIZE_RE = /^\s*(\d+(?:\.\d+)?)\s*(px|pt|cm|mm|in|%)?\s*$/i;
+
+function parseInlineStyle(style: string): Map<string, string> {
+  const declarations = new Map<string, string>();
+
+  for (const rawDeclaration of (style || "").split(";")) {
+    if (!rawDeclaration.includes(":")) continue;
+
+    const [rawProperty, ...rawValueParts] = rawDeclaration.split(":");
+    const property = rawProperty.trim().toLowerCase();
+    const value = rawValueParts.join(":").trim();
+
+    if (property && value) {
+      declarations.set(property, value);
+    }
+  }
+
+  return declarations;
+}
+
+function formatInlineStyle(declarations: Map<string, string>): string {
+  return Array.from(declarations.entries())
+    .filter(([, value]) => Boolean(value))
+    .map(([property, value]) => `${property}: ${value}`)
+    .join("; ");
+}
+
+function normalizeCssSize(value: string | null): string | null {
+  if (!value) return null;
+
+  const match = CSS_SIZE_RE.exec(value);
+  if (!match) return null;
+
+  const [, number, unit = "px"] = match;
+  return `${number}${unit.toLowerCase()}`;
+}
+
+function normalizeImageStylesForEditorHtml(html: string): string {
+  if (!html || typeof document === "undefined") {
+    return html;
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = html;
+
+  template.content.querySelectorAll("img").forEach((image) => {
+    const style = parseInlineStyle(image.getAttribute("style") || "");
+    const width = normalizeCssSize(style.get("width") || null) || normalizeCssSize(image.getAttribute("width"));
+    const height = normalizeCssSize(style.get("height") || null) || normalizeCssSize(image.getAttribute("height"));
+
+    if (!width && !height && style.has("max-width")) {
+      return;
+    }
+
+    if (width) {
+      style.set("width", width);
+      if (!style.has("max-width")) {
+        style.set("max-width", width.endsWith("%") ? "100%" : width);
+      }
+    } else if (!style.has("max-width")) {
+      style.set("max-width", "100%");
+    }
+
+    if (height) {
+      style.set("height", height);
+      if (!style.has("object-fit")) {
+        style.set("object-fit", "contain");
+      }
+    } else if (!style.has("height")) {
+      style.set("height", "auto");
+    }
+
+    if (!style.has("display")) {
+      style.set("display", "inline-block");
+    }
+
+    image.setAttribute("style", formatInlineStyle(style));
+  });
+
+  return template.innerHTML;
+}
+
 export default function JoditEditorComponent({
   label,
   value,
@@ -698,10 +780,11 @@ export default function JoditEditorComponent({
             {...({ value: normalizedValue } as any)}
             config={config}
             onBlur={(newContent: string) => {
+              const normalizedContent = normalizeImageStylesForEditorHtml(newContent);
               // Al perder el foco, actualizar el valor externo UNA sola vez
-              contentRef.current = newContent;
-              if (newContent !== normalizedValue) {
-                onChange(newContent);
+              contentRef.current = normalizedContent;
+              if (normalizedContent !== normalizedValue) {
+                onChange(normalizedContent);
               }
             }}
             onChange={(newContent: string) => {

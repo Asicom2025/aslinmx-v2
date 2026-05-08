@@ -38,6 +38,16 @@ def test_jodit_image_keeps_existing_style_and_adds_missing_height():
     assert "height: 40px" in result
 
 
+def test_jodit_image_keeps_existing_max_width_style():
+    html = '<img src="x.png" style="width: 80px; max-width: 100%" height="40"/>'
+
+    result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
+
+    assert "width: 80px" in result
+    assert "max-width: 100%" in result
+    assert "height: 40px" in result
+
+
 def test_percent_width_stays_responsive_for_pdf_page_width():
     html = '<img src="x.png" width="50%" height="20">'
 
