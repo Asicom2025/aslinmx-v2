@@ -73,17 +73,10 @@ function normalizeImageStylesForEditorHtml(html: string): string {
     const width = normalizeCssSize(style.get("width") || null) || normalizeCssSize(image.getAttribute("width"));
     const height = normalizeCssSize(style.get("height") || null) || normalizeCssSize(image.getAttribute("height"));
 
-    if (!width && !height && style.has("max-width")) {
-      return;
-    }
+    style.delete("max-width");
 
     if (width) {
       style.set("width", width);
-      if (!style.has("max-width")) {
-        style.set("max-width", width.endsWith("%") ? "100%" : width);
-      }
-    } else if (!style.has("max-width")) {
-      style.set("max-width", "100%");
     }
 
     if (height) {
@@ -319,7 +312,7 @@ export default function JoditEditorComponent({
       defaultHandlerSuccess: (data: any) => {
         if (data.files && data.files.length) {
           data.files.forEach((filename: string) => {
-            const tag = `<img style="max-width:100%" src="${data.baseurl}${filename}" alt="${filename}"/>`;
+            const tag = `<img src="${data.baseurl}${filename}" alt="${filename}"/>`;
             // El editor insertará la imagen automáticamente
           });
         }
