@@ -79,14 +79,17 @@ function normalizeImageStylesForEditorHtml(html: string): string {
     if (width) {
       style.set("width", width);
       style.set("height", "auto");
-      image.removeAttribute("height");
     } else if (height) {
       style.set("width", "auto");
       style.set("height", height);
-      image.removeAttribute("width");
     } else {
       style.set("height", "auto");
     }
+
+    // Jodit suele reinsertar width/height como atributos HTML. Si los dejamos
+    // junto al style, el editor queda con dos fuentes de verdad para redimensionar.
+    image.removeAttribute("width");
+    image.removeAttribute("height");
 
     if (!style.has("display")) {
       style.set("display", "inline-block");

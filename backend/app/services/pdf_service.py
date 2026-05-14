@@ -44,6 +44,11 @@ class PDFService:
         return f"{tag[:insert_at]} {replacement}{tag[insert_at:]}"
 
     @staticmethod
+    def _remove_html_attr(tag: str, attr: str) -> str:
+        pattern = PDFService._HTML_ATTR_RE_TEMPLATE.format(attr=re.escape(attr))
+        return re.sub(pattern, "", tag, count=1, flags=re.IGNORECASE)
+
+    @staticmethod
     def _parse_inline_style(style: str) -> Dict[str, str]:
         declarations: Dict[str, str] = {}
         for raw_decl in (style or "").split(";"):
@@ -127,6 +132,8 @@ class PDFService:
                 style["height"] = height
 
             style.setdefault("display", "inline-block")
+            tag = PDFService._remove_html_attr(tag, "width")
+            tag = PDFService._remove_html_attr(tag, "height")
             return PDFService._replace_or_add_html_attr(
                 tag, "style", PDFService._format_inline_style(style)
             )
