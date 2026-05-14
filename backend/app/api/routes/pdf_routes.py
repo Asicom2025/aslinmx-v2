@@ -722,7 +722,7 @@ def _variables_plantilla_alineadas_frontend(
                 firma_html = (
                     '<img src="'
                     + src.replace('"', "&quot;")
-                    + '" alt="Firma" class="pdf-firma" style="width:60px;max-width:60px;height:auto;"/>'
+                    + '" alt="Firma" class="pdf-firma" style="width:60px;height:auto;"/>'
                 )
     except Exception:
         firma_html = "---"

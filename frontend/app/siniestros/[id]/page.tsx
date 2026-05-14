@@ -601,7 +601,7 @@ export default function SiniestroDetailPage() {
       }
     }
     return firmaSrc
-      ? `<img src="${firmaSrc.replace(/"/g, "&quot;")}" alt="Firma" class="pdf-firma" style="width:60px;max-width:60px;height:auto;"/>`
+      ? `<img src="${firmaSrc.replace(/"/g, "&quot;")}" alt="Firma" class="pdf-firma" style="width:60px;height:auto;"/>`
       : "---";
   };
 

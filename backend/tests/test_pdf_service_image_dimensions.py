@@ -23,7 +23,8 @@ def test_jodit_image_width_and_height_attrs_are_copied_to_inline_style():
 
     assert 'width="87"' in result
     assert 'height="56"' in result
-    assert 'style="width: 87px; max-width: 87px; height: 56px;' in result
+    assert 'style="width: 87px; height: 56px;' in result
+    assert "max-width" not in result
     assert "object-fit: contain" in result
 
 
@@ -34,17 +35,17 @@ def test_jodit_image_keeps_existing_style_and_adds_missing_height():
 
     assert "margin: 4px" in result
     assert "width: 80px" in result
-    assert "max-width: 80px" in result
+    assert "max-width" not in result
     assert "height: 40px" in result
 
 
-def test_jodit_image_keeps_existing_max_width_style():
+def test_jodit_image_removes_existing_max_width_style():
     html = '<img src="x.png" style="width: 80px; max-width: 100%" height="40"/>'
 
     result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
 
     assert "width: 80px" in result
-    assert "max-width: 100%" in result
+    assert "max-width" not in result
     assert "height: 40px" in result
 
 
@@ -54,7 +55,7 @@ def test_percent_width_stays_responsive_for_pdf_page_width():
     result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
 
     assert "width: 50%" in result
-    assert "max-width: 100%" in result
+    assert "max-width" not in result
     assert "height: 20px" in result
 
 

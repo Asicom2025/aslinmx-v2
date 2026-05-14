@@ -117,11 +117,7 @@ class PDFService:
 
             if width:
                 style["width"] = width
-                # Si la imagen fue redimensionada a px desde Jodit, evitar que otra regla
-                # global la estire de nuevo. Para porcentajes, mantenerla responsiva.
-                style.setdefault("max-width", "100%" if width.endswith("%") else width)
-            else:
-                style.setdefault("max-width", "100%")
+            style.pop("max-width", None)
 
             if height:
                 style["height"] = height
@@ -301,14 +297,10 @@ class PDFService:
             max-width: 100%;
             height: auto;
         }}
-        /* Firma: placeholders (class pdf-firma) o imágenes pegadas desde Word/Jodit (alt Firma, attrs width) —
-           WeasyPrint puede no respetar solo width/height del HTML y escalar con max-width:100% del img global. */
+        /* Firma: placeholders (class pdf-firma) o imágenes pegadas desde Word/Jodit (alt Firma, attrs width). */
         img[alt="Firma"],
         img[alt="firma"],
         img.pdf-firma {{
-            width: 60px !important;
-            max-width: 60px !important;
-            height: auto !important;
             display: inline-block;
         }}
         
