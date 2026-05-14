@@ -21,8 +21,8 @@ def test_jodit_image_width_prefers_auto_height_to_keep_ratio():
 
     result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
 
-    assert 'width="87"' in result
-    assert 'height="56"' in result
+    assert 'width="87"' not in result
+    assert 'height="56"' not in result
     assert 'style="width: 87px; height: auto;' in result
     assert "max-width" not in result
     assert "object-fit" not in result
@@ -45,6 +45,7 @@ def test_jodit_image_removes_existing_max_width_style():
     result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
 
     assert "width: 80px" in result
+    assert 'height="40"' not in result
     assert "max-width" not in result
     assert "height: auto" in result
 
@@ -55,6 +56,8 @@ def test_percent_width_stays_responsive_for_pdf_page_width():
     result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
 
     assert "width: 50%" in result
+    assert 'width="50%"' not in result
+    assert 'height="20"' not in result
     assert "max-width" not in result
     assert "height: auto" in result
 
