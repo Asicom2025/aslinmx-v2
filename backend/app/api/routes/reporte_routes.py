@@ -80,7 +80,7 @@ async def listar_reportes_disponibles(
             descripcion="Exporta siniestros aplicando filtros de negocio",
             columnas_disponibles=[
                 # Columnas básicas
-                "id", "numero_siniestro", "fecha_siniestro", "fecha_registro", "fecha_reporte", "fecha_asignacion", "ubicacion",
+                "id", "id_normalizado", "numero_siniestro", "fecha_siniestro", "fecha_registro", "fecha_reporte", "fecha_asignacion", "ubicacion",
                 "numero_poliza", "deducible", "reserva", "coaseguro", "suma_asegurada",
                 "polizas_numeros", "polizas_cantidad",
                 "prioridad", "forma_contacto", "observaciones", "codigo", "numero_reporte",
@@ -151,7 +151,8 @@ async def generar_reporte(
             archivo_bytes = ReporteService.generar_reporte_excel(
                 datos=datos,
                 nombre_hoja=request.modulo.title(),
-                titulo=f"Reporte de {request.modulo.title()}"
+                titulo=f"Reporte de {request.modulo.title()}",
+                columnas=request.columnas,
             )
             nombre_archivo += ".xlsx"
             archivo_base64 = base64.b64encode(archivo_bytes).decode('utf-8')
@@ -212,7 +213,8 @@ async def descargar_reporte(
             archivo_bytes = ReporteService.generar_reporte_excel(
                 datos=datos,
                 nombre_hoja=request.modulo.title(),
-                titulo=f"Reporte de {request.modulo.title()}"
+                titulo=f"Reporte de {request.modulo.title()}",
+                columnas=request.columnas,
             )
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             nombre_archivo += ".xlsx"

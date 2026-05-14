@@ -16,6 +16,7 @@ from app.models.legal import (
 from app.models.geo_models import GeoEstado, GeoMunicipio
 from app.services.export_service import ExportService
 from app.services.pdf_service import PDFService
+from app.services.storage_service import format_siniestro_id_legible
 from app.services.legal_service import es_estado_cancelacion_por_nombre
 
 
@@ -386,6 +387,28 @@ class ReporteService:
 
         # Agregar datos relacionados según el módulo
         if modulo == "siniestros" and isinstance(registro, Siniestro):
+            if columnas is None or any(col in (columnas or []) for col in ("id_normalizado", "id_formato")):
+                codigo_proveniente = ""
+                if registro.proveniente_id:
+                    proveniente = (
+                        db.query(Proveniente)
+                        .filter(Proveniente.id == registro.proveniente_id)
+                        .first()
+                    )
+                    if proveniente:
+                        codigo_proveniente = (proveniente.codigo or "").strip()
+                id_normalizado = format_siniestro_id_legible(
+                    codigo_proveniente,
+                    (registro.codigo or "").strip(),
+                    anualidad_column=getattr(registro, "anualidad", None),
+                    fecha_registro=getattr(registro, "fecha_registro", None),
+                    fecha_siniestro=getattr(registro, "fecha_siniestro", None),
+                )
+                if columnas is None or "id_normalizado" in (columnas or []):
+                    resultado["id_normalizado"] = id_normalizado
+                if "id_formato" in (columnas or []):
+                    resultado["id_formato"] = id_normalizado
+
             polizas = sorted(
                 list(getattr(registro, "polizas", []) or []),
                 key=lambda poliza: (
@@ -600,10 +623,11 @@ class ReporteService:
     def generar_reporte_excel(
         datos: List[Dict[str, Any]],
         nombre_hoja: str = "Reporte",
-        titulo: Optional[str] = None
+        titulo: Optional[str] = None,
+        columnas: Optional[List[str]] = None,
     ) -> bytes:
         """Genera un archivo Excel con los datos"""
-        return ExportService.export_to_excel(datos, nombre_hoja, titulo)
+        return ExportService.export_to_excel(datos, nombre_hoja, titulo, columnas=columnas)
 
     @staticmethod
     def generar_reporte_csv(

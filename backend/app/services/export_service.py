@@ -47,6 +47,14 @@ class ExportService:
         return html.unescape(str(value))
 
     @staticmethod
+    def _label_for_export_header(header: Any) -> str:
+        """Etiqueta visible para encabezados de exportación."""
+        header_key = str(header)
+        if header_key in {"id_normalizado", "id_formato"}:
+            return "ID normalizado"
+        return header_key.replace('_', ' ').title()
+
+    @staticmethod
     def export_to_excel(
         datos: List[Dict[str, Any]],
         nombre_hoja: str = "Datos",
@@ -107,7 +115,7 @@ class ExportService:
         # Encabezados
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=row_num, column=col_num)
-            cell.value = str(header).replace('_', ' ').title()
+            cell.value = ExportService._label_for_export_header(header)
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)

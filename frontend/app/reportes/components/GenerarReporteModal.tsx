@@ -621,7 +621,7 @@ export default function GenerarReporteModal({
                     columnasAgrupadas["Instituciones"].push(col);
                   } else if (col.includes("area")) {
                     columnasAgrupadas["Áreas"].push(col);
-                  } else if (["id", "numero_siniestro", "fecha_siniestro", "fecha_registro", "prioridad", "activo", "creado_en", "actualizado_en"].includes(col)) {
+                  } else if (["id", "id_normalizado", "id_formato", "numero_siniestro", "fecha_siniestro", "fecha_registro", "fecha_reporte", "fecha_asignacion", "ubicacion", "prioridad", "activo", "creado_en", "actualizado_en"].includes(col)) {
                     columnasAgrupadas["Básicas"].push(col);
                   } else {
                     columnasAgrupadas["Otros"].push(col);
@@ -655,7 +655,9 @@ export default function GenerarReporteModal({
                                 <FiSquare className="w-4 h-4 text-gray-400" />
                               )}
                               <span className="text-sm text-gray-700">
-                                {columna.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                                {columna === "id_normalizado" || columna === "id_formato"
+                                  ? "ID normalizado"
+                                  : columna.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
                               </span>
                             </label>
                           );
