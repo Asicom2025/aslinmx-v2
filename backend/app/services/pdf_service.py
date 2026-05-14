@@ -90,7 +90,8 @@ class PDFService:
 
         WeasyPrint aplica nuestro CSS global de imágenes (`height: auto`) por encima de
         esos atributos presentacionales en varios casos. Antes de renderizar, copiamos
-        esas dimensiones a `style` inline para que el PDF respete el tamaño visto en Jodit.
+        la dimensión editada a `style` inline y dejamos la otra en `auto`, para respetar
+        la proporción natural de la imagen.
         """
         if not html:
             return html
@@ -115,15 +116,15 @@ class PDFService:
             if not width and not height:
                 return tag
 
+            style.pop("max-width", None)
+            style.pop("object-fit", None)
+
             if width:
                 style["width"] = width
-            style.pop("max-width", None)
-
-            if height:
-                style["height"] = height
-                style.setdefault("object-fit", "contain")
-            else:
                 style["height"] = "auto"
+            elif height:
+                style["width"] = "auto"
+                style["height"] = height
 
             style.setdefault("display", "inline-block")
             return PDFService._replace_or_add_html_attr(

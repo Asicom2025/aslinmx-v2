@@ -16,19 +16,19 @@ sys.modules["weasyprint.text.fonts"] = weasyprint_fonts
 from app.services.pdf_service import PDFService
 
 
-def test_jodit_image_width_and_height_attrs_are_copied_to_inline_style():
+def test_jodit_image_width_prefers_auto_height_to_keep_ratio():
     html = '<p><img src="data:image/png;base64,AAAA" width="87" height="56"></p>'
 
     result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
 
     assert 'width="87"' in result
     assert 'height="56"' in result
-    assert 'style="width: 87px; height: 56px;' in result
+    assert 'style="width: 87px; height: auto;' in result
     assert "max-width" not in result
-    assert "object-fit: contain" in result
+    assert "object-fit" not in result
 
 
-def test_jodit_image_keeps_existing_style_and_adds_missing_height():
+def test_jodit_image_keeps_existing_width_and_uses_auto_height():
     html = '<img src="x.png" style="margin: 4px; width: 80px" height="40"/>'
 
     result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
@@ -36,7 +36,7 @@ def test_jodit_image_keeps_existing_style_and_adds_missing_height():
     assert "margin: 4px" in result
     assert "width: 80px" in result
     assert "max-width" not in result
-    assert "height: 40px" in result
+    assert "height: auto" in result
 
 
 def test_jodit_image_removes_existing_max_width_style():
@@ -46,7 +46,7 @@ def test_jodit_image_removes_existing_max_width_style():
 
     assert "width: 80px" in result
     assert "max-width" not in result
-    assert "height: 40px" in result
+    assert "height: auto" in result
 
 
 def test_percent_width_stays_responsive_for_pdf_page_width():
@@ -56,7 +56,16 @@ def test_percent_width_stays_responsive_for_pdf_page_width():
 
     assert "width: 50%" in result
     assert "max-width" not in result
-    assert "height: 20px" in result
+    assert "height: auto" in result
+
+
+def test_height_only_image_keeps_height_and_auto_width():
+    html = '<img src="x.png" height="40">'
+
+    result = PDFService._normalize_jodit_image_dimensions_for_pdf(html)
+
+    assert "width: auto" in result
+    assert "height: 40px" in result
 
 
 def test_images_without_jodit_dimensions_are_left_untouched():

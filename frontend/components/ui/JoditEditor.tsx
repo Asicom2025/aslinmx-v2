@@ -74,17 +74,17 @@ function normalizeImageStylesForEditorHtml(html: string): string {
     const height = normalizeCssSize(style.get("height") || null) || normalizeCssSize(image.getAttribute("height"));
 
     style.delete("max-width");
+    style.delete("object-fit");
 
     if (width) {
       style.set("width", width);
-    }
-
-    if (height) {
+      style.set("height", "auto");
+      image.removeAttribute("height");
+    } else if (height) {
+      style.set("width", "auto");
       style.set("height", height);
-      if (!style.has("object-fit")) {
-        style.set("object-fit", "contain");
-      }
-    } else if (!style.has("height")) {
+      image.removeAttribute("width");
+    } else {
       style.set("height", "auto");
     }
 
@@ -377,7 +377,6 @@ export default function JoditEditorComponent({
       useImageEditor: true,
       defaultSize: {
         width: 300,
-        height: 300,
       },
     },
     
