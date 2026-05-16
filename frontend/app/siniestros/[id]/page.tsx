@@ -544,6 +544,37 @@ export default function SiniestroDetailPage() {
     [descripcionSeleccionada?.descripcion_html, siniestro?.descripcion_hechos],
   );
 
+  const fechaSoloDiaParaInput = (fecha?: string | Date | null): string => {
+    if (!fecha) return "";
+    if (fecha instanceof Date) {
+      if (Number.isNaN(fecha.getTime())) return "";
+      const year = fecha.getFullYear();
+      const month = String(fecha.getMonth() + 1).padStart(2, "0");
+      const day = String(fecha.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+    const raw = String(fecha).trim();
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.getTime())) return "";
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const formatearFechaSoloDia = (fecha?: string | Date | null): string => {
+    const inputValue = fechaSoloDiaParaInput(fecha);
+    if (!inputValue) return "";
+    const [year, month, day] = inputValue.split("-").map(Number);
+    return new Date(year, month - 1, day).toLocaleDateString("es-MX", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  };
+
   // Autenticación
   useEffect(() => {
     if (userLoading) return;
@@ -1652,9 +1683,7 @@ export default function SiniestroDetailPage() {
 
     const reporteSrc =
       (siniestro as any).fecha_reporte || siniestro.fecha_registro;
-    const fechaReporte = reporteSrc
-      ? new Date(reporteSrc).toISOString().split("T")[0]
-      : "";
+    const fechaReporte = fechaSoloDiaParaInput(reporteSrc);
 
     const areaPrincipalId = (siniestro as any)?.area_principal_id;
     const relacionPrincipal =
@@ -1664,22 +1693,17 @@ export default function SiniestroDetailPage() {
           )
         : areasAdicionales[0];
 
-    const fechaAsignacionRel =
-      relacionPrincipal?.fecha_asignacion
-        ? String(relacionPrincipal.fecha_asignacion).includes("T")
-          ? String(relacionPrincipal.fecha_asignacion).split("T")[0]
-          : String(relacionPrincipal.fecha_asignacion).slice(0, 10)
-        : "";
-    const fechaAsignacionSin = (siniestro as any).fecha_asignacion
-      ? String((siniestro as any).fecha_asignacion).includes("T")
-        ? String((siniestro as any).fecha_asignacion).split("T")[0]
-        : String((siniestro as any).fecha_asignacion).slice(0, 10)
-      : "";
+    const fechaAsignacionRel = fechaSoloDiaParaInput(
+      relacionPrincipal?.fecha_asignacion,
+    );
+    const fechaAsignacionSin = fechaSoloDiaParaInput(
+      (siniestro as any).fecha_asignacion,
+    );
     const fechaAsignacion = fechaAsignacionSin || fechaAsignacionRel;
 
-    const fechaSiniestroStr = (siniestro as any).fecha_siniestro
-      ? new Date((siniestro as any).fecha_siniestro).toISOString().split("T")[0]
-      : "";
+    const fechaSiniestroStr = fechaSoloDiaParaInput(
+      (siniestro as any).fecha_siniestro,
+    );
 
     setEditForm({
       numero_siniestro: siniestro.numero_siniestro || "",
@@ -4676,7 +4700,9 @@ export default function SiniestroDetailPage() {
                           )
                         : areasAdicionales[0];
 
-                      const fechaAsignacion = relacionPrincipal?.fecha_asignacion;
+                      const fechaAsignacion =
+                        (siniestro as any)?.fecha_asignacion ||
+                        relacionPrincipal?.fecha_asignacion;
                       if (!fechaAsignacion) return null;
 
                       return (
@@ -4684,27 +4710,16 @@ export default function SiniestroDetailPage() {
                           <span className="font-medium">
                             Fecha Asignacion:
                           </span>{" "}
-                          {new Date(fechaAsignacion).toLocaleDateString(
-                            "es-MX",
-                            {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                            },
-                          )}
+                          {formatearFechaSoloDia(fechaAsignacion)}
                         </p>
                       );
                     })()}
-                    {siniestro.fecha_registro && (
+                    {((siniestro as any).fecha_reporte || siniestro.fecha_registro) && (
                       <p className="text-sm text-gray-600">
                         <span className="font-medium">Fecha Reporte:</span>{" "}
-                        {new Date(siniestro.fecha_registro).toLocaleDateString(
-                          "es-MX",
-                          {
-                            year: "numeric",
-                            month: "long",
-                            day: "numeric",
-                          },
+                        {formatearFechaSoloDia(
+                          (siniestro as any).fecha_reporte ||
+                            siniestro.fecha_registro,
                         )}
                       </p>
                     )}
