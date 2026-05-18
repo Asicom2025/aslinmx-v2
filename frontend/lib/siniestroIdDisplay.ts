@@ -4,6 +4,8 @@
  * columna anualidad (año calendario) si existe; si no, fecha_registro → fecha_siniestro.
  */
 
+import { dateOnlyYear } from "./formatUtils";
+
 export function formatSiniestroConsecutivo(
   value: string | number | null | undefined,
 ): string {
@@ -21,9 +23,9 @@ export function anualidadDosDigitosFromFechas(
 ): string | null {
   const raw = fechaRegistro || fechaSiniestro;
   if (!raw) return null;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return null;
-  return String(d.getFullYear() % 100).padStart(2, "0");
+  const year = dateOnlyYear(raw);
+  if (year == null) return null;
+  return String(year % 100).padStart(2, "0");
 }
 
 /** Año calendario del API (columna anualidad) → dos dígitos; misma regla que backend. */

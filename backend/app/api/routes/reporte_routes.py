@@ -84,6 +84,7 @@ async def listar_reportes_disponibles(
                 "numero_poliza", "deducible", "reserva", "coaseguro", "suma_asegurada",
                 "polizas_numeros", "polizas_cantidad",
                 "prioridad", "forma_contacto", "observaciones", "codigo", "numero_reporte",
+                "tipo_intervencion", "tercero", "nicho", "materia", "expediente",
                 "activo", "eliminado", "creado_en", "actualizado_en",
                 # Asegurado
                 "asegurado_id", "asegurado_nombre", "asegurado_apellido_paterno", 

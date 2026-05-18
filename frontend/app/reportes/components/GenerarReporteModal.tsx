@@ -607,6 +607,7 @@ export default function GenerarReporteModal({
                   "Usuarios": [],
                   "Instituciones": [],
                   "Áreas": [],
+                  "Datos específicos": [],
                   "Otros": [],
                 };
 
@@ -621,6 +622,8 @@ export default function GenerarReporteModal({
                     columnasAgrupadas["Instituciones"].push(col);
                   } else if (col.includes("area")) {
                     columnasAgrupadas["Áreas"].push(col);
+                  } else if (["tipo_intervencion", "tercero", "nicho", "materia", "expediente"].includes(col)) {
+                    columnasAgrupadas["Datos específicos"].push(col);
                   } else if (["id", "id_normalizado", "id_formato", "numero_siniestro", "fecha_siniestro", "fecha_registro", "fecha_reporte", "fecha_asignacion", "ubicacion", "prioridad", "activo", "creado_en", "actualizado_en"].includes(col)) {
                     columnasAgrupadas["Básicas"].push(col);
                   } else {
