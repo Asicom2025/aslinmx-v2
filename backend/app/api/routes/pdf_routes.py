@@ -261,6 +261,7 @@ def _merge_aliases_plantilla_estandar(
     """
     Alias y claves adicionales usadas en plantillas / informes / PDF:
     {{ID}}, {{numero_de_reporte}}, {{numero_de_siniestro}}, {{calificacion}},
+    {{tipo_intervencion}}, {{tercero}}, {{nicho}}, {{materia}}, {{expediente}},
     {{poliza_principal_numero}} (refuerzo si faltara).
     """
     if not siniestro:
@@ -273,6 +274,11 @@ def _merge_aliases_plantilla_estandar(
     out["calificacion"] = _nombre_calificacion_siniestro(
         db, empresa_id, getattr(siniestro, "calificacion_id", None)
     )
+    out["tipo_intervencion"] = str(getattr(siniestro, "tipo_intervencion", None) or "").strip()
+    out["tercero"] = str(getattr(siniestro, "tercero", None) or "").strip()
+    out["nicho"] = str(getattr(siniestro, "nicho", None) or "").strip()
+    out["materia"] = str(getattr(siniestro, "materia", None) or "").strip()
+    out["expediente"] = str(getattr(siniestro, "expediente", None) or "").strip()
     pp = _get_poliza_principal(siniestro)
     np = (getattr(pp, "numero_poliza", None) or "").strip() if pp else ""
     if np:
@@ -286,7 +292,8 @@ def _informe_variables_catalogo_extendido(
 ) -> Dict[str, str]:
     """
     Variables {{...}} estándar para informes / plantillas (alineadas con el detalle de siniestro):
-    poliza_principal_numero, institucion, tercero, autoridad, celular, correo_electrónico (+ alias ASCII).
+    poliza_principal_numero, institucion, tercero, autoridad, tipo_intervencion,
+    nicho, materia, expediente, celular, correo_electrónico (+ alias ASCII).
     """
     out: Dict[str, str] = {}
     if not siniestro:
@@ -302,6 +309,10 @@ def _informe_variables_catalogo_extendido(
 
     tv = getattr(siniestro, "tercero", None)
     out["tercero"] = str(tv).strip() if tv is not None and str(tv).strip() else ""
+    out["tipo_intervencion"] = str(getattr(siniestro, "tipo_intervencion", None) or "").strip()
+    out["nicho"] = str(getattr(siniestro, "nicho", None) or "").strip()
+    out["materia"] = str(getattr(siniestro, "materia", None) or "").strip()
+    out["expediente"] = str(getattr(siniestro, "expediente", None) or "").strip()
 
     inst_nombre = ""
     if getattr(siniestro, "institucion_id", None):
@@ -454,8 +465,9 @@ def _get_siniestro_asegurado_variables(
     """
     Variables para PDF desde siniestro y asegurado (header y cuerpo).
     - numero_poliza, numero_siniestro: del siniestro
-    - poliza_principal_numero, institucion, tercero, autoridad, celular,
-      correo_electrónico / correo_electronico: catálogo extendido (informes)
+    - poliza_principal_numero, institucion, tercero, autoridad, tipo_intervencion,
+      nicho, materia, expediente, celular, correo_electrónico / correo_electronico:
+      catálogo extendido (informes)
     - lugar_ocurrido: dirección del asegurado (ciudad, estado)
     - fecha_reporte, hora_fecha_reporte: de `fecha_reporte` / `fecha_registro` / `fecha_siniestro`
     - fecha_asignacion: de `siniestros.fecha_asignacion` o relación `siniestro_areas`

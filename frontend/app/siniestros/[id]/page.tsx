@@ -454,7 +454,11 @@ export default function SiniestroDetailPage() {
     forma_contacto: "correo" as "correo" | "telefono" | "directa",
     numero_reporte: "",
     observaciones: "",
+    tipo_intervencion: "",
     tercero: "",
+    nicho: "",
+    materia: "",
+    expediente: "",
     asegurado_id: "" as string,
     institucion_id: "" as string,
     autoridad_id: "" as string,
@@ -1715,7 +1719,11 @@ export default function SiniestroDetailPage() {
       forma_contacto: siniestro.forma_contacto || "correo",
       numero_reporte: siniestro.numero_reporte || "",
       observaciones: siniestro.observaciones || "",
+      tipo_intervencion: (siniestro as any).tipo_intervencion || "",
       tercero: (siniestro as any).tercero || "",
+      nicho: (siniestro as any).nicho || "",
+      materia: (siniestro as any).materia || "",
+      expediente: (siniestro as any).expediente || "",
       asegurado_id: siniestro.asegurado_id || "",
       institucion_id: siniestro.institucion_id || "",
       autoridad_id: siniestro.autoridad_id || "",
@@ -1801,7 +1809,11 @@ export default function SiniestroDetailPage() {
         ubicacion: editForm.ubicacion || undefined,
         prioridad: editForm.prioridad || undefined,
         forma_contacto: editForm.forma_contacto || undefined,
+        tipo_intervencion: editForm.tipo_intervencion?.trim() || null,
         tercero: editForm.tercero?.trim() || null,
+        nicho: editForm.nicho?.trim() || null,
+        materia: editForm.materia?.trim() || null,
+        expediente: editForm.expediente?.trim() || null,
         numero_reporte:
           editForm.numero_reporte && editForm.numero_reporte.trim()
             ? editForm.numero_reporte
@@ -4665,6 +4677,63 @@ export default function SiniestroDetailPage() {
                     </div>
                   )}
 
+                  {/* Datos específicos */}
+                  {[
+                    (siniestro as any).tipo_intervencion,
+                    (siniestro as any).tercero,
+                    (siniestro as any).nicho,
+                    (siniestro as any).materia,
+                    (siniestro as any).expediente,
+                  ].some((value) => String(value || "").trim()) && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <FiFileText
+                          className="w-5 h-5"
+                          style={{ color: empresaColors.primary }}
+                        />
+                        <h3 className="font-semibold text-gray-700">
+                          Datos específicos
+                        </h3>
+                      </div>
+                      {(siniestro as any).tipo_intervencion && (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">
+                            Tipo de intervención:
+                          </span>{" "}
+                          {(siniestro as any).tipo_intervencion}
+                        </p>
+                      )}
+                      {(siniestro as any).tercero && (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">
+                            Tercero involucrado:
+                          </span>{" "}
+                          {(siniestro as any).tercero}
+                        </p>
+                      )}
+                      {(siniestro as any).nicho && (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Nicho:</span>{" "}
+                          {(siniestro as any).nicho}
+                        </p>
+                      )}
+                      {(siniestro as any).materia && (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">Materia:</span>{" "}
+                          {(siniestro as any).materia}
+                        </p>
+                      )}
+                      {(siniestro as any).expediente && (
+                        <p className="text-sm text-gray-600">
+                          <span className="font-medium">
+                            Número de expediente:
+                          </span>{" "}
+                          {(siniestro as any).expediente}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Ubicación */}
                   {siniestro.ubicacion && (
                     <div className="space-y-2">
@@ -6462,6 +6531,25 @@ export default function SiniestroDetailPage() {
                 value={editForm.numero_reporte}
                 onChange={handleEditFormChange}
               />
+            </div>
+          </div>
+
+          {/* Datos Específicos */}
+          <div>
+            <h3
+              className="text-lg font-semibold mb-4"
+              style={{ color: empresaColors.primary }}
+            >
+              Datos Específicos
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Input
+                label="Tipo de intervención"
+                name="tipo_intervencion"
+                value={editForm.tipo_intervencion}
+                onChange={handleEditFormChange}
+                placeholder="Ej. Jurídica"
+              />
               <Input
                 label="Tercero involucrado"
                 name="tercero"
@@ -6469,6 +6557,29 @@ export default function SiniestroDetailPage() {
                 onChange={handleEditFormChange}
                 placeholder="Nombre del tercero"
               />
+              <Input
+                label="Nicho"
+                name="nicho"
+                value={editForm.nicho}
+                onChange={handleEditFormChange}
+                placeholder="Ej. Salud"
+              />
+              <Input
+                label="Materia"
+                name="materia"
+                value={editForm.materia}
+                onChange={handleEditFormChange}
+                placeholder="Ej. Penal"
+              />
+              <div className="md:col-span-2">
+                <Input
+                  label="Número de expediente"
+                  name="expediente"
+                  value={editForm.expediente}
+                  onChange={handleEditFormChange}
+                  placeholder="EXP-2025-0001"
+                />
+              </div>
             </div>
           </div>
 

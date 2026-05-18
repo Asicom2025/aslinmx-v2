@@ -16,6 +16,7 @@ export function escapePlaceholderKeyForRegex(key: string): string {
 /**
  * Variables estándar para plantillas / informes / PDF / Jodit:
  * {{poliza_principal_numero}}, {{institucion}}, {{tercero}}, {{autoridad}},
+ * {{tipo_intervencion}}, {{nicho}}, {{materia}}, {{expediente}},
  * {{celular}}, {{correo_electrónico}} (y alias ASCII en correo),
  * {{id}}, {{ID}}, {{numero_de_reporte}}, {{numero_de_siniestro}}, {{calificacion}}.
  */
@@ -35,6 +36,12 @@ export function buildCatalogoInformePlaceholders(input: {
     terceroRaw != null && String(terceroRaw).trim()
       ? String(terceroRaw).trim()
       : "";
+  const datosEspecificos = {
+    tipo_intervencion: input.siniestroData?.tipo_intervencion,
+    nicho: input.siniestroData?.nicho,
+    materia: input.siniestroData?.materia,
+    expediente: input.siniestroData?.expediente,
+  };
   const ac = input.aseguradoContact || {};
   const cel =
     [ac.telefono, ac.tel_oficina, ac.tel_casa]
@@ -53,6 +60,10 @@ export function buildCatalogoInformePlaceholders(input: {
     poliza_principal_numero: np,
     institucion: (input.institucionNombre || "").trim(),
     tercero,
+    tipo_intervencion: String(datosEspecificos.tipo_intervencion || "").trim(),
+    nicho: String(datosEspecificos.nicho || "").trim(),
+    materia: String(datosEspecificos.materia || "").trim(),
+    expediente: String(datosEspecificos.expediente || "").trim(),
     autoridad: (input.autoridadNombre || "").trim(),
     celular: cel,
     "correo_electrónico": corr,

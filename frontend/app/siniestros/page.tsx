@@ -18,6 +18,7 @@ import {
   buildSiniestroIdLegible,
   getSiniestroAnualidadDisplay,
 } from "@/lib/siniestroIdDisplay";
+import { formatDateOnly } from "@/lib/formatUtils";
 import { ColumnDef } from "@tanstack/react-table";
 import { Siniestro } from "@/types/siniestros";
 import type { SiniestroPoliza } from "@/types/siniestrosRelaciones";
@@ -1443,11 +1444,15 @@ function SiniestrosPageContent() {
         prioridadLabel(s.prioridad),
         s.activo ? "activo" : "inactivo",
         getSiniestroAnualidadDisplay(s),
+        s.tipo_intervencion,
+        s.tercero,
+        s.nicho,
+        s.materia,
+        s.expediente,
         s.descripcion_hechos,
         s.observaciones,
         getUsuarioNombre(s.creado_por),
         ...(s.usuarios_asignados_ids ?? []).map((id) => getUsuarioNombre(id)),
-        (s as { tercero?: string }).tercero,
       ];
       return parts.filter(Boolean).join(" ");
     },
@@ -1739,7 +1744,7 @@ function SiniestrosPageContent() {
                 : "text-sm truncate block max-w-[100px]"
             }
           >
-            {new Date(raw).toLocaleDateString("es-MX")}
+            {formatDateOnly(raw)}
           </span>
         );
       },
@@ -1797,7 +1802,7 @@ function SiniestrosPageContent() {
             }
           >
             {row.original.creado_en
-              ? new Date(row.original.creado_en).toLocaleDateString("es-MX")
+              ? formatDateOnly(row.original.creado_en, "-")
               : "-"}
           </span>
         );
@@ -1929,7 +1934,107 @@ function SiniestrosPageContent() {
                 : "text-sm truncate block max-w-[100px]"
             }
           >
-            {new Date(raw).toLocaleDateString("es-MX")}
+            {formatDateOnly(raw)}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "tipo_intervencion",
+      header: "Tipo intervención",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = row.original.tipo_intervencion?.trim() || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[150px]"
+            }
+            title={!fluid && v !== "—" ? v : undefined}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "tercero",
+      header: "Tercero",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = row.original.tercero?.trim() || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[150px]"
+            }
+            title={!fluid && v !== "—" ? v : undefined}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "nicho",
+      header: "Nicho",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = row.original.nicho?.trim() || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[120px]"
+            }
+            title={!fluid && v !== "—" ? v : undefined}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "materia",
+      header: "Materia",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = row.original.materia?.trim() || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[120px]"
+            }
+            title={!fluid && v !== "—" ? v : undefined}
+          >
+            {v}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "expediente",
+      header: "N° Expediente",
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const v = row.original.expediente?.trim() || "—";
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[150px]"
+            }
+            title={!fluid && v !== "—" ? v : undefined}
+          >
+            {v}
           </span>
         );
       },
