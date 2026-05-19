@@ -4678,61 +4678,43 @@ export default function SiniestroDetailPage() {
                   )}
 
                   {/* Datos específicos */}
-                  {[
-                    (siniestro as any).tipo_intervencion,
-                    (siniestro as any).tercero,
-                    (siniestro as any).nicho,
-                    (siniestro as any).materia,
-                    (siniestro as any).expediente,
-                  ].some((value) => String(value || "").trim()) && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
-                        <FiFileText
-                          className="w-5 h-5"
-                          style={{ color: empresaColors.primary }}
-                        />
-                        <h3 className="font-semibold text-gray-700">
-                          Datos específicos
-                        </h3>
-                      </div>
-                      {(siniestro as any).tipo_intervencion && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">
-                            Tipo de intervención:
-                          </span>{" "}
-                          {(siniestro as any).tipo_intervencion}
-                        </p>
-                      )}
-                      {(siniestro as any).tercero && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">
-                            Tercero involucrado:
-                          </span>{" "}
-                          {(siniestro as any).tercero}
-                        </p>
-                      )}
-                      {(siniestro as any).nicho && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Nicho:</span>{" "}
-                          {(siniestro as any).nicho}
-                        </p>
-                      )}
-                      {(siniestro as any).materia && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">Materia:</span>{" "}
-                          {(siniestro as any).materia}
-                        </p>
-                      )}
-                      {(siniestro as any).expediente && (
-                        <p className="text-sm text-gray-600">
-                          <span className="font-medium">
-                            Número de expediente:
-                          </span>{" "}
-                          {(siniestro as any).expediente}
-                        </p>
-                      )}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FiFileText
+                        className="w-5 h-5"
+                        style={{ color: empresaColors.primary }}
+                      />
+                      <h3 className="font-semibold text-gray-700">
+                        Datos específicos
+                      </h3>
                     </div>
-                  )}
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">
+                        Tipo de intervención:
+                      </span>{" "}
+                      {(siniestro as any).tipo_intervencion || "—"}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">
+                        Tercero involucrado:
+                      </span>{" "}
+                      {(siniestro as any).tercero || "—"}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Nicho:</span>{" "}
+                      {(siniestro as any).nicho || "—"}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Materia:</span>{" "}
+                      {(siniestro as any).materia || "—"}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">
+                        Número de expediente:
+                      </span>{" "}
+                      {(siniestro as any).expediente || "—"}
+                    </p>
+                  </div>
 
                   {/* Ubicación */}
                   {siniestro.ubicacion && (
