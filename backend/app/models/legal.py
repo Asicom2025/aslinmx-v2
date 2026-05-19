@@ -2,7 +2,7 @@
 Modelos para el sistema legal de siniestros
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, ForeignKey, Numeric, Date, CheckConstraint
+from sqlalchemy import Column, String, Boolean, DateTime, Text, Integer, ForeignKey, Numeric, Date, CheckConstraint, Index
 from sqlalchemy.sql import func, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
@@ -503,6 +503,15 @@ class EvidenciaFotografica(Base):
 class SiniestroUsuario(Base):
     """Relación entre siniestros y abogados asignados (involucrados)."""
     __tablename__ = "siniestro_usuarios"
+    __table_args__ = (
+        Index(
+            "uq_siniestro_usuarios_no_eliminado",
+            "siniestro_id",
+            "usuario_id",
+            unique=True,
+            postgresql_where=text("eliminado = false"),
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     siniestro_id = Column(UUID(as_uuid=True), ForeignKey("siniestros.id", ondelete="CASCADE"), nullable=False)

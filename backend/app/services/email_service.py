@@ -3,6 +3,7 @@ Servicio para envío de correos electrónicos
 """
 
 import html as html_std
+import re
 import smtplib
 from pathlib import Path
 from email.utils import formataddr
@@ -59,6 +60,13 @@ def _build_from_header(
 EMAIL_ASSETS_DIR = Path(__file__).resolve().parent.parent / "static" / "email_assets"
 EMAIL_LOGO_FILENAME = "logo_dx-legal.png"
 EMAIL_FILE_ICON_FILENAME = "file2.png"
+EMAIL_LOGO_WIDTH_PX = 320
+EMAIL_LOGO_MAX_HEIGHT_PX = 110
+EMAIL_LOGO_STYLE = (
+    f"display:block;border:0;outline:none;text-decoration:none;"
+    f"width:{EMAIL_LOGO_WIDTH_PX}px;max-width:100%;"
+    f"height:auto;max-height:{EMAIL_LOGO_MAX_HEIGHT_PX}px;object-fit:contain;"
+)
 
 
 def _read_file_bytes(path: Path) -> Optional[bytes]:
@@ -81,21 +89,44 @@ def logo_img_html_for_email(logo_url: str) -> str:
         return ""
     return (
         f'<img src="{html_std.escape(u)}" alt="Logo" '
-        'style="max-width:280px;width:100%;height:auto;display:block;border:0;outline:none;" />'
+        f'width="{EMAIL_LOGO_WIDTH_PX}" style="{EMAIL_LOGO_STYLE}" />'
     )
+
+
+def normalize_email_logo_html(cuerpo_html: str) -> str:
+    """Normaliza el tamaño del logo en cualquier plantilla de correo renderizada."""
+    if not cuerpo_html or "<img" not in cuerpo_html.lower():
+        return cuerpo_html
+
+    def is_logo_img(tag: str) -> bool:
+        lower = tag.lower()
+        return (
+            "cid:logo" in lower
+            or EMAIL_LOGO_FILENAME.lower() in lower
+            or "logo_large_black" in lower
+            or re.search(r'\balt\s*=\s*["\']?logo\b', lower) is not None
+        )
+
+    def normalize_tag(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if not is_logo_img(tag):
+            return tag
+        clean = re.sub(r'\sstyle\s*=\s*(["\']).*?\1', "", tag, flags=re.IGNORECASE | re.DOTALL)
+        clean = re.sub(r'\swidth\s*=\s*(["\']).*?\1', "", clean, flags=re.IGNORECASE | re.DOTALL)
+        clean = re.sub(r'\sheight\s*=\s*(["\']).*?\1', "", clean, flags=re.IGNORECASE | re.DOTALL)
+        clean = re.sub(r'\swidth\s*=\s*[^\s>]+', "", clean, flags=re.IGNORECASE)
+        clean = re.sub(r'\sheight\s*=\s*[^\s>]+', "", clean, flags=re.IGNORECASE)
+        suffix = " />" if clean.rstrip().endswith("/>") else ">"
+        clean = clean.rstrip()
+        clean = clean[:-2].rstrip() if clean.endswith("/>") else clean[:-1].rstrip()
+        return f'{clean} width="{EMAIL_LOGO_WIDTH_PX}" style="{EMAIL_LOGO_STYLE}"{suffix}'
+
+    return re.sub(r"<img\b[^>]*>", normalize_tag, cuerpo_html, flags=re.IGNORECASE | re.DOTALL)
 
 
 def _bump_cid_logo_img_in_html(cuerpo_html: str) -> str:
-    """Agrandar logo en plantillas que siguen usando <img src="cid:logo"> sin estilo inline."""
-    if not cuerpo_html or "cid:logo" not in cuerpo_html:
-        return cuerpo_html
-    if "max-width:280px" in cuerpo_html:
-        return cuerpo_html
-    return cuerpo_html.replace(
-        'src="cid:logo"',
-        'style="max-width:280px;width:100%;height:auto;display:block;border:0" src="cid:logo"',
-        1,
-    )
+    """Compatibilidad: normaliza el logo aunque la plantilla use HTML legado."""
+    return normalize_email_logo_html(cuerpo_html)
 
 
 def get_email_assets_bytes() -> Tuple[Optional[bytes], Optional[bytes]]:
@@ -534,6 +565,7 @@ class EmailService:
         # Renderizar cuerpo HTML
         template_html = Template(plantilla.cuerpo_html)
         cuerpo_html = template_html.render(**variables)
+        cuerpo_html = normalize_email_logo_html(cuerpo_html)
         
         # Renderizar cuerpo texto si existe
         cuerpo_texto = None

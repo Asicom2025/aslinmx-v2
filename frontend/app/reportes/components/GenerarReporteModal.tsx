@@ -299,7 +299,7 @@ export default function GenerarReporteModal({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <FiCalendar className="w-4 h-4 inline mr-1" />
-                  Fecha Desde
+                  {modulo === "siniestros" ? "Creado Desde" : "Fecha Desde"}
                 </label>
                 <input
                   type="date"
@@ -311,7 +311,7 @@ export default function GenerarReporteModal({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <FiCalendar className="w-4 h-4 inline mr-1" />
-                  Fecha Hasta
+                  {modulo === "siniestros" ? "Creado Hasta" : "Fecha Hasta"}
                 </label>
                 <input
                   type="date"

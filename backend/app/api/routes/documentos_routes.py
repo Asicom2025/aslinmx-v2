@@ -15,7 +15,6 @@ from app.db.session import get_db
 from app.core.config import settings
 from app.core.security import get_current_active_user
 from app.core.permisos import require_any_permiso, require_permiso
-from app.core.nivel_acceso import get_nivel_rol
 from app.models.user import User
 from app.schemas.legal_schema import (
     DocumentoCreate, DocumentoUpdate, DocumentoResponse,
@@ -34,7 +33,6 @@ from app.services.siniestro_acceso_service import (
     MSG_EXPEDIENTE_SOLO_LECTURA,
     usuario_puede_crear_documento_siniestro,
     usuario_puede_editar_documento_siniestro,
-    usuario_puede_editar_siniestro,
     usuario_puede_ver_siniestro,
 )
 from app.services.storage_metadata_service import StorageObjectService
@@ -97,17 +95,10 @@ def _assert_siniestro_documento_descarga(
 ) -> None:
     """
     Regla de descarga:
-    - Nivel 2: puede ver todo, pero solo descarga documentos de expedientes de su área.
-    - Resto de niveles: mantiene regla de lectura.
+    - Si puede ver el expediente y tiene acceso a documentos, puede descargar
+      archivos adjuntos del expediente.
     """
     _assert_siniestro_documento_lectura(db, current_user, siniestro_id)
-    if get_nivel_rol(db, current_user) == 2 and not usuario_puede_editar_siniestro(
-        db, current_user, current_user.empresa_id, siniestro_id
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tiene permiso para descargar documentos de este expediente.",
-        )
 
 
 ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "application/msword", "application/vnd.", "text/")
