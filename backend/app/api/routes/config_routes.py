@@ -26,7 +26,11 @@ from app.schemas.config_schema import (
     HistorialCorreoResponse,
     HistorialCorreoFiltros,
 )
-from app.services.email_service import EmailService, get_email_assets_bytes
+from app.services.email_service import (
+    EmailService,
+    get_email_assets_bytes,
+    logo_img_html_for_email,
+)
 from app.services.auditoria_service import AuditoriaService
 from pathlib import Path
 
@@ -461,6 +465,7 @@ async def enviar_correo(
         firma_url, firma_cid_bytes = EmailService.get_firma_for_template(db, current_user)
         template_defaults = {
             "logo_url": logo_url,
+            "logo_img": logo_img_html_for_email(logo_url),
             "file_icon_url": file_icon_url,
             "base_url": base_for_assets,
             "firma_url": firma_url,
@@ -640,6 +645,7 @@ async def enviar_archivo_correo(
         "textMail": request_data.mensaje or "",
         "asunto": asunto_var,
         "logo_url": logo_url,
+        "logo_img": logo_img_html_for_email(logo_url),
         "file_icon_url": file_icon_url,
         "base_url": base_url,
         "firma_url": firma_url,

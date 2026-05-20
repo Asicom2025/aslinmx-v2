@@ -490,6 +490,8 @@ export default function SiniestroDetailPage() {
   >(null);
   const [nuevoInvolucradoUsuarioId, setNuevoInvolucradoUsuarioId] =
     useState<string>("");
+  const [agregandoInvolucradoUsuarioId, setAgregandoInvolucradoUsuarioId] =
+    useState<string>("");
 
   // Estados para modal de edición de póliza
   const [showPolizaModal, setShowPolizaModal] = useState(false);
@@ -2118,7 +2120,13 @@ export default function SiniestroDetailPage() {
 
   const handleAddInvolucrado = async (usuarioId: string) => {
     if (!siniestroId) return;
+    if (agregandoInvolucradoUsuarioId) return;
+    if (involucrados.some((involucrado) => involucrado.usuario_id === usuarioId)) {
+      swalError("Este abogado ya está asignado al siniestro.");
+      return;
+    }
     try {
+      setAgregandoInvolucradoUsuarioId(usuarioId);
       await apiService.addInvolucrado(siniestroId, {
         usuario_id: usuarioId,
         activo: true,
@@ -2128,6 +2136,8 @@ export default function SiniestroDetailPage() {
       swalSuccess("Involucrado agregado correctamente");
     } catch (error: any) {
       swalError(error.response?.data?.detail || "Error al agregar involucrado");
+    } finally {
+      setAgregandoInvolucradoUsuarioId("");
     }
   };
 
@@ -5357,7 +5367,10 @@ export default function SiniestroDetailPage() {
                             type="button"
                             variant="primary"
                             size="sm"
-                            disabled={!nuevoInvolucradoUsuarioId}
+                            disabled={
+                              !nuevoInvolucradoUsuarioId ||
+                              !!agregandoInvolucradoUsuarioId
+                            }
                             onClick={async () => {
                               if (!nuevoInvolucradoUsuarioId) return;
                               await handleAddInvolucrado(
@@ -5366,7 +5379,7 @@ export default function SiniestroDetailPage() {
                               setNuevoInvolucradoUsuarioId("");
                             }}
                           >
-                            Agregar
+                            {agregandoInvolucradoUsuarioId ? "Agregando..." : "Agregar"}
                           </Button>
                         </div>
                       </div>

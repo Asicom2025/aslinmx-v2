@@ -36,6 +36,24 @@ def _normalize_uuid_list(val: Any) -> List[UUID]:
     return out
 
 
+def _int_or_text_sort_value(value: Any) -> tuple[int, Any]:
+    raw = str(value or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if digits:
+        return (0, int(digits))
+    return (1, raw.lower())
+
+
+def _year_sort_value(value: Any) -> tuple[int, Any]:
+    if value is None:
+        return (1, "")
+    try:
+        year = int(value)
+        return (0, year % 100)
+    except (TypeError, ValueError):
+        return _int_or_text_sort_value(value)
+
+
 class ReporteService:
     """Servicio para generar reportes de diferentes módulos"""
 
@@ -103,21 +121,60 @@ class ReporteService:
                 Siniestro.activo == True,  # noqa: E712
             )
 
-        # Aplicar ordenamiento
+        computed_ordering = []
         if ordenamiento:
             for campo, direccion in ordenamiento.items():
-                if hasattr(Modelo, campo):
+                if modulo == "siniestros" and campo in ("id_normalizado", "id_formato"):
+                    computed_ordering.append((campo, direccion))
+                elif hasattr(Modelo, campo):
                     col = getattr(Modelo, campo)
                     if direccion.lower() == "desc":
                         query = query.order_by(col.desc())
                     else:
                         query = query.order_by(col.asc())
 
-        # Aplicar límite
-        if limit:
+        # Aplicar límite en SQL solo cuando todo el ordenamiento también vive en SQL.
+        if limit and not computed_ordering:
             query = query.limit(limit)
 
         registros = query.all()
+
+        if computed_ordering:
+            proveniente_ids = {
+                r.proveniente_id for r in registros if getattr(r, "proveniente_id", None)
+            }
+            proveniente_codigo_por_id = {}
+            if proveniente_ids:
+                proveniente_codigo_por_id = {
+                    row.id: (row.codigo or "").strip()
+                    for row in db.query(Proveniente.id, Proveniente.codigo)
+                    .filter(Proveniente.id.in_(proveniente_ids))
+                    .all()
+                }
+
+            def id_normalizado_sort_key(registro: Siniestro):
+                codigo_proveniente = proveniente_codigo_por_id.get(
+                    registro.proveniente_id, ""
+                )
+                return (
+                    _int_or_text_sort_value(codigo_proveniente),
+                    _int_or_text_sort_value(getattr(registro, "codigo", None)),
+                    _year_sort_value(getattr(registro, "anualidad", None)),
+                )
+
+            for campo, direccion in reversed(list(ordenamiento.items())):
+                if campo in ("id_normalizado", "id_formato"):
+                    registros.sort(
+                        key=id_normalizado_sort_key,
+                        reverse=str(direccion).lower() == "desc",
+                    )
+                elif hasattr(Modelo, campo):
+                    registros.sort(
+                        key=lambda r, c=campo: (getattr(r, c, None) is None, getattr(r, c, None)),
+                        reverse=str(direccion).lower() == "desc",
+                    )
+            if limit:
+                registros = registros[:limit]
 
         # Convertir a diccionarios con datos relacionados
         datos = []
@@ -230,7 +287,7 @@ class ReporteService:
                     except ValueError:
                         fecha_desde = None
             if fecha_desde:
-                query = query.filter(Siniestro.fecha_reporte >= fecha_desde)
+                query = query.filter(Siniestro.creado_en >= fecha_desde)
 
         fecha_hasta = filtros.get("fecha_hasta")
         if fecha_hasta:
@@ -244,7 +301,7 @@ class ReporteService:
                     except ValueError:
                         fecha_hasta = None
             if fecha_hasta:
-                query = query.filter(Siniestro.fecha_reporte <= fecha_hasta)
+                query = query.filter(Siniestro.creado_en <= fecha_hasta)
 
         adicionales = filtros.get("filtros_adicionales", {}) or {}
 

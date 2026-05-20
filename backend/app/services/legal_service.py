@@ -2683,7 +2683,15 @@ class SiniestroUsuarioService:
         )
         if activo is not None:
             q = q.filter(SiniestroUsuario.activo == activo)
-        return q.order_by(SiniestroUsuario.es_principal.desc(), SiniestroUsuario.creado_en).all()
+        rows = q.order_by(SiniestroUsuario.es_principal.desc(), SiniestroUsuario.creado_en).all()
+        deduped: List[SiniestroUsuario] = []
+        seen: set[UUID] = set()
+        for row in rows:
+            if row.usuario_id in seen:
+                continue
+            seen.add(row.usuario_id)
+            deduped.append(row)
+        return deduped
 
     @staticmethod
     def get_by_id(db: Session, relacion_id: UUID) -> Optional[SiniestroUsuario]:
@@ -2751,7 +2759,26 @@ class SiniestroUsuarioService:
         
         relacion = SiniestroUsuario(**payload.model_dump())
         db.add(relacion)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            existing_after_race = db.query(SiniestroUsuario).filter(
+                SiniestroUsuario.siniestro_id == payload.siniestro_id,
+                SiniestroUsuario.usuario_id == payload.usuario_id,
+                SiniestroUsuario.eliminado == False,
+            ).first()
+            if existing_after_race:
+                if not existing_after_race.activo:
+                    existing_after_race.activo = True
+                    existing_after_race.eliminado_en = None
+                    existing_after_race.es_principal = payload.es_principal
+                    if payload.observaciones is not None:
+                        existing_after_race.observaciones = payload.observaciones
+                    db.commit()
+                    db.refresh(existing_after_race)
+                return existing_after_race
+            raise
         db.refresh(relacion)
         if relacion.es_principal:
             SiniestroUsuarioService._clear_otros_principales(
