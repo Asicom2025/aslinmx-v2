@@ -31,14 +31,22 @@ def upgrade() -> None:
             ),
         )
 
-    # Herencia: un solo tercero es_principal por siniestro → misma firma en todas las filas de área.
+    su_columns = {col["name"] for col in inspector.get_columns("siniestro_usuarios")}
+    tipo_relacion_filter = (
+        "AND su.tipo_relacion = 'tercero'"
+        if "tipo_relacion" in su_columns
+        else ""
+    )
+
+    # Herencia: un solo abogado principal por siniestro → misma firma en todas las filas de área.
+    # En instalaciones donde `tipo_relacion` ya fue removida, todos los involucrados son abogados.
     op.execute(
-        """
+        f"""
         UPDATE siniestro_areas sa
         SET abogado_principal_informe_id = su.usuario_id
         FROM siniestro_usuarios su
         WHERE su.siniestro_id = sa.siniestro_id
-          AND su.tipo_relacion = 'tercero'
+          {tipo_relacion_filter}
           AND su.es_principal IS TRUE
           AND su.activo IS TRUE
           AND su.eliminado IS FALSE
