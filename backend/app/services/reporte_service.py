@@ -3,6 +3,7 @@ Servicio para generación de reportes
 """
 
 from decimal import Decimal
+import logging
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session, selectinload, aliased
 from sqlalchemy import func, and_, or_
@@ -18,6 +19,43 @@ from app.services.export_service import ExportService
 from app.services.pdf_service import PDFService
 from app.services.storage_service import format_siniestro_id_legible
 from app.services.legal_service import es_estado_cancelacion_por_nombre
+
+
+logger = logging.getLogger(__name__)
+
+
+def _debug_value(value: Any) -> Any:
+    """Normaliza valores para logs legibles sin romper por tipos no JSON."""
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(k): _debug_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_debug_value(v) for v in value]
+    return value
+
+
+def _debug_query_sql(query) -> str:
+    """Intenta compilar la query con parámetros literales para depuración."""
+    try:
+        bind = query.session.get_bind()
+        dialect = bind.dialect if bind is not None else None
+        return str(
+            query.statement.compile(
+                dialect=dialect,
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+    except Exception as exc:
+        return f"<no se pudo compilar SQL: {exc}>"
+
+
+def _debug_log_reporte(evento: str, **payload: Any) -> None:
+    logger.warning("[REPORT_DEBUG] %s | %s", evento, _debug_value(payload))
 
 
 def _normalize_uuid_list(val: Any) -> List[UUID]:
@@ -95,54 +133,168 @@ class ReporteService:
             ordenamiento: Dict con campo: "asc"|"desc"
             limit: Límite de registros
         """
+        _debug_log_reporte(
+            "obtener_datos_reporte:start",
+            modulo=modulo,
+            empresa_id=empresa_id,
+            filtros=filtros,
+            columnas=columnas,
+            ordenamiento=ordenamiento,
+            limit=limit,
+        )
+
         if modulo not in ReporteService.MODULOS_MODELOS:
+            _debug_log_reporte(
+                "obtener_datos_reporte:modulo_no_soportado",
+                modulo=modulo,
+                modulos_soportados=list(ReporteService.MODULOS_MODELOS.keys()),
+            )
             raise ValueError(f"Módulo '{modulo}' no soportado")
 
         Modelo = ReporteService.MODULOS_MODELOS[modulo]
+        _debug_log_reporte(
+            "obtener_datos_reporte:modelo_resuelto",
+            modulo=modulo,
+            modelo=Modelo.__name__,
+        )
         
         # Para siniestros, hacer joins con tablas relacionadas
         if modulo == "siniestros":
             query = db.query(Siniestro).options(selectinload(Siniestro.polizas))
+            _debug_log_reporte(
+                "obtener_datos_reporte:query_base",
+                tipo="siniestros_con_selectinload_polizas",
+                sql=_debug_query_sql(query),
+            )
         else:
             query = db.query(Modelo)
+            _debug_log_reporte(
+                "obtener_datos_reporte:query_base",
+                tipo="modelo_directo",
+                sql=_debug_query_sql(query),
+            )
 
         # Filtrar por empresa si el modelo tiene empresa_id
         if hasattr(Modelo, 'empresa_id'):
             query = query.filter(Modelo.empresa_id == empresa_id)
+            _debug_log_reporte(
+                "obtener_datos_reporte:filtro_empresa",
+                columna=f"{Modelo.__name__}.empresa_id",
+                empresa_id=empresa_id,
+                sql=_debug_query_sql(query),
+            )
+        else:
+            _debug_log_reporte(
+                "obtener_datos_reporte:filtro_empresa_omitido",
+                motivo="el modelo no tiene empresa_id",
+                modelo=Modelo.__name__,
+            )
 
         # Aplicar filtros
         if filtros:
+            _debug_log_reporte(
+                "obtener_datos_reporte:aplicar_filtros:start",
+                filtros=filtros,
+            )
             query = ReporteService._aplicar_filtros(
                 query, Modelo, filtros, modulo, db=db, empresa_id=empresa_id
+            )
+            _debug_log_reporte(
+                "obtener_datos_reporte:aplicar_filtros:end",
+                sql=_debug_query_sql(query),
             )
         elif modulo == "siniestros":
             query = query.filter(
                 Siniestro.eliminado == False,  # noqa: E712
                 Siniestro.activo == True,  # noqa: E712
             )
+            _debug_log_reporte(
+                "obtener_datos_reporte:filtros_default_siniestros",
+                condiciones=[
+                    "Siniestro.eliminado == False",
+                    "Siniestro.activo == True",
+                ],
+                sql=_debug_query_sql(query),
+            )
+        else:
+            _debug_log_reporte(
+                "obtener_datos_reporte:sin_filtros_adicionales",
+                modulo=modulo,
+            )
 
         computed_ordering = []
         if ordenamiento:
+            _debug_log_reporte(
+                "obtener_datos_reporte:ordenamiento:start",
+                ordenamiento=ordenamiento,
+            )
             for campo, direccion in ordenamiento.items():
                 if modulo == "siniestros" and campo in ("id_normalizado", "id_formato"):
                     computed_ordering.append((campo, direccion))
+                    _debug_log_reporte(
+                        "obtener_datos_reporte:ordenamiento_calculado",
+                        campo=campo,
+                        direccion=direccion,
+                    )
                 elif hasattr(Modelo, campo):
                     col = getattr(Modelo, campo)
                     if direccion.lower() == "desc":
                         query = query.order_by(col.desc())
                     else:
                         query = query.order_by(col.asc())
+                    _debug_log_reporte(
+                        "obtener_datos_reporte:ordenamiento_sql",
+                        campo=campo,
+                        direccion=direccion,
+                        sql=_debug_query_sql(query),
+                    )
+                else:
+                    _debug_log_reporte(
+                        "obtener_datos_reporte:ordenamiento_omitido",
+                        campo=campo,
+                        direccion=direccion,
+                        motivo="el modelo no tiene ese atributo",
+                    )
+        else:
+            _debug_log_reporte("obtener_datos_reporte:sin_ordenamiento")
 
         # Aplicar límite en SQL solo cuando todo el ordenamiento también vive en SQL.
         if limit and not computed_ordering:
             query = query.limit(limit)
+            _debug_log_reporte(
+                "obtener_datos_reporte:limit_sql",
+                limit=limit,
+                sql=_debug_query_sql(query),
+            )
+        elif limit and computed_ordering:
+            _debug_log_reporte(
+                "obtener_datos_reporte:limit_pospuesto",
+                limit=limit,
+                motivo="hay ordenamiento calculado en Python",
+                computed_ordering=computed_ordering,
+            )
 
+        _debug_log_reporte(
+            "obtener_datos_reporte:query_final_antes_all",
+            sql=_debug_query_sql(query),
+        )
         registros = query.all()
+        _debug_log_reporte(
+            "obtener_datos_reporte:query_ejecutada",
+            total_registros_sql=len(registros),
+            ids_preview=[getattr(r, "id", None) for r in registros[:10]],
+        )
 
         if computed_ordering:
             proveniente_ids = {
                 r.proveniente_id for r in registros if getattr(r, "proveniente_id", None)
             }
+            _debug_log_reporte(
+                "obtener_datos_reporte:ordenamiento_calculado:start",
+                computed_ordering=computed_ordering,
+                total_registros=len(registros),
+                proveniente_ids=proveniente_ids,
+            )
             proveniente_codigo_por_id = {}
             if proveniente_ids:
                 proveniente_codigo_por_id = {
@@ -151,6 +303,10 @@ class ReporteService:
                     .filter(Proveniente.id.in_(proveniente_ids))
                     .all()
                 }
+            _debug_log_reporte(
+                "obtener_datos_reporte:ordenamiento_calculado:provenientes",
+                proveniente_codigo_por_id=proveniente_codigo_por_id,
+            )
 
             def id_normalizado_sort_key(registro: Siniestro):
                 codigo_proveniente = proveniente_codigo_por_id.get(
@@ -175,15 +331,42 @@ class ReporteService:
                     )
             if limit:
                 registros = registros[:limit]
+                _debug_log_reporte(
+                    "obtener_datos_reporte:limit_python_aplicado",
+                    limit=limit,
+                    total_registros=len(registros),
+                    ids_preview=[getattr(r, "id", None) for r in registros[:10]],
+                )
 
         # Convertir a diccionarios con datos relacionados
         datos = []
-        for registro in registros:
+        for idx, registro in enumerate(registros):
+            if idx < 10:
+                _debug_log_reporte(
+                    "obtener_datos_reporte:convertir_registro:start",
+                    index=idx,
+                    registro_id=getattr(registro, "id", None),
+                    modulo=modulo,
+                )
             registro_dict = ReporteService._modelo_a_dict_con_relaciones(
                 db, registro, modulo, columnas
             )
+            if idx < 10:
+                _debug_log_reporte(
+                    "obtener_datos_reporte:convertir_registro:end",
+                    index=idx,
+                    registro_id=getattr(registro, "id", None),
+                    columnas_resultado=list(registro_dict.keys()),
+                    resultado_preview=registro_dict,
+                )
             datos.append(registro_dict)
 
+        _debug_log_reporte(
+            "obtener_datos_reporte:end",
+            total_datos=len(datos),
+            columnas_primer_registro=list(datos[0].keys()) if datos else [],
+            primer_registro=datos[0] if datos else None,
+        )
         return datos
 
     @staticmethod
@@ -196,6 +379,13 @@ class ReporteService:
         empresa_id: Optional[UUID] = None,
     ):
         """Aplica filtros a una query"""
+        _debug_log_reporte(
+            "_aplicar_filtros:start",
+            modulo=modulo,
+            modelo=Modelo.__name__,
+            filtros=filtros,
+            sql_inicial=_debug_query_sql(query),
+        )
         if modulo == "siniestros":
             return ReporteService._aplicar_filtros_siniestros(
                 query, filtros, db, empresa_id
@@ -203,6 +393,11 @@ class ReporteService:
 
         if filtros.get("activo") is not None and hasattr(Modelo, "activo"):
             query = query.filter(Modelo.activo == filtros["activo"])
+            _debug_log_reporte(
+                "_aplicar_filtros:activo",
+                valor=filtros["activo"],
+                sql=_debug_query_sql(query),
+            )
 
         # Manejar fechas (pueden venir como string o datetime)
         fecha_desde = filtros.get("fecha_desde")
@@ -217,10 +412,21 @@ class ReporteService:
                         pass
             if hasattr(Modelo, "creado_en"):
                 query = query.filter(Modelo.creado_en >= fecha_desde)
+                campo_fecha = "creado_en"
             elif hasattr(Modelo, "fecha_registro"):
                 query = query.filter(Modelo.fecha_registro >= fecha_desde)
+                campo_fecha = "fecha_registro"
             elif hasattr(Modelo, "fecha_siniestro"):
                 query = query.filter(Modelo.fecha_siniestro >= fecha_desde)
+                campo_fecha = "fecha_siniestro"
+            else:
+                campo_fecha = None
+            _debug_log_reporte(
+                "_aplicar_filtros:fecha_desde",
+                valor=fecha_desde,
+                campo=campo_fecha,
+                sql=_debug_query_sql(query),
+            )
 
         fecha_hasta = filtros.get("fecha_hasta")
         if fecha_hasta:
@@ -236,10 +442,21 @@ class ReporteService:
                         pass
             if hasattr(Modelo, "creado_en"):
                 query = query.filter(Modelo.creado_en <= fecha_hasta)
+                campo_fecha = "creado_en"
             elif hasattr(Modelo, "fecha_registro"):
                 query = query.filter(Modelo.fecha_registro <= fecha_hasta)
+                campo_fecha = "fecha_registro"
             elif hasattr(Modelo, "fecha_siniestro"):
                 query = query.filter(Modelo.fecha_siniestro <= fecha_hasta)
+                campo_fecha = "fecha_siniestro"
+            else:
+                campo_fecha = None
+            _debug_log_reporte(
+                "_aplicar_filtros:fecha_hasta",
+                valor=fecha_hasta,
+                campo=campo_fecha,
+                sql=_debug_query_sql(query),
+            )
 
         # Filtros adicionales específicos por módulo
         filtros_adicionales = filtros.get("filtros_adicionales", {})
@@ -248,21 +465,42 @@ class ReporteService:
                 col = getattr(Modelo, campo)
                 if isinstance(valor, list):
                     query = query.filter(col.in_(valor))
+                    operador = "in"
                 elif isinstance(valor, dict):
                     # Soporte para operadores: {"op": "like", "value": "texto"}
                     op = valor.get("op", "eq")
                     val = valor.get("value")
                     if op == "like" and val:
                         query = query.filter(col.like(f"%{val}%"))
+                        operador = "like"
                     elif op == "gte" and val:
                         query = query.filter(col >= val)
+                        operador = "gte"
                     elif op == "lte" and val:
                         query = query.filter(col <= val)
+                        operador = "lte"
                     else:
                         query = query.filter(col == val)
+                        operador = "eq"
                 else:
                     query = query.filter(col == valor)
+                    operador = "eq"
+                _debug_log_reporte(
+                    "_aplicar_filtros:filtro_adicional",
+                    campo=campo,
+                    valor=valor,
+                    operador=operador,
+                    sql=_debug_query_sql(query),
+                )
+            else:
+                _debug_log_reporte(
+                    "_aplicar_filtros:filtro_adicional_omitido",
+                    campo=campo,
+                    valor=valor,
+                    motivo="el modelo no tiene ese atributo",
+                )
 
+        _debug_log_reporte("_aplicar_filtros:end", sql=_debug_query_sql(query))
         return query
 
     @staticmethod
@@ -273,8 +511,19 @@ class ReporteService:
         empresa_id: Optional[UUID] = None,
     ):
         """Aplica filtros de negocio para exportar siniestros."""
+        _debug_log_reporte(
+            "_aplicar_filtros_siniestros:start",
+            filtros=filtros,
+            empresa_id=empresa_id,
+            sql_inicial=_debug_query_sql(query),
+        )
         if filtros.get("activo") is not None:
             query = query.filter(Siniestro.activo == filtros["activo"])
+            _debug_log_reporte(
+                "_aplicar_filtros_siniestros:activo",
+                valor=filtros["activo"],
+                sql=_debug_query_sql(query),
+            )
 
         fecha_desde = filtros.get("fecha_desde")
         if fecha_desde:
@@ -288,6 +537,12 @@ class ReporteService:
                         fecha_desde = None
             if fecha_desde:
                 query = query.filter(Siniestro.creado_en >= fecha_desde)
+                _debug_log_reporte(
+                    "_aplicar_filtros_siniestros:fecha_desde",
+                    valor=fecha_desde,
+                    campo="Siniestro.creado_en",
+                    sql=_debug_query_sql(query),
+                )
 
         fecha_hasta = filtros.get("fecha_hasta")
         if fecha_hasta:
@@ -302,27 +557,43 @@ class ReporteService:
                         fecha_hasta = None
             if fecha_hasta:
                 query = query.filter(Siniestro.creado_en <= fecha_hasta)
+                _debug_log_reporte(
+                    "_aplicar_filtros_siniestros:fecha_hasta",
+                    valor=fecha_hasta,
+                    campo="Siniestro.creado_en",
+                    sql=_debug_query_sql(query),
+                )
 
         adicionales = filtros.get("filtros_adicionales", {}) or {}
+        _debug_log_reporte(
+            "_aplicar_filtros_siniestros:adicionales",
+            adicionales=adicionales,
+        )
 
         ids_inst = _normalize_uuid_list(adicionales.get("institucion_id"))
         if ids_inst:
             query = query.filter(Siniestro.institucion_id.in_(ids_inst))
+            _debug_log_reporte("_aplicar_filtros_siniestros:institucion_id", ids=ids_inst, sql=_debug_query_sql(query))
         ids_aut = _normalize_uuid_list(adicionales.get("autoridad_id"))
         if ids_aut:
             query = query.filter(Siniestro.autoridad_id.in_(ids_aut))
+            _debug_log_reporte("_aplicar_filtros_siniestros:autoridad_id", ids=ids_aut, sql=_debug_query_sql(query))
         ids_prov = _normalize_uuid_list(adicionales.get("proveniente_id"))
         if ids_prov:
             query = query.filter(Siniestro.proveniente_id.in_(ids_prov))
+            _debug_log_reporte("_aplicar_filtros_siniestros:proveniente_id", ids=ids_prov, sql=_debug_query_sql(query))
         ids_aseg = _normalize_uuid_list(adicionales.get("asegurado_id"))
         if ids_aseg:
             query = query.filter(Siniestro.asegurado_id.in_(ids_aseg))
+            _debug_log_reporte("_aplicar_filtros_siniestros:asegurado_id", ids=ids_aseg, sql=_debug_query_sql(query))
         ids_cal = _normalize_uuid_list(adicionales.get("calificacion_id"))
         if ids_cal:
             query = query.filter(Siniestro.calificacion_id.in_(ids_cal))
+            _debug_log_reporte("_aplicar_filtros_siniestros:calificacion_id", ids=ids_cal, sql=_debug_query_sql(query))
         ids_est = _normalize_uuid_list(adicionales.get("estado_id"))
         if ids_est:
             query = query.filter(Siniestro.estado_id.in_(ids_est))
+            _debug_log_reporte("_aplicar_filtros_siniestros:estado_id", ids=ids_est, sql=_debug_query_sql(query))
 
         pr = adicionales.get("prioridad")
         if pr:
@@ -330,8 +601,10 @@ class ReporteService:
                 vals = [str(x).strip() for x in pr if str(x).strip()]
                 if vals:
                     query = query.filter(Siniestro.prioridad.in_(vals))
+                    _debug_log_reporte("_aplicar_filtros_siniestros:prioridad_in", valores=vals, sql=_debug_query_sql(query))
             else:
                 query = query.filter(Siniestro.prioridad == str(pr).strip())
+                _debug_log_reporte("_aplicar_filtros_siniestros:prioridad_eq", valor=str(pr).strip(), sql=_debug_query_sql(query))
 
         ids_area = _normalize_uuid_list(adicionales.get("area_id"))
         if ids_area:
@@ -343,6 +616,7 @@ class ReporteService:
                     SiniestroArea.eliminado == False,
                 ),
             ).filter(SiniestroArea.area_id.in_(ids_area))
+            _debug_log_reporte("_aplicar_filtros_siniestros:area_id", ids=ids_area, sql=_debug_query_sql(query))
 
         ids_user = _normalize_uuid_list(adicionales.get("usuario_id"))
         if ids_user:
@@ -359,6 +633,7 @@ class ReporteService:
                     SiniestroUsuario.usuario_id.in_(ids_user),
                 )
             )
+            _debug_log_reporte("_aplicar_filtros_siniestros:usuario_id", ids=ids_user, sql=_debug_query_sql(query))
 
         ids_geo_est = _normalize_uuid_list(adicionales.get("geo_estado_id"))
         if ids_geo_est:
@@ -371,6 +646,7 @@ class ReporteService:
                     GeoMun.estado_id.in_(ids_geo_est),
                 )
             )
+            _debug_log_reporte("_aplicar_filtros_siniestros:geo_estado_id", ids=ids_geo_est, sql=_debug_query_sql(query))
 
         if adicionales.get("fecha_reporte_mes"):
             mes = str(adicionales["fecha_reporte_mes"]).strip()
@@ -383,8 +659,18 @@ class ReporteService:
                         func.extract("year", Siniestro.fecha_reporte) == year,
                         func.extract("month", Siniestro.fecha_reporte) == month,
                     )
+                    _debug_log_reporte(
+                        "_aplicar_filtros_siniestros:fecha_reporte_mes",
+                        valor=mes,
+                        year=year,
+                        month=month,
+                        sql=_debug_query_sql(query),
+                    )
             except Exception:
-                pass
+                _debug_log_reporte(
+                    "_aplicar_filtros_siniestros:fecha_reporte_mes_invalida",
+                    valor=mes,
+                )
 
         adicionales_f = filtros.get("filtros_adicionales", {}) or {}
         estado_f = adicionales_f.get("estado_id")
@@ -405,12 +691,33 @@ class ReporteService:
                 ):
                     relajar_activo = True
                     break
+        _debug_log_reporte(
+            "_aplicar_filtros_siniestros:relajar_activo",
+            estado_ids=estado_ids_relaj,
+            relajar_activo=relajar_activo,
+        )
 
         query = query.filter(Siniestro.eliminado == False)  # noqa: E712
+        _debug_log_reporte(
+            "_aplicar_filtros_siniestros:eliminado_false",
+            sql=_debug_query_sql(query),
+        )
         if filtros.get("activo") is None and not relajar_activo:
             query = query.filter(Siniestro.activo == True)  # noqa: E712
+            _debug_log_reporte(
+                "_aplicar_filtros_siniestros:activo_default_true",
+                sql=_debug_query_sql(query),
+            )
+        else:
+            _debug_log_reporte(
+                "_aplicar_filtros_siniestros:activo_default_omitido",
+                activo_en_filtros=filtros.get("activo"),
+                relajar_activo=relajar_activo,
+            )
 
-        return query.distinct()
+        query = query.distinct()
+        _debug_log_reporte("_aplicar_filtros_siniestros:end", sql=_debug_query_sql(query))
+        return query
 
     @staticmethod
     def _modelo_a_dict(registro, columnas: Optional[List[str]] = None) -> Dict[str, Any]:

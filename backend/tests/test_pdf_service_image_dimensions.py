@@ -75,3 +75,45 @@ def test_images_without_jodit_dimensions_are_left_untouched():
     html = '<p><img src="x.png" alt="Sin dimensiones"></p>'
 
     assert PDFService._normalize_jodit_image_dimensions_for_pdf(html) == html
+
+
+def test_pdf_dates_in_text_nodes_are_wrapped_without_touching_attributes():
+    html = '<p data-date="12/02/2026">Fecha: 12/02/2026</p>'
+
+    result = PDFService._protect_pdf_date_text_nodes(html)
+
+    assert 'data-date="12/02/2026"' in result
+    assert 'Fecha: <span class="pdf-date-nowrap">12/02/2026</span>' in result
+
+
+def test_pdf_date_wrapper_does_not_double_wrap_existing_span():
+    html = '<p><span class="pdf-date-nowrap">12/02/2026</span></p>'
+
+    result = PDFService._protect_pdf_date_text_nodes(html)
+
+    assert result == html
+
+
+def test_pdf_date_variables_are_wrapped_after_replacement():
+    html = "<p>{{ fecha_reporte }}</p>"
+    replaced = PDFService.replace_variables(html, {"fecha_reporte": "12/02/2026"})
+
+    result = PDFService._protect_pdf_date_text_nodes(replaced)
+
+    assert result == '<p><span class="pdf-date-nowrap">12/02/2026</span></p>'
+
+
+def test_pdf_html_placeholders_are_not_escaped_by_date_protection():
+    html = '<p>{{ firmado_por }}</p><table>{{ calificaciones_headers_html }}</table>'
+    replaced = PDFService.replace_variables(
+        html,
+        {
+            "firmado_por": '<img src="firma.png" alt="Firma">',
+            "calificaciones_headers_html": '<tr><td>12/02/2026</td></tr>',
+        },
+    )
+
+    result = PDFService._protect_pdf_date_text_nodes(replaced)
+
+    assert '<img src="firma.png" alt="Firma">' in result
+    assert '<td><span class="pdf-date-nowrap">12/02/2026</span></td>' in result

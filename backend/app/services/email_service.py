@@ -3,6 +3,7 @@ Servicio para envío de correos electrónicos
 """
 
 import html as html_std
+import mimetypes
 import re
 import smtplib
 from pathlib import Path
@@ -40,6 +41,23 @@ from app.services.storage_service import get_storage_service
 
 logger = logging.getLogger(__name__)
 
+_GENERIC_ATTACHMENT_STEMS = {"", "noname", "no-name", "blob", "file", "archivo", "adjunto"}
+_CONTENT_TYPE_TO_EXTENSION = {
+    "application/pdf": ".pdf",
+    "text/csv": ".csv",
+    "text/plain": ".txt",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.ms-powerpoint": ".ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
 
 def _build_from_header(
     config: ConfiguracionSMTP,
@@ -54,6 +72,139 @@ def _build_from_header(
     else:
         display = (config.remitente_nombre or "").strip() or "Sistema"
     return formataddr((display, config.remitente_email))
+
+
+def _guess_content_type_from_bytes(payload: bytes) -> Optional[str]:
+    if payload.startswith(b"%PDF-"):
+        return "application/pdf"
+    if payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if payload.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if payload.startswith(b"GIF87a") or payload.startswith(b"GIF89a"):
+        return "image/gif"
+    if payload.startswith(b"PK\x03\x04"):
+        return "application/zip"
+    return None
+
+
+def _extension_for_content_type(content_type: Optional[str]) -> Optional[str]:
+    clean = (content_type or "").split(";", 1)[0].strip().lower()
+    if not clean:
+        return None
+    return _CONTENT_TYPE_TO_EXTENSION.get(clean) or mimetypes.guess_extension(clean)
+
+
+def _safe_attachment_basename(filename: Optional[str]) -> str:
+    raw = str(filename or "").replace("\\", "/").strip()
+    return Path(raw).name.strip().strip(".")
+
+
+def _is_unreliable_attachment_name(filename: Optional[str]) -> bool:
+    name = _safe_attachment_basename(filename)
+    if not name:
+        return True
+    stem = Path(name).stem.strip().lower()
+    suffix = Path(name).suffix.strip()
+    return stem in _GENERIC_ATTACHMENT_STEMS or not suffix
+
+
+def _normalize_attachment_metadata(
+    filename: Optional[str],
+    payload: bytes,
+    *,
+    content_type: Optional[str] = None,
+    index: int = 1,
+) -> Tuple[str, str]:
+    guessed_from_name = mimetypes.guess_type(_safe_attachment_basename(filename))[0]
+    guessed_from_bytes = _guess_content_type_from_bytes(payload)
+    provided_content_type = (content_type or "").split(";", 1)[0].strip().lower()
+    useful_provided_type = (
+        provided_content_type
+        if provided_content_type and provided_content_type != "application/octet-stream"
+        else None
+    )
+    final_content_type = (
+        useful_provided_type
+        or guessed_from_name
+        or guessed_from_bytes
+        or provided_content_type
+        or "application/octet-stream"
+    )
+    extension = (
+        Path(_safe_attachment_basename(filename)).suffix
+        or _extension_for_content_type(final_content_type)
+        or _extension_for_content_type(guessed_from_bytes)
+        or ".bin"
+    )
+    if extension and not extension.startswith("."):
+        extension = f".{extension}"
+
+    if _is_unreliable_attachment_name(filename):
+        safe_name = f"adjunto_{max(index, 1)}{extension}"
+    else:
+        safe_name = _safe_attachment_basename(filename)
+
+    if final_content_type == "application/pdf" and not safe_name.lower().endswith(".pdf"):
+        safe_name = f"{Path(safe_name).stem}.pdf"
+
+    return safe_name, final_content_type
+
+
+def _build_attachment_part(
+    payload: bytes,
+    filename: Optional[str],
+    *,
+    content_type: Optional[str] = None,
+    index: int = 1,
+):
+    safe_name, final_content_type = _normalize_attachment_metadata(
+        filename,
+        payload,
+        content_type=content_type,
+        index=index,
+    )
+    maintype, subtype = (
+        final_content_type.split("/", 1)
+        if "/" in final_content_type
+        else ("application", "octet-stream")
+    )
+    if final_content_type == "application/pdf":
+        part = MIMEApplication(payload, _subtype="pdf")
+    else:
+        part = MIMEBase(maintype, subtype)
+        part.set_payload(payload)
+        encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=safe_name)
+    return part
+
+
+def _build_message_container(
+    config: ConfiguracionSMTP,
+    destinatarios: List[str],
+    asunto: str,
+    *,
+    cuerpo_html: Optional[str] = None,
+    cuerpo_texto: Optional[str] = None,
+    cc: Optional[List[str]] = None,
+    remitente_nombre_override: Optional[str] = None,
+):
+    message = MIMEMultipart("mixed")
+    message["From"] = _build_from_header(config, remitente_nombre_override)
+    message["To"] = ", ".join(destinatarios)
+    if cc:
+        message["Cc"] = ", ".join(cc)
+    message["Subject"] = asunto
+
+    body = MIMEMultipart("alternative")
+    if cuerpo_texto:
+        body.attach(MIMEText(cuerpo_texto, "plain", "utf-8"))
+    if cuerpo_html:
+        body.attach(MIMEText(cuerpo_html, "html", "utf-8"))
+    elif cuerpo_texto:
+        body.attach(MIMEText(f"<pre>{cuerpo_texto}</pre>", "html", "utf-8"))
+    message.attach(body)
+    return message
 
 
 # Rutas relativas al backend/app para assets de correo (logo e icono) adjuntos como CID
@@ -248,13 +399,15 @@ class EmailService:
         try:
             cc = cc or []
             cco = cco or []
-            message = MIMEMultipart("alternative")
-            message["From"] = _build_from_header(config, remitente_nombre_override)
-            message["To"] = ", ".join(destinatarios)
-            if cc:
-                message["Cc"] = ", ".join(cc)
-            # BCC no se expone en headers — llega al envelope pero no al receptor
-            message["Subject"] = asunto
+            message = _build_message_container(
+                config,
+                destinatarios,
+                asunto,
+                cuerpo_html=cuerpo_html,
+                cuerpo_texto=cuerpo_texto,
+                cc=cc,
+                remitente_nombre_override=remitente_nombre_override,
+            )
             unsubscribe_entries: List[str] = []
             if list_unsubscribe_mailto:
                 unsubscribe_entries.append(f"<{list_unsubscribe_mailto}>")
@@ -265,30 +418,16 @@ class EmailService:
                 if list_unsubscribe_one_click and list_unsubscribe_url.startswith("https://"):
                     message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
-            # Agregar cuerpo del mensaje
-            if cuerpo_texto:
-                part_texto = MIMEText(cuerpo_texto, "plain", "utf-8")
-                message.attach(part_texto)
-
-            if cuerpo_html:
-                part_html = MIMEText(cuerpo_html, "html", "utf-8")
-                message.attach(part_html)
-            elif cuerpo_texto:
-                # Si solo hay texto, crear HTML básico
-                part_html = MIMEText(f"<pre>{cuerpo_texto}</pre>", "html", "utf-8")
-                message.attach(part_html)
-
             # Agregar adjuntos si existen
             if adjuntos:
-                for ruta_adjunto in adjuntos:
+                for idx, ruta_adjunto in enumerate(adjuntos, start=1):
                     try:
                         with open(ruta_adjunto, "rb") as attachment:
-                            part = MIMEBase("application", "octet-stream")
-                            part.set_payload(attachment.read())
-                            encoders.encode_base64(part)
-                            part.add_header(
-                                "Content-Disposition",
-                                f'attachment; filename= {ruta_adjunto.split("/")[-1]}'
+                            payload = attachment.read()
+                            part = _build_attachment_part(
+                                payload,
+                                Path(ruta_adjunto).name,
+                                index=idx,
                             )
                             message.attach(part)
                     except Exception as e:
@@ -361,13 +500,15 @@ class EmailService:
         try:
             cc = cc or []
             cco = cco or []
-            message = MIMEMultipart("alternative")
-            message["From"] = _build_from_header(config, remitente_nombre_override)
-            message["To"] = ", ".join(destinatarios)
-            if cc:
-                message["Cc"] = ", ".join(cc)
-            # BCC no se expone en headers — llega al envelope pero no al receptor
-            message["Subject"] = asunto
+            message = _build_message_container(
+                config,
+                destinatarios,
+                asunto,
+                cuerpo_html=cuerpo_html,
+                cuerpo_texto=cuerpo_texto,
+                cc=cc,
+                remitente_nombre_override=remitente_nombre_override,
+            )
             unsubscribe_entries: List[str] = []
             if list_unsubscribe_mailto:
                 unsubscribe_entries.append(f"<{list_unsubscribe_mailto}>")
@@ -378,36 +519,33 @@ class EmailService:
                 if list_unsubscribe_one_click and list_unsubscribe_url.startswith("https://"):
                     message["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
-            # Agregar cuerpo del mensaje
-            if cuerpo_texto:
-                part_texto = MIMEText(cuerpo_texto, "plain", "utf-8")
-                message.attach(part_texto)
-
-            if cuerpo_html:
-                part_html = MIMEText(cuerpo_html, "html", "utf-8")
-                message.attach(part_html)
-            elif cuerpo_texto:
-                part_html = MIMEText(f"<pre>{cuerpo_texto}</pre>", "html", "utf-8")
-                message.attach(part_html)
-
             # Agregar adjuntos (rutas en disco)
             if adjuntos:
-                for ruta_adjunto in adjuntos:
+                for idx, ruta_adjunto in enumerate(adjuntos, start=1):
                     try:
                         with open(ruta_adjunto, "rb") as attachment:
-                            part = MIMEBase("application", "octet-stream")
-                            part.set_payload(attachment.read())
-                            encoders.encode_base64(part)
-                            part.add_header(
-                                "Content-Disposition",
-                                f'attachment; filename= {ruta_adjunto.split("/")[-1]}'
+                            payload = attachment.read()
+                            part = _build_attachment_part(
+                                payload,
+                                Path(ruta_adjunto).name,
+                                index=idx,
                             )
                             message.attach(part)
                     except Exception as e:
                         logger.warning(f"No se pudo adjuntar archivo {ruta_adjunto}: {str(e)}")
             # Agregar adjuntos en memoria (nombre_archivo, bytes). PDF como application/pdf.
             if adjuntos_bytes:
-                for nombre_archivo, contenido in adjuntos_bytes:
+                for idx, adjunto in enumerate(adjuntos_bytes, start=1):
+                    nombre_archivo = None
+                    contenido = None
+                    tipo_mime = None
+                    if isinstance(adjunto, (list, tuple)):
+                        if len(adjunto) >= 1:
+                            nombre_archivo = adjunto[0]
+                        if len(adjunto) >= 2:
+                            contenido = adjunto[1]
+                        if len(adjunto) >= 3:
+                            tipo_mime = adjunto[2]
                     try:
                         if not isinstance(contenido, (bytes, bytearray)):
                             logger.warning(
@@ -420,27 +558,12 @@ class EmailService:
                         if not payload:
                             logger.warning("Adjunto omitido (vacío): %s", nombre_archivo)
                             continue
-                        nombre_str = (
-                            str(nombre_archivo)
-                            if nombre_archivo is not None
-                            else "adjunto.pdf"
+                        part = _build_attachment_part(
+                            payload,
+                            str(nombre_archivo) if nombre_archivo is not None else None,
+                            content_type=str(tipo_mime) if tipo_mime else None,
+                            index=idx,
                         )
-                        lower = nombre_str.lower()
-                        if lower.endswith(".pdf"):
-                            part = MIMEApplication(payload, _subtype="pdf")
-                            part.add_header(
-                                "Content-Disposition",
-                                "attachment",
-                                filename=nombre_str,
-                            )
-                        else:
-                            part = MIMEBase("application", "octet-stream")
-                            part.set_payload(payload)
-                            encoders.encode_base64(part)
-                            part.add_header(
-                                "Content-Disposition",
-                                f'attachment; filename="{nombre_str}"'
-                            )
                         message.attach(part)
                     except Exception as e:
                         logger.warning(

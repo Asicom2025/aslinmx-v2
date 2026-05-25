@@ -2,6 +2,7 @@
 Rutas para generación de reportes
 """
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List
@@ -24,6 +25,11 @@ from app.services.generated_file_service import (
 )
 from app.services.reporte_service import ReporteService
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _report_debug(evento: str, **payload) -> None:
+    logger.warning("[REPORT_DEBUG] %s | %s", evento, payload)
 
 
 def _persist_report_response(
@@ -36,6 +42,16 @@ def _persist_report_response(
     archivo_bytes: bytes,
     media_type: str,
 ) -> GeneratedFileAccessResponse:
+    _report_debug(
+        "persist_report_response:start",
+        usuario_id=str(current_user.id),
+        empresa_id=str(current_user.empresa_id),
+        nombre_archivo=nombre_archivo,
+        media_type=media_type,
+        bytes=len(archivo_bytes or b""),
+        modulo=request_payload.modulo,
+        formato=request_payload.formato,
+    )
     try:
         archivo_generado = ArchivoGeneradoService.persist_bytes(
             db,
@@ -57,10 +73,18 @@ def _persist_report_response(
                 "incluir_graficos": bool(request_payload.incluir_graficos),
             },
         )
-        return GeneratedFileAccessResponse(
+        response = GeneratedFileAccessResponse(
             **build_generated_file_access_payload(archivo_generado, request)
         )
+        _report_debug(
+            "persist_report_response:end",
+            archivo_generado_id=str(archivo_generado.id),
+            filename=nombre_archivo,
+            response=response.model_dump(mode="json"),
+        )
+        return response
     except Exception as exc:
+        logger.exception("[REPORT_DEBUG] persist_report_response:error")
         raise HTTPException(
             status_code=500,
             detail=f"No se pudo persistir el reporte generado: {exc}",
@@ -198,19 +222,48 @@ async def descargar_reporte(
     db: Session = Depends(get_db)
 ):
     """Genera y descarga un reporte directamente"""
+    filtros_dump = request.filtros.model_dump(exclude_unset=True) if request.filtros else None
+    request_dump = request.model_dump(mode="json")
+    _report_debug(
+        "descargar_reporte:start",
+        usuario_id=str(current_user.id),
+        empresa_id=str(current_user.empresa_id),
+        route=str(http_request.url.path),
+        method=http_request.method,
+        request_payload=request_dump,
+        filtros_dump=filtros_dump,
+        columnas=request.columnas,
+        ordenamiento=request.ordenamiento,
+    )
     try:
         datos = ReporteService.obtener_datos_reporte(
             db=db,
             modulo=request.modulo,
             empresa_id=current_user.empresa_id,
-            filtros=request.filtros.model_dump(exclude_unset=True) if request.filtros else None,
+            filtros=filtros_dump,
             columnas=request.columnas,
             ordenamiento=request.ordenamiento
         )
+        _report_debug(
+            "descargar_reporte:datos_obtenidos",
+            total=len(datos),
+            primer_registro=datos[0] if datos else None,
+            columnas_primer_registro=list(datos[0].keys()) if datos else [],
+        )
 
         nombre_archivo = f"reporte_{request.modulo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        _report_debug(
+            "descargar_reporte:nombre_base",
+            nombre_archivo=nombre_archivo,
+        )
 
         if request.formato == "excel":
+            _report_debug(
+                "descargar_reporte:generar_archivo:start",
+                formato="excel",
+                total_datos=len(datos),
+                columnas=request.columnas,
+            )
             archivo_bytes = ReporteService.generar_reporte_excel(
                 datos=datos,
                 nombre_hoja=request.modulo.title(),
@@ -219,7 +272,20 @@ async def descargar_reporte(
             )
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             nombre_archivo += ".xlsx"
+            _report_debug(
+                "descargar_reporte:generar_archivo:end",
+                formato="excel",
+                nombre_archivo=nombre_archivo,
+                bytes=len(archivo_bytes or b""),
+                media_type=media_type,
+            )
         elif request.formato == "csv":
+            _report_debug(
+                "descargar_reporte:generar_archivo:start",
+                formato="csv",
+                total_datos=len(datos),
+                columnas=request.columnas,
+            )
             csv_content = ReporteService.generar_reporte_csv(
                 datos=datos,
                 columnas=request.columnas
@@ -227,7 +293,21 @@ async def descargar_reporte(
             archivo_bytes = csv_content.encode('utf-8')
             media_type = "text/csv"
             nombre_archivo += ".csv"
+            _report_debug(
+                "descargar_reporte:generar_archivo:end",
+                formato="csv",
+                nombre_archivo=nombre_archivo,
+                bytes=len(archivo_bytes or b""),
+                media_type=media_type,
+                csv_preview=csv_content[:1000],
+            )
         elif request.formato == "pdf":
+            _report_debug(
+                "descargar_reporte:generar_archivo:start",
+                formato="pdf",
+                total_datos=len(datos),
+                columnas=request.columnas,
+            )
             archivo_bytes = ReporteService.generar_reporte_pdf(
                 datos=datos,
                 titulo=f"Reporte de {request.modulo.title()}",
@@ -235,10 +315,21 @@ async def descargar_reporte(
             )
             media_type = "application/pdf"
             nombre_archivo += ".pdf"
+            _report_debug(
+                "descargar_reporte:generar_archivo:end",
+                formato="pdf",
+                nombre_archivo=nombre_archivo,
+                bytes=len(archivo_bytes or b""),
+                media_type=media_type,
+            )
         else:
+            _report_debug(
+                "descargar_reporte:formato_no_soportado",
+                formato=request.formato,
+            )
             raise HTTPException(status_code=400, detail="Formato no soportado")
 
-        return _persist_report_response(
+        response = _persist_report_response(
             db=db,
             request=http_request,
             current_user=current_user,
@@ -247,10 +338,18 @@ async def descargar_reporte(
             archivo_bytes=archivo_bytes,
             media_type=media_type,
         )
+        _report_debug(
+            "descargar_reporte:end",
+            nombre_archivo=nombre_archivo,
+            response=response.model_dump(mode="json"),
+        )
+        return response
 
     except ValueError as e:
+        _report_debug("descargar_reporte:value_error", error=str(e))
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.exception("[REPORT_DEBUG] descargar_reporte:error")
         raise HTTPException(status_code=500, detail=f"Error al generar reporte: {str(e)}")
 
 

@@ -674,7 +674,7 @@ async def enviar_archivo_correo(
                 try:
                     contenido_bytes = storage_service.get_bytes(ruta_str)
                     nombre = (doc.nombre_archivo or Path(ruta_str).name) or "adjunto"
-                    adjuntos_bytes.append((nombre, contenido_bytes))
+                    adjuntos_bytes.append((nombre, contenido_bytes, getattr(doc, "tipo_mime", None)))
                 except StorageError:
                     pass
 
@@ -682,14 +682,15 @@ async def enviar_archivo_correo(
     if request_data.archivos_adjuntos:
         for archivo in request_data.archivos_adjuntos:
             nombre = (archivo.get("nombre") or "").strip()
+            tipo_mime = (archivo.get("tipo_mime") or "").strip()
             contenido_base64 = (archivo.get("contenido_base64") or "").strip()
-            if not nombre or not contenido_base64:
+            if not contenido_base64:
                 continue
             try:
                 if "," in contenido_base64:
                     contenido_base64 = contenido_base64.split(",", 1)[1]
                 contenido_bytes = base64.b64decode(contenido_base64, validate=True)
-                adjuntos_bytes.append((nombre, contenido_bytes))
+                adjuntos_bytes.append((nombre or None, contenido_bytes, tipo_mime or None))
             except (ValueError, binascii.Error):
                 # Ignorar adjuntos malformados para no frenar todo el envío
                 continue
