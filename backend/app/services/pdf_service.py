@@ -16,6 +16,8 @@ class PDFService:
     """Servicio para generar PDFs desde HTML"""
 
     _IMG_TAG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+    _HTML_TOKEN_RE = re.compile(r"(<[^>]+>)")
+    _PDF_DATE_RE = re.compile(r"(?<![\d/])(\d{2}/\d{2}/\d{4})(?![\d/])")
     _HTML_ATTR_RE_TEMPLATE = r"""\b{attr}\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))"""
     _CSS_SIZE_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(px|pt|cm|mm|in|%)?\s*$", re.IGNORECASE)
 
@@ -139,6 +141,46 @@ class PDFService:
             )
 
         return PDFService._IMG_TAG_RE.sub(normalize_img, html)
+
+    @staticmethod
+    def _protect_pdf_date_text_nodes(html: str) -> str:
+        """
+        Envuelve fechas DD/MM/YYYY en texto visible para que WeasyPrint no las corte.
+        No procesa atributos ni contenido que ya esté dentro de .pdf-date-nowrap.
+        """
+        if not html or "/" not in html:
+            return html
+
+        out = []
+        nowrap_stack = []
+
+        for token in PDFService._HTML_TOKEN_RE.split(html):
+            if not token:
+                continue
+            if token.startswith("<") and token.endswith(">"):
+                lower = token.lower()
+                closing = re.match(r"</\s*([a-zA-Z0-9:-]+)", lower)
+                if closing and nowrap_stack and closing.group(1) == nowrap_stack[-1]:
+                    nowrap_stack.pop()
+                elif "pdf-date-nowrap" in lower and not lower.startswith("</"):
+                    opening = re.match(r"<\s*([a-zA-Z0-9:-]+)", lower)
+                    if opening and not lower.endswith("/>"):
+                        nowrap_stack.append(opening.group(1))
+                out.append(token)
+                continue
+
+            if nowrap_stack:
+                out.append(token)
+                continue
+
+            out.append(
+                PDFService._PDF_DATE_RE.sub(
+                    r'<span class="pdf-date-nowrap">\1</span>',
+                    token,
+                )
+            )
+
+        return "".join(out)
 
     @staticmethod
     def replace_variables(html_content: str, variables: Optional[Dict[str, Any]] = None) -> str:
@@ -311,6 +353,14 @@ class PDFService:
         img.pdf-firma {{
             display: inline-block;
         }}
+
+        .pdf-date-nowrap {{
+            white-space: nowrap;
+            display: inline-block;
+            word-break: keep-all;
+            overflow-wrap: normal;
+            hyphens: none;
+        }}
         
         /* Estilos para listas */
         ul, ol {{
@@ -461,6 +511,9 @@ class PDFService:
             html_with_variables
         )
         html_with_variables = PDFService._normalize_jodit_image_dimensions_for_pdf(
+            html_with_variables
+        )
+        html_with_variables = PDFService._protect_pdf_date_text_nodes(
             html_with_variables
         )
 
