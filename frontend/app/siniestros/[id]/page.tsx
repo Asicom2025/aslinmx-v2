@@ -5900,7 +5900,7 @@ export default function SiniestroDetailPage() {
             <input
               type="file"
               multiple
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.jpg,.jpeg,.png,.gif,.webp"
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:cursor-pointer"
               onChange={(e) =>
                 setUploadDocFiles(
@@ -6318,6 +6318,7 @@ export default function SiniestroDetailPage() {
                 <input
                   type="file"
                   multiple
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.jpg,.jpeg,.png,.gif,.webp"
                   className="hidden"
                   onChange={handleEmailAdjuntosChange}
                 />

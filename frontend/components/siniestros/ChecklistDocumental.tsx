@@ -149,6 +149,7 @@ function RequisitoRow({
                 ref={fileInputRef}
                 type="file"
                 multiple
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.jpg,.jpeg,.png,.gif,.webp"
                 className="hidden"
                 onChange={handleFileChange}
                 disabled={uploading}
