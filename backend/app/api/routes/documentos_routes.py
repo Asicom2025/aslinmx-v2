@@ -43,6 +43,7 @@ from app.services.storage_service import (
     get_storage_service,
     resolve_siniestro_storage_ref,
 )
+from app.services.file_validation_service import validate_safe_document_file
 
 router = APIRouter(prefix="/documentos", tags=["Documentos"])
 
@@ -101,7 +102,6 @@ def _assert_siniestro_documento_descarga(
     _assert_siniestro_documento_lectura(db, current_user, siniestro_id)
 
 
-ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "application/msword", "application/vnd.", "text/")
 MAX_FILE_SIZE_MB = 25
 
 
@@ -536,23 +536,6 @@ def _upload_documento_archivo_single(
         raise HTTPException(status_code=400, detail=detail)
 
     content_type = (file.content_type or "").strip().lower()
-    if not any(content_type.startswith(p) for p in ALLOWED_MIME_PREFIXES):
-        detail = (
-            f"Tipo de archivo no permitido: {content_type}. "
-            "Se permiten imágenes, PDF y documentos."
-        )
-        _registrar_auditoria_fallo_subida_documento(
-            db,
-            request,
-            current_user=current_user,
-            siniestro_id=siniestro_id,
-            empresa_id=empresa_audit,
-            etapa="validacion_mime",
-            mensaje=detail,
-            datos_extra={"nombre_archivo": file.filename, "content_type": content_type},
-        )
-        raise HTTPException(status_code=400, detail=detail)
-
     content = b""
     size = 0
     max_bytes = MAX_FILE_SIZE_MB * 1024 * 1024
@@ -593,6 +576,29 @@ def _upload_documento_archivo_single(
             datos_extra={"nombre_archivo": file.filename, "content_type": content_type},
         )
         raise HTTPException(status_code=400, detail=detail)
+
+    try:
+        content_type = validate_safe_document_file(
+            filename=file.filename,
+            content_type=content_type,
+            data=content,
+        )
+    except ValueError as exc:
+        detail = (
+            f"Archivo no permitido: {exc}. "
+            "Solo se permiten PDF, Word, Excel, CSV, TXT e imágenes seguras."
+        )
+        _registrar_auditoria_fallo_subida_documento(
+            db,
+            request,
+            current_user=current_user,
+            siniestro_id=siniestro_id,
+            empresa_id=empresa_audit,
+            etapa="validacion_tipo_archivo",
+            mensaje=detail,
+            datos_extra={"nombre_archivo": file.filename, "content_type": content_type},
+        )
+        raise HTTPException(status_code=400, detail=detail) from exc
 
     storage_service = get_storage_service()
     siniestro_obj = db.query(Siniestro).filter(Siniestro.id == siniestro_id).first()

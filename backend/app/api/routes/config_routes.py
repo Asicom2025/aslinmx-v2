@@ -38,6 +38,7 @@ from app.services.legal_service import DocumentoService, TiposDocumentoService, 
 from app.api.routes.pdf_routes import generar_pdf_bytes_para_documento
 from app.core.config import settings
 from app.services.storage_service import StorageError, get_storage_service
+from app.services.file_validation_service import validate_safe_document_file
 
 router = APIRouter()
 
@@ -690,7 +691,21 @@ async def enviar_archivo_correo(
                 if "," in contenido_base64:
                     contenido_base64 = contenido_base64.split(",", 1)[1]
                 contenido_bytes = base64.b64decode(contenido_base64, validate=True)
-                adjuntos_bytes.append((nombre or None, contenido_bytes, tipo_mime or None))
+                try:
+                    tipo_mime_validado = validate_safe_document_file(
+                        filename=nombre,
+                        content_type=tipo_mime,
+                        data=contenido_bytes,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"Archivo adjunto no permitido ({nombre or 'sin nombre'}): {exc}. "
+                            "Solo se permiten PDF, Word, Excel, CSV, TXT e imágenes seguras."
+                        ),
+                    ) from exc
+                adjuntos_bytes.append((nombre or None, contenido_bytes, tipo_mime_validado))
             except (ValueError, binascii.Error):
                 # Ignorar adjuntos malformados para no frenar todo el envío
                 continue
