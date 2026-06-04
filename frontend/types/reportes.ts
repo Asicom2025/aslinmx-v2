@@ -14,6 +14,7 @@ export interface ReporteDisponible {
 export interface ReporteFiltros {
   fecha_desde?: string;
   fecha_hasta?: string;
+  anio?: number;
   activo?: boolean;
   empresa_id?: string;
   filtros_adicionales?: Record<string, any>;

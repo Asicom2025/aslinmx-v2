@@ -132,6 +132,7 @@ async def listar_reportes_disponibles(
             ],
             filtros_disponibles=[
                 "activo",
+                "anio",
                 "fecha_desde",
                 "fecha_hasta",
                 "geo_estado_id",

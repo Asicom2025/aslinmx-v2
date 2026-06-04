@@ -97,16 +97,29 @@ SINIESTRO_ID_SORT_FIELDS = {"id", "id_normalizado", "id_formato"}
 
 def _siniestro_id_sort_key(
     registro: Siniestro,
-    proveniente_codigo_por_id: Dict[Any, str],
-) -> tuple[tuple[int, Any], tuple[int, Any], tuple[int, Any]]:
-    codigo_proveniente = proveniente_codigo_por_id.get(
-        registro.proveniente_id, ""
-    )
+) -> tuple[tuple[int, Any], tuple[int, Any]]:
+    # El orden del ID normalizado en reportes agrupa por anualidad y consecutivo;
+    # el codigo del proveniente solo forma parte del texto visible, no del sort.
     return (
-        _int_or_text_sort_value(codigo_proveniente),
-        _int_or_text_sort_value(getattr(registro, "codigo", None)),
         _year_sort_value(getattr(registro, "anualidad", None)),
+        _int_or_text_sort_value(getattr(registro, "codigo", None)),
     )
+
+
+def _normalize_year_filter_values(value: Any) -> List[int]:
+    if value is None:
+        return []
+    items = value if isinstance(value, (list, tuple, set)) else [value]
+    years: List[int] = []
+    for item in items:
+        raw = "".join(ch for ch in str(item).strip() if ch.isdigit())
+        if not raw:
+            continue
+        try:
+            years.append(int(raw[:4] if len(raw) >= 4 else raw[-2:].zfill(2)))
+        except ValueError:
+            continue
+    return years
 
 
 class ReporteService:
@@ -307,34 +320,16 @@ class ReporteService:
         )
 
         if computed_ordering:
-            proveniente_ids = {
-                r.proveniente_id for r in registros if getattr(r, "proveniente_id", None)
-            }
             _debug_log_reporte(
                 "obtener_datos_reporte:ordenamiento_calculado:start",
                 computed_ordering=computed_ordering,
                 total_registros=len(registros),
-                proveniente_ids=proveniente_ids,
-            )
-            proveniente_codigo_por_id = {}
-            if proveniente_ids:
-                proveniente_codigo_por_id = {
-                    row.id: (row.codigo or "").strip()
-                    for row in db.query(Proveniente.id, Proveniente.codigo)
-                    .filter(Proveniente.id.in_(proveniente_ids))
-                    .all()
-                }
-            _debug_log_reporte(
-                "obtener_datos_reporte:ordenamiento_calculado:provenientes",
-                proveniente_codigo_por_id=proveniente_codigo_por_id,
             )
 
             for campo, direccion in reversed(list(effective_ordering.items())):
                 if campo in SINIESTRO_ID_SORT_FIELDS:
                     registros.sort(
-                        key=lambda r: _siniestro_id_sort_key(
-                            r, proveniente_codigo_por_id
-                        ),
+                        key=_siniestro_id_sort_key,
                         reverse=str(direccion).lower() == "desc",
                     )
                 elif hasattr(Modelo, campo):
@@ -582,6 +577,28 @@ class ReporteService:
             "_aplicar_filtros_siniestros:adicionales",
             adicionales=adicionales,
         )
+
+        anios = _normalize_year_filter_values(
+            filtros.get("anio")
+            or filtros.get("año")
+            or adicionales.get("anio")
+            or adicionales.get("año")
+            or adicionales.get("anualidad")
+        )
+        if anios:
+            full_years = [anio for anio in anios if anio >= 1000]
+            short_years = [anio for anio in anios if anio < 1000]
+            condiciones_anio = []
+            if full_years:
+                condiciones_anio.append(Siniestro.anualidad.in_(full_years))
+            if short_years:
+                condiciones_anio.append(func.mod(Siniestro.anualidad, 100).in_(short_years))
+            query = query.filter(or_(*condiciones_anio))
+            _debug_log_reporte(
+                "_aplicar_filtros_siniestros:anio",
+                valores=anios,
+                sql=_debug_query_sql(query),
+            )
 
         ids_inst = _normalize_uuid_list(adicionales.get("institucion_id"))
         if ids_inst:

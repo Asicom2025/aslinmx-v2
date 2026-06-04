@@ -36,6 +36,7 @@ export default function GenerarReporteModal({
   const [ordenamiento, setOrdenamiento] = useState<Record<string, "asc" | "desc">>({});
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
+  const [anio, setAnio] = useState("");
   const [activo, setActivo] = useState<boolean | null>(null);
   const [filtrosAdicionales, setFiltrosAdicionales] = useState<Record<string, any>>({});
   const [mostrarGuardar, setMostrarGuardar] = useState(false);
@@ -161,6 +162,12 @@ export default function GenerarReporteModal({
     }
     if (fechaHasta) {
       filtrosFinales.fecha_hasta = convertirFechaADatetimeFin(fechaHasta);
+    }
+    if (anio.trim()) {
+      const anioNumber = Number(anio.trim());
+      if (Number.isFinite(anioNumber)) {
+        filtrosFinales.anio = anioNumber;
+      }
     }
     if (activo !== null) {
       filtrosFinales.activo = activo;
@@ -364,6 +371,21 @@ export default function GenerarReporteModal({
           {/* Filtros de negocio para exportar siniestros */}
           {modulo === "siniestros" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {reporteDisponible.filtros_disponibles.includes("anio") && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Año</label>
+                  <input
+                    type="number"
+                    min="2000"
+                    max="2100"
+                    value={anio}
+                    onChange={(e) => setAnio(e.target.value)}
+                    placeholder="2026"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              )}
+
               {reporteDisponible.filtros_disponibles.includes("geo_estado_id") && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
