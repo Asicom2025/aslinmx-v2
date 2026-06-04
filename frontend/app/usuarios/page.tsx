@@ -21,7 +21,7 @@ import { usePermisos } from "@/hooks/usePermisos";
 import { MODULO, ACCION } from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
 import { ColumnDef } from "@tanstack/react-table";
-import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn, FiMail, FiDownload, FiKey, FiEye } from "react-icons/fi";
+import { FiEdit2, FiTrash2, FiPlus, FiUsers, FiShield, FiSettings, FiLogIn, FiMail, FiDownload, FiKey, FiEye, FiEyeOff, FiRefreshCw } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 
@@ -77,6 +77,7 @@ export default function UsuariosPage() {
   // Modals
   const [usuarioModalOpen, setUsuarioModalOpen] = useState(false);
   const [usuarioForm, setUsuarioForm] = useState<any>({});
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [rolModalOpen, setRolModalOpen] = useState(false);
   const [rolForm, setRolForm] = useState<any>({});
   const [editingRol, setEditingRol] = useState<any>(null);
@@ -169,7 +170,43 @@ export default function UsuariosPage() {
       rol_id: "",
       is_active: true,
     });
+    setShowCreatePassword(false);
     setUsuarioModalOpen(true);
+  };
+
+  const generateSecurePassword = (length = 16) => {
+    const groups = [
+      "ABCDEFGHJKLMNPQRSTUVWXYZ",
+      "abcdefghijkmnopqrstuvwxyz",
+      "23456789",
+      "!@#$%&*?",
+    ];
+    const allChars = groups.join("");
+    const randomIndex = (max: number) => {
+      const values = new Uint32Array(1);
+      window.crypto.getRandomValues(values);
+      return values[0] % max;
+    };
+    const chars = groups.map((group) => group[randomIndex(group.length)]);
+
+    while (chars.length < length) {
+      chars.push(allChars[randomIndex(allChars.length)]);
+    }
+
+    for (let i = chars.length - 1; i > 0; i -= 1) {
+      const j = randomIndex(i + 1);
+      [chars[i], chars[j]] = [chars[j], chars[i]];
+    }
+
+    return chars.join("");
+  };
+
+  const suggestCreatePassword = () => {
+    setUsuarioForm((prev: any) => ({
+      ...prev,
+      password: generateSecurePassword(16),
+    }));
+    setShowCreatePassword(true);
   };
 
   const openEditUsuario = (usuario: User) => {
@@ -763,11 +800,39 @@ export default function UsuariosPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Contraseña *</label>
             <Input
-              type="password"
+              type={showCreatePassword ? "text" : "password"}
               name="password"
               value={usuarioForm.password || ""}
               onChange={(e) => setUsuarioForm({ ...usuarioForm, password: e.target.value })}
               required
+              autoComplete="new-password"
+              endAdornmentPaddingClassName="pr-20"
+              endAdornment={
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={suggestCreatePassword}
+                    className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    aria-label="Sugerir contraseña segura"
+                    title="Sugerir contraseña segura"
+                  >
+                    <FiRefreshCw className="h-5 w-5" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreatePassword((v) => !v)}
+                    className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
+                    aria-label={showCreatePassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                    title={showCreatePassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  >
+                    {showCreatePassword ? (
+                      <FiEyeOff className="h-5 w-5" aria-hidden />
+                    ) : (
+                      <FiEye className="h-5 w-5" aria-hidden />
+                    )}
+                  </button>
+                </div>
+              }
             />
           </div>
           <CustomSelect

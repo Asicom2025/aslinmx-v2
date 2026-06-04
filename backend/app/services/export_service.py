@@ -5,6 +5,7 @@ Servicio para exportación de datos a Excel, CSV y PDF
 import html
 import io
 import csv
+import re
 from decimal import Decimal
 from typing import List, Dict, Any, Optional
 
@@ -35,6 +36,27 @@ except ImportError:
 class ExportService:
     """Servicio para exportar datos a diferentes formatos"""
 
+    _MOJIBAKE_MARKERS = re.compile(r"(?:Ã.|Â.|â[€™“”€“˜¢¢])")
+
+    @staticmethod
+    def _repair_common_mojibake(value: str) -> str:
+        """Repara texto UTF-8 leído como Latin-1/Windows-1252 cuando es evidente."""
+        if not ExportService._MOJIBAKE_MARKERS.search(value):
+            return value
+
+        candidates = []
+        for encoding in ("latin1", "cp1252"):
+            try:
+                candidates.append(value.encode(encoding).decode("utf-8"))
+            except UnicodeError:
+                continue
+
+        def mojibake_score(text: str) -> int:
+            return len(ExportService._MOJIBAKE_MARKERS.findall(text))
+
+        best = min(candidates or [value], key=mojibake_score)
+        return best if mojibake_score(best) < mojibake_score(value) else value
+
     @staticmethod
     def _scalar_for_export_cell(value: Any) -> Any:
         """Normaliza valores para celda CSV/Excel; decodifica entidades HTML en texto."""
@@ -44,7 +66,7 @@ class ExportService:
             return ""
         if isinstance(value, (int, float, Decimal)):
             return value
-        return html.unescape(str(value))
+        return ExportService._repair_common_mojibake(html.unescape(str(value)))
 
     @staticmethod
     def _label_for_export_header(header: Any) -> str:
@@ -163,6 +185,7 @@ class ExportService:
             return ""
 
         output = io.StringIO()
+        output.write("\ufeff")
         
         # Determinar columnas
         if columnas:
