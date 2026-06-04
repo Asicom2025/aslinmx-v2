@@ -18,6 +18,8 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   step?: string | number;
   /** Contenido a la derecha del campo (p. ej. botón mostrar contraseña) */
   endAdornment?: React.ReactNode;
+  /** Padding derecho del input cuando hay contenido interno a la derecha. */
+  endAdornmentPaddingClassName?: string;
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input({
@@ -32,12 +34,13 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input({
   error,
   step,
   endAdornment,
+  endAdornmentPaddingClassName = "pr-10",
   ...rest
 }, ref) {
   const hasEnd = Boolean(endAdornment);
 
   const inputClassName = `w-full border rounded-lg py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
-    hasEnd ? "pl-3 pr-10" : "px-3"
+    hasEnd ? `pl-3 ${endAdornmentPaddingClassName}` : "px-3"
   } ${
     error ? "border-red-500 focus:ring-red-500" : "border-gray-300"
   } ${disabled ? "bg-gray-100 cursor-not-allowed" : ""}`;

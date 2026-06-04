@@ -92,6 +92,23 @@ def _year_sort_value(value: Any) -> tuple[int, Any]:
         return _int_or_text_sort_value(value)
 
 
+SINIESTRO_ID_SORT_FIELDS = {"id", "id_normalizado", "id_formato"}
+
+
+def _siniestro_id_sort_key(
+    registro: Siniestro,
+    proveniente_codigo_por_id: Dict[Any, str],
+) -> tuple[tuple[int, Any], tuple[int, Any], tuple[int, Any]]:
+    codigo_proveniente = proveniente_codigo_por_id.get(
+        registro.proveniente_id, ""
+    )
+    return (
+        _int_or_text_sort_value(codigo_proveniente),
+        _int_or_text_sort_value(getattr(registro, "codigo", None)),
+        _year_sort_value(getattr(registro, "anualidad", None)),
+    )
+
+
 class ReporteService:
     """Servicio para generar reportes de diferentes módulos"""
 
@@ -223,13 +240,17 @@ class ReporteService:
             )
 
         computed_ordering = []
-        if ordenamiento:
+        effective_ordering = ordenamiento or (
+            {"id_normalizado": "asc"} if modulo == "siniestros" else None
+        )
+        if effective_ordering:
             _debug_log_reporte(
                 "obtener_datos_reporte:ordenamiento:start",
-                ordenamiento=ordenamiento,
+                ordenamiento=effective_ordering,
+                ordenamiento_original=ordenamiento,
             )
-            for campo, direccion in ordenamiento.items():
-                if modulo == "siniestros" and campo in ("id_normalizado", "id_formato"):
+            for campo, direccion in effective_ordering.items():
+                if modulo == "siniestros" and campo in SINIESTRO_ID_SORT_FIELDS:
                     computed_ordering.append((campo, direccion))
                     _debug_log_reporte(
                         "obtener_datos_reporte:ordenamiento_calculado",
@@ -308,20 +329,12 @@ class ReporteService:
                 proveniente_codigo_por_id=proveniente_codigo_por_id,
             )
 
-            def id_normalizado_sort_key(registro: Siniestro):
-                codigo_proveniente = proveniente_codigo_por_id.get(
-                    registro.proveniente_id, ""
-                )
-                return (
-                    _int_or_text_sort_value(codigo_proveniente),
-                    _int_or_text_sort_value(getattr(registro, "codigo", None)),
-                    _year_sort_value(getattr(registro, "anualidad", None)),
-                )
-
-            for campo, direccion in reversed(list(ordenamiento.items())):
-                if campo in ("id_normalizado", "id_formato"):
+            for campo, direccion in reversed(list(effective_ordering.items())):
+                if campo in SINIESTRO_ID_SORT_FIELDS:
                     registros.sort(
-                        key=id_normalizado_sort_key,
+                        key=lambda r: _siniestro_id_sort_key(
+                            r, proveniente_codigo_por_id
+                        ),
                         reverse=str(direccion).lower() == "desc",
                     )
                 elif hasattr(Modelo, campo):

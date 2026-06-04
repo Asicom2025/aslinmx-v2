@@ -291,7 +291,7 @@ async def descargar_reporte(
                 columnas=request.columnas
             )
             archivo_bytes = csv_content.encode('utf-8')
-            media_type = "text/csv"
+            media_type = "text/csv; charset=utf-8"
             nombre_archivo += ".csv"
             _report_debug(
                 "descargar_reporte:generar_archivo:end",
