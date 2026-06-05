@@ -19,7 +19,7 @@ sys.modules.setdefault("app.services.legal_service", legal_service_stub)
 from app.services.reporte_service import _siniestro_id_sort_key
 
 
-def test_siniestro_visible_id_sort_key_orders_by_origin_code_number_and_year():
+def test_siniestro_visible_id_sort_key_orders_by_year_and_number_only():
     proveniente_a = "prov-a"
     proveniente_b = "prov-b"
     proveniente_codigo_por_id = {
@@ -27,29 +27,29 @@ def test_siniestro_visible_id_sort_key_orders_by_origin_code_number_and_year():
         proveniente_b: "103",
     }
     siniestros = [
-        SimpleNamespace(proveniente_id=proveniente_a, codigo="003", anualidad=2026),
+        SimpleNamespace(proveniente_id=proveniente_a, codigo="001", anualidad=2025),
+        SimpleNamespace(proveniente_id=proveniente_a, codigo="002", anualidad=2025),
         SimpleNamespace(proveniente_id=proveniente_a, codigo="001", anualidad=2026),
         SimpleNamespace(proveniente_id=proveniente_a, codigo="002", anualidad=2026),
-        SimpleNamespace(proveniente_id=proveniente_a, codigo="001", anualidad=2024),
-        SimpleNamespace(proveniente_id=proveniente_b, codigo="001", anualidad=2026),
-        SimpleNamespace(proveniente_id=proveniente_a, codigo="001", anualidad=2025),
+        SimpleNamespace(proveniente_id=proveniente_b, codigo="001", anualidad=2025),
+        SimpleNamespace(proveniente_id=proveniente_b, codigo="002", anualidad=2025),
     ]
 
     ordered = sorted(
         siniestros,
-        key=lambda item: _siniestro_id_sort_key(item, proveniente_codigo_por_id),
+        key=_siniestro_id_sort_key,
     )
 
     assert [
         f"{proveniente_codigo_por_id[item.proveniente_id]}-{item.codigo}-{item.anualidad % 100:02d}"
         for item in ordered
     ] == [
-        "102-001-24",
         "102-001-25",
+        "103-001-25",
+        "102-002-25",
+        "103-002-25",
         "102-001-26",
         "102-002-26",
-        "102-003-26",
-        "103-001-26",
     ]
 
 

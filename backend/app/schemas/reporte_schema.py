@@ -12,6 +12,7 @@ class ReporteFiltros(BaseModel):
     """Filtros genéricos para reportes"""
     fecha_desde: Optional[datetime] = None
     fecha_hasta: Optional[datetime] = None
+    anio: Optional[int] = None
     activo: Optional[bool] = None
     empresa_id: Optional[UUID] = None
     # Filtros adicionales específicos por módulo

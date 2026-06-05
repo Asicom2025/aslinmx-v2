@@ -130,6 +130,7 @@ async def exportar_excel(
     modulo: str,
     columnas: Optional[List[str]] = Query(None),
     activo: Optional[bool] = Query(None),
+    anio: Optional[int] = Query(None),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -137,6 +138,8 @@ async def exportar_excel(
     filtros = {}
     if activo is not None:
         filtros["activo"] = activo
+    if anio is not None:
+        filtros["anio"] = anio
 
     return await exportar_datos(
         request=request,
@@ -155,6 +158,7 @@ async def exportar_csv(
     modulo: str,
     columnas: Optional[List[str]] = Query(None),
     activo: Optional[bool] = Query(None),
+    anio: Optional[int] = Query(None),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -162,6 +166,8 @@ async def exportar_csv(
     filtros = {}
     if activo is not None:
         filtros["activo"] = activo
+    if anio is not None:
+        filtros["anio"] = anio
 
     return await exportar_datos(
         request=request,
