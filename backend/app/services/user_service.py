@@ -217,10 +217,20 @@ class UserService:
             setattr(perfil, field, value)
     
     @staticmethod
+    def _active_user_query(db: Session):
+        return db.query(User).filter(
+            User.eliminado == False,  # noqa: E712
+        )
+
+    @staticmethod
+    def _get_user_by_id_any_status(db: Session, user_id: str) -> Optional[User]:
+        return db.query(User).filter(User.id == user_id).first()
+
+    @staticmethod
     def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
         """Obtiene un usuario por ID"""
         return (
-            db.query(User)
+            UserService._active_user_query(db)
             .options(
                 selectinload(User.perfil),
                 selectinload(User.rol),
@@ -233,12 +243,12 @@ class UserService:
     @staticmethod
     def get_user_by_email(db: Session, email: str) -> Optional[User]:
         """Obtiene un usuario por email"""
-        return db.query(User).filter(User.email == email).first()
+        return UserService._active_user_query(db).filter(User.email == email).first()
     
     @staticmethod
     def get_user_by_username(db: Session, username: str) -> Optional[User]:
         """Compat: no existe username, usamos correo igualado"""
-        return db.query(User).filter(User.email == username).first()
+        return UserService._active_user_query(db).filter(User.email == username).first()
     
     @staticmethod
     def get_users(
@@ -255,7 +265,7 @@ class UserService:
         usuario_empresas: no hace falta si ya vienen empresas vía relación M2M.
         """
         return (
-            db.query(User)
+            UserService._active_user_query(db)
             .options(
                 defer(User.password_hash),
                 noload(User.contactos),
@@ -304,7 +314,7 @@ class UserService:
             HTTPException: Si el email o username ya existe
         """
         # Verificar si el email ya existe
-        if UserService.get_user_by_email(db, user.email):
+        if db.query(User).filter(User.email == user.email).first():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="El email ya est? registrado"
@@ -615,7 +625,7 @@ class UserService:
             .filter(UsuarioEmpresa.empresa_id == empresa_id)
         )
         return (
-            db.query(User)
+            UserService._active_user_query(db)
             .options(selectinload(User.perfil))
             .filter(
                 or_(
@@ -782,21 +792,26 @@ class UserService:
     @staticmethod
     def delete_user(db: Session, user_id: str) -> bool:
         """
-        Elimina un usuario
+        Elimina un usuario de forma lógica.
         
         Args:
             db: Sesi?n de base de datos
             user_id: ID del usuario a eliminar
         
         Returns:
-            True si se elimin?, False si no existe
+            True si se marcó como eliminado, False si no existe
         """
-        db_user = UserService.get_user_by_id(db, user_id)
+        db_user = UserService._get_user_by_id_any_status(db, user_id)
         
         if not db_user:
             return False
+
+        if db_user.eliminado:
+            return True
         
-        db.delete(db_user)
+        db_user.eliminado = True
+        db_user.activo = False
+        db.add(db_user)
         db.commit()
         
         return True
