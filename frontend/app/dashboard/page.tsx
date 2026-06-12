@@ -16,13 +16,12 @@ import { FiAlertTriangle, FiCheckCircle, FiClock, FiBarChart2, FiTrendingUp, FiU
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 import { FaFileContract } from "react-icons/fa";
-import Highcharts from "highcharts";
+import Highcharts from "highcharts/esm/highcharts";
+import "highcharts/esm/modules/exporting";
+import "highcharts/esm/modules/export-data";
+import "highcharts/esm/modules/accessibility";
+import "highcharts/esm/modules/map";
 import HighchartsReact from "highcharts-react-official";
-
-let highchartsModulesLoaded = false;
-
-// Variable para rastrear si el módulo de mapas está cargado (persiste entre montajes)
-let mapModuleLoaded = false;
 
 // Caché del mapa de México para evitar recargas (es estático)
 let mexicoMapCache: any = null;
@@ -88,60 +87,14 @@ export default function DashboardPage() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [areas, setAreas] = useState<any[]>([]);
   const [estados, setEstados] = useState<any[]>([]);
-  const [highchartsModulesReady, setHighchartsModulesReady] = useState(highchartsModulesLoaded);
   const [mexicoMapData, setMexicoMapData] = useState<any>(() => mexicoMapCache);
-  const [mapModuleReady, setMapModuleReady] = useState(mapModuleLoaded);
   const [mapLoadError, setMapLoadError] = useState(false);
   const isMountedRef = useRef(true);
 
-  // Cargar módulo de mapas y datos del mapa de México en paralelo al montar (sin depender del usuario)
+  // Cargar datos del mapa de México al montar (sin depender del usuario)
   useEffect(() => {
     if (typeof window === "undefined") return;
     isMountedRef.current = true;
-
-    if (highchartsModulesLoaded) {
-      setHighchartsModulesReady(true);
-    } else {
-      Promise.all([
-        import("highcharts/modules/exporting"),
-        import("highcharts/modules/export-data"),
-        import("highcharts/modules/accessibility"),
-      ])
-        .then((modules) => {
-          modules.forEach((loadedModule) => {
-            const moduleFn = loadedModule.default || loadedModule;
-            if (typeof moduleFn === "function") {
-              (moduleFn as (h: typeof Highcharts) => void)(Highcharts);
-            }
-          });
-          highchartsModulesLoaded = true;
-          if (isMountedRef.current) setHighchartsModulesReady(true);
-        })
-        .catch((error) => {
-          console.error("Error al cargar módulos base de Highcharts:", error);
-          highchartsModulesLoaded = true;
-          if (isMountedRef.current) setHighchartsModulesReady(true);
-        });
-    }
-
-    // Si el módulo ya fue cargado (remount por Strict Mode), marcar como listo
-    if (mapModuleLoaded) {
-      setMapModuleReady(true);
-    } else {
-      import("highcharts/modules/map")
-        .then((HighchartsMapModule) => {
-          const mapModule = HighchartsMapModule.default || HighchartsMapModule;
-          if (typeof mapModule === "function") {
-            (mapModule as (h: typeof Highcharts) => void)(Highcharts);
-          }
-          mapModuleLoaded = true;
-          if (isMountedRef.current) setMapModuleReady(true);
-        })
-        .catch((error) => {
-          console.error("Error al cargar el módulo de mapas de Highcharts:", error);
-          if (isMountedRef.current) setMapLoadError(true);
-        });
-    }
 
     // Cargar mapa de México: usar caché si existe, si no fetch
     if (mexicoMapCache) {
@@ -829,7 +782,7 @@ export default function DashboardPage() {
     };
   }, [mexicoMapData, stats?.siniestros_por_estado, estadoMap]);
 
-  if (loading || loadingStats || !user || !highchartsModulesReady) {
+  if (loading || loadingStats || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -914,7 +867,7 @@ export default function DashboardPage() {
           <p className="text-amber-600 text-sm py-8 text-center">
             No se pudo cargar el mapa. Intenta recargar la página.
           </p>
-        ) : mapModuleReady && mexicoMapData ? (
+        ) : mexicoMapData ? (
           <HighchartsReact
             highcharts={Highcharts}
             constructorType={"mapChart"}

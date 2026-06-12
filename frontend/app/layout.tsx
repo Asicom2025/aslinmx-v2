@@ -13,6 +13,11 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Aslin 2.0 - Sistema de Gestión",
   description: "Sistema modular de gestión administrativa",
+  icons: {
+    icon: "/assets/logos/logo_dx-legal.png",
+    shortcut: "/assets/logos/logo_dx-legal.png",
+    apple: "/assets/logos/logo_dx-legal.png",
+  },
 };
 
 export default function RootLayout({
