@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: aslin_db
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    networks:
+      - aslin_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: ghcr.io/asicom2025/aslinmx-v2/aslin-backend:latest
+    container_name: aslin_backend
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./db:/app/db:ro
+      - /opt/app/backend/uploads:/app/uploads:ro
+      # Logs JSON diarios (log_DD_MM_YY.log). Con varios workers puede haber líneas intercaladas.
+      - ./logs/backend:/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      STRUCTURED_LOG_DIR: /logs
+      # Con volumen en ./logs/backend:/logs conviene escribir JSON ahí (además de stdout).
+      # Override: STRUCTURED_LOG_TARGET=stdout si solo quieres docker logs.
+      STRUCTURED_LOG_TARGET: ${STRUCTURED_LOG_TARGET:-both}
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - aslin_network
+
+  # Frontend: NEXT_PUBLIC_* se incrusta en el bundle al construir la imagen (Dockerfile + CI).
+  # El .env del servidor no basta para esas claves si la imagen se construyó sin ellas.
+  frontend:
+    image: ghcr.io/asicom2025/aslinmx-v2/aslin-frontend:latest
+    container_name: aslin_frontend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - aslin_network
+
+volumes:
+  postgres_data:
+
+networks:
+  aslin_network:
+    driver: bridge

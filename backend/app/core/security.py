@@ -187,7 +187,10 @@ async def get_current_user(
     user = (
         db.query(User)
         .options(joinedload(User.rol))
-        .filter(User.id == user_uuid)
+        .filter(
+            User.id == user_uuid,
+            User.eliminado == False,  # noqa: E712
+        )
         .first()
     )
     

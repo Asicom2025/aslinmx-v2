@@ -528,7 +528,14 @@ def refresh_access_token(
     except Exception:
         user_uuid = sub  # fallback
 
-    user = db.query(User).filter(User.id == user_uuid).first()
+    user = (
+        db.query(User)
+        .filter(
+            User.id == user_uuid,
+            User.eliminado == False,  # noqa: E712
+        )
+        .first()
+    )
     if not user or not user.is_active:
         _audit_auth(
             db,
@@ -607,7 +614,14 @@ def refresh_access_token_mobile(
     except Exception:
         user_uuid = sub
 
-    user = db.query(User).filter(User.id == user_uuid).first()
+    user = (
+        db.query(User)
+        .filter(
+            User.id == user_uuid,
+            User.eliminado == False,  # noqa: E712
+        )
+        .first()
+    )
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -819,7 +833,14 @@ def accept_impersonation(
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de impersonación inválido")
 
-    actor = db.query(User).filter(User.id == actor_uuid).first()
+    actor = (
+        db.query(User)
+        .filter(
+            User.id == actor_uuid,
+            User.eliminado == False,  # noqa: E712
+        )
+        .first()
+    )
     if not actor or not actor.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sesión inválida")
     if not solo_superadmin_por_nivel(db, actor):
@@ -828,7 +849,14 @@ def accept_impersonation(
             detail="Solo el rol nivel 0 puede completar la impersonación",
         )
 
-    target = db.query(User).filter(User.id == target_uuid).first()
+    target = (
+        db.query(User)
+        .filter(
+            User.id == target_uuid,
+            User.eliminado == False,  # noqa: E712
+        )
+        .first()
+    )
     if not target or not target.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuario objetivo no encontrado")
 
