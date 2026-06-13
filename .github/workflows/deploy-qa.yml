@@ -12,7 +12,6 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: asicom2025/aslinmx-v2
   IMAGE_TAG: qa
-  QA_NEXT_PUBLIC_API_URL: ${{ vars.QA_NEXT_PUBLIC_API_URL }}
 
 jobs:
   deploy-qa:
@@ -26,9 +25,11 @@ jobs:
         run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Validate QA frontend URL
+        env:
+          QA_NEXT_PUBLIC_API_URL: ${{ vars.QA_NEXT_PUBLIC_API_URL || secrets.QA_NEXT_PUBLIC_API_URL }}
         run: |
           if [ -z "$QA_NEXT_PUBLIC_API_URL" ]; then
-            echo "Missing repository variable QA_NEXT_PUBLIC_API_URL"
+            echo "Missing repository variable or secret QA_NEXT_PUBLIC_API_URL"
             exit 1
           fi
 
@@ -39,10 +40,11 @@ jobs:
 
       - name: Build & Push Frontend QA
         env:
-          NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY }}
-          NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID }}
-          NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }}
-          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
+          QA_NEXT_PUBLIC_API_URL: ${{ vars.QA_NEXT_PUBLIC_API_URL || secrets.QA_NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.QA_NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID: ${{ secrets.QA_NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID }}
+          NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY: ${{ secrets.QA_NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY }}
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.QA_NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
         run: |
           docker build -t $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:$IMAGE_TAG \
             --build-arg NEXT_PUBLIC_API_URL="$QA_NEXT_PUBLIC_API_URL" \
@@ -61,7 +63,7 @@ jobs:
           key: ${{ secrets.QA_SERVER_SSH_KEY }}
           passphrase: ${{ secrets.QA_SERVER_SSH_PASSPHRASE }}
           source: "docker-compose.qa.yml"
-          target: "/opt/app"
+          target: "/var/www/qa-aslin.online"
 
       - name: Deploy on QA Server
         uses: appleboy/ssh-action@v1
