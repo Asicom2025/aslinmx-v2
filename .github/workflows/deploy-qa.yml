@@ -1,0 +1,82 @@
+name: Build & Deploy Aslin QA
+
+on:
+  push:
+    branches: [ "qa" ]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: asicom2025/aslinmx-v2
+  IMAGE_TAG: qa
+  QA_NEXT_PUBLIC_API_URL: ${{ vars.QA_NEXT_PUBLIC_API_URL }}
+
+jobs:
+  deploy-qa:
+    runs-on: ubuntu-latest
+    environment: qa
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login GHCR
+        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Validate QA frontend URL
+        run: |
+          if [ -z "$QA_NEXT_PUBLIC_API_URL" ]; then
+            echo "Missing repository variable QA_NEXT_PUBLIC_API_URL"
+            exit 1
+          fi
+
+      - name: Build & Push Backend QA
+        run: |
+          docker build -t $REGISTRY/$IMAGE_NAMESPACE/aslin-backend:$IMAGE_TAG ./backend
+          docker push $REGISTRY/$IMAGE_NAMESPACE/aslin-backend:$IMAGE_TAG
+
+      - name: Build & Push Frontend QA
+        env:
+          NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY }}
+          NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID: ${{ secrets.NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID }}
+          NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY: ${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_RECAPTCHA_SITE_KEY: ${{ secrets.NEXT_PUBLIC_RECAPTCHA_SITE_KEY }}
+        run: |
+          docker build -t $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:$IMAGE_TAG \
+            --build-arg NEXT_PUBLIC_API_URL="$QA_NEXT_PUBLIC_API_URL" \
+            --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY="$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY" \
+            --build-arg NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID="$NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID" \
+            --build-arg NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY="$NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY" \
+            --build-arg NEXT_PUBLIC_RECAPTCHA_SITE_KEY="$NEXT_PUBLIC_RECAPTCHA_SITE_KEY" \
+            ./frontend
+          docker push $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:$IMAGE_TAG
+
+      - name: Copy docker-compose to QA Server
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.QA_SERVER_HOST }}
+          username: ${{ secrets.QA_SERVER_USER }}
+          key: ${{ secrets.QA_SERVER_SSH_KEY }}
+          passphrase: ${{ secrets.QA_SERVER_SSH_PASSPHRASE }}
+          source: "docker-compose.qa.yml"
+          target: "/opt/app"
+
+      - name: Deploy on QA Server
+        uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.QA_SERVER_HOST }}
+          username: ${{ secrets.QA_SERVER_USER }}
+          key: ${{ secrets.QA_SERVER_SSH_KEY }}
+          passphrase: ${{ secrets.QA_SERVER_SSH_PASSPHRASE }}
+          envs: GHCR_TOKEN
+          script: |
+            set -e
+            cd /var/www/qa-aslin.online
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker compose -f docker-compose.qa.yml pull
+            docker compose -f docker-compose.qa.yml up -d --force-recreate --remove-orphans
+            docker image prune -f

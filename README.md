@@ -138,6 +138,8 @@ Para más información detallada, consulta la carpeta `docs/`:
 
 El workflow `.github/workflows/deploy.yml` construye y publica imágenes en GHCR; el servidor ejecuta `docker-compose.prod.yml`.
 
+Para QA, el workflow `.github/workflows/deploy-qa.yml` se ejecuta al hacer push a la rama `qa`, publica las imágenes con tag `qa` y actualiza el servidor con `docker-compose.qa.yml`.
+
 Si el backend necesita leer archivos legacy desde disco del servidor, asegúrate de montar esa carpeta dentro del contenedor. El compose productivo ya contempla `/opt/app/backend/uploads -> /app/uploads`; en el `.env` del servidor puedes fijar `LEGACY_DOCUMENTS_ROOT=/app/uploads/files` para que las vistas previas e importaciones legacy resuelvan la misma raíz dentro del contenedor.
 
 ### Secretos del repositorio (Actions)
@@ -149,6 +151,21 @@ Configura en **Settings → Secrets and variables → Actions** (además de los 
 | `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Build del frontend (Google Maps / Places en el cliente) |
 | `NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID` | Build del frontend (Google Calendar en el cliente) |
 | `NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY` | Build del frontend (Google Calendar en el cliente) |
+| `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | Build del frontend (reCAPTCHA en el cliente) |
+
+Para QA configura además:
+
+| Secreto / variable | Uso |
+|-------------------|-----|
+| `QA_SERVER_HOST` | Host/IP del servidor QA |
+| `QA_SERVER_USER` | Usuario SSH del servidor QA |
+| `QA_SERVER_SSH_KEY` | Llave privada SSH para desplegar en QA |
+| `QA_SERVER_SSH_PASSPHRASE` | Passphrase de la llave SSH, si aplica |
+| `QA_NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | Build QA del frontend |
+| `QA_NEXT_PUBLIC_GOOGLE_CALENDAR_CLIENT_ID` | Build QA del frontend |
+| `QA_NEXT_PUBLIC_GOOGLE_CALENDAR_API_KEY` | Build QA del frontend |
+| `QA_NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | Build QA del frontend |
+| `QA_NEXT_PUBLIC_API_URL` | Variable de repositorio con la URL publica del API QA |
 
 En **Next.js**, las variables `NEXT_PUBLIC_*` se resuelven **al hacer `next build`** dentro de la imagen Docker. Por eso deben pasarse como `--build-arg` en CI (ya configurado en el workflow), no solo en el `.env` del servidor tras un `docker compose up`.
 
