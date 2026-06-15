@@ -24,7 +24,6 @@ services:
     volumes:
       - ./db:/app/db:ro
       - /opt/app/backend/uploads:/app/uploads:ro
-      # Logs JSON diarios (log_DD_MM_YY.log). Con varios workers puede haber líneas intercaladas.
       - ./logs/backend:/logs
     depends_on:
       db:
@@ -32,7 +31,6 @@ services:
     environment:
       STRUCTURED_LOG_DIR: /logs
       # Con volumen en ./logs/backend:/logs conviene escribir JSON ahí (además de stdout).
-      # Override: STRUCTURED_LOG_TARGET=stdout si solo quieres docker logs.
       STRUCTURED_LOG_TARGET: ${STRUCTURED_LOG_TARGET:-both}
     ports:
       - "127.0.0.1:8000:8000"
