@@ -55,13 +55,25 @@ jobs:
             ./frontend
           docker push $REGISTRY/$IMAGE_NAMESPACE/aslin-frontend:$IMAGE_TAG
 
+      - name: Validate QA SSH key
+        env:
+          QA_SERVER_SSH_KEY: ${{ secrets.QA_SERVER_SSH_KEY }}
+        run: |
+          if [ -z "$QA_SERVER_SSH_KEY" ]; then
+            echo "Missing secret QA_SERVER_SSH_KEY"
+            exit 1
+          fi
+          if ! printf '%s\n' "$QA_SERVER_SSH_KEY" | grep -q -- "BEGIN .*PRIVATE KEY"; then
+            echo "QA_SERVER_SSH_KEY must contain the full private key, including BEGIN/END lines"
+            exit 1
+          fi
+
       - name: Copy docker-compose to QA Server
         uses: appleboy/scp-action@v0.1.4
         with:
           host: ${{ secrets.QA_SERVER_HOST }}
           username: ${{ secrets.QA_SERVER_USER }}
           key: ${{ secrets.QA_SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.QA_SERVER_SSH_PASSPHRASE }}
           source: "docker-compose.qa.yml"
           target: "/var/www/qa-aslin.online"
 
