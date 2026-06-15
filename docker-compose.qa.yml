@@ -57,3 +57,4 @@ volumes:
 networks:
   aslin_network:
     driver: bridge
+# Aqui termina el archivo de variables de entorno
