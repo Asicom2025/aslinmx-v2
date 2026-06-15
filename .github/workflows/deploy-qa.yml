@@ -85,7 +85,6 @@ jobs:
           host: ${{ secrets.QA_SERVER_HOST }}
           username: ${{ secrets.QA_SERVER_USER }}
           key: ${{ secrets.QA_SERVER_SSH_KEY }}
-          passphrase: ${{ secrets.QA_SERVER_SSH_PASSPHRASE }}
           envs: GHCR_TOKEN
           script: |
             set -e
