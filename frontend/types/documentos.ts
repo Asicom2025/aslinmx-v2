@@ -43,6 +43,12 @@ export interface Documento {
   fecha_documento?: string | null;
   es_principal: boolean;
   es_adicional: boolean;
+  requiere_autorizacion: boolean;
+  autorizado: boolean;
+  autorizado_por?: string | null;
+  autorizado_nombre?: string | null;
+  autorizado_firma?: string | null;
+  autorizado_en?: string | null;
   activo: boolean;
   eliminado: boolean;
   creado_en: string;
@@ -76,6 +82,7 @@ export interface DocumentoCreate {
   fecha_documento?: string | null;
   es_principal?: boolean;
   es_adicional?: boolean;
+  requiere_autorizacion?: boolean;
   activo?: boolean;
 }
 

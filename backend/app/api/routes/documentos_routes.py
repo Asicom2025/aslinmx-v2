@@ -5,7 +5,9 @@ from typing import Any, List, Optional
 from uuid import UUID
 from datetime import datetime, timezone
 from decimal import Decimal
+import base64
 import io
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse, StreamingResponse
@@ -205,6 +207,86 @@ def _build_documento_response(
     if plantilla_tiene_continuacion is not None:
         payload["plantilla_tiene_continuacion"] = plantilla_tiene_continuacion
     return DocumentoResponse(**payload)
+
+
+def _usuario_nombre_y_firma(usuario: User) -> tuple[str, Optional[str]]:
+    nombre = (getattr(usuario, "full_name", None) or getattr(usuario, "correo", None) or "").strip()
+    perfil = getattr(usuario, "perfil", None)
+    firma = None
+    if perfil:
+        firma = getattr(perfil, "firma", None) or getattr(perfil, "firma_digital", None)
+    return nombre, firma
+
+
+def _firma_html_para_documento(firma: Optional[str]) -> str:
+    if not firma or not str(firma).strip():
+        return "---"
+    raw = str(firma).strip()
+    if raw.startswith(("data:", "http://", "https://")):
+        src = raw
+    elif raw.startswith("r2://") or "/" in raw:
+        try:
+            content = get_storage_service().get_bytes(raw)
+            ext = raw.rsplit(".", 1)[-1].lower() if "." in raw else ""
+            mime = {
+                "png": "image/png",
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+                "webp": "image/webp",
+            }.get(ext, "image/png")
+            src = f"data:{mime};base64,{base64.b64encode(content).decode('utf-8')}"
+        except Exception:
+            return "---"
+    elif raw.startswith("/"):
+        src = raw
+    else:
+        src = f"data:image/png;base64,{raw}"
+    return (
+        '<img src="'
+        + src.replace('"', "&quot;")
+        + '" alt="Firma de autorización" class="pdf-firma" style="width:60px;height:auto;"/>'
+    )
+
+
+def _inyectar_autorizacion_en_contenido(contenido: Optional[str], nombre: str, firma: Optional[str]) -> Optional[str]:
+    if not contenido:
+        return contenido
+    firma_html = _firma_html_para_documento(firma)
+    valores = {
+        "autoriza_nombre": nombre,
+        "autorizado_por": nombre,
+        "autoriza_firma": firma_html,
+        "firma_autorizacion": firma_html,
+    }
+    actualizado = contenido
+    for key, value in valores.items():
+        actualizado = re.sub(
+            r"{{\s*" + re.escape(key) + r"\s*}}",
+            value or "",
+            actualizado,
+        )
+    actualizado = re.sub(
+        r'<img\b[^>]*alt=["\']Firma de autorización["\'][^>]*>',
+        firma_html,
+        actualizado,
+        flags=re.IGNORECASE,
+    )
+    return actualizado
+
+
+def _notificar_documento_requiere_autorizacion(db: Session, documento, usuario_id: UUID) -> None:
+    if not getattr(documento, "requiere_autorizacion", False):
+        return
+    NotificacionService.create(db, NotificacionCreate(
+        usuario_id=usuario_id,
+        siniestro_id=documento.siniestro_id,
+        tipo="general",
+        titulo="Documento pendiente de autorización",
+        mensaje=(
+            f"El documento «{documento.nombre_archivo}» fue generado y debe ser autorizado "
+            "antes de considerarse completo."
+        ),
+    ))
 
 
 @router.get("/siniestros/{siniestro_id}", response_model=List[DocumentoResponse])
@@ -424,6 +506,7 @@ def create_documento(
         titulo="Documento guardado",
         mensaje=f"Se guardó el documento «{documento.nombre_archivo}» en el siniestro.",
     ))
+    _notificar_documento_requiere_autorizacion(db, documento, current_user.id)
 
     # Auditoría: documento creado
     siniestro_obj = db.query(Siniestro).filter(Siniestro.id == documento.siniestro_id).first()
@@ -438,6 +521,80 @@ def create_documento(
         registro_id=documento.siniestro_id,
         descripcion=f"Documento creado: {documento.nombre_archivo}",
         datos_nuevos={"nombre_archivo": documento.nombre_archivo, "documento_id": str(documento.id)},
+    )
+
+    return _build_documento_response(documento, request=request)
+
+
+@router.post("/{documento_id}/autorizar", response_model=DocumentoResponse)
+def autorizar_documento(
+    documento_id: UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_permiso("siniestros", "generar_pdf")),
+):
+    documento = DocumentoService.get_by_id(db, documento_id)
+    if not documento:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    _assert_documento_escritura(db, current_user, documento)
+    if not getattr(documento, "requiere_autorizacion", False):
+        raise HTTPException(status_code=400, detail="Este documento no requiere autorización")
+    if getattr(documento, "autorizado", False):
+        documento.contenido = _inyectar_autorizacion_en_contenido(
+            documento.contenido,
+            documento.autorizado_nombre or "",
+            documento.autorizado_firma,
+        )
+        db.commit()
+        db.refresh(documento)
+        return _build_documento_response(documento, request=request)
+
+    nombre, firma = _usuario_nombre_y_firma(current_user)
+    documento.autorizado = True
+    documento.autorizado_por = current_user.id
+    documento.autorizado_nombre = nombre
+    documento.autorizado_firma = firma
+    documento.autorizado_en = datetime.now(timezone.utc)
+    documento.contenido = _inyectar_autorizacion_en_contenido(documento.contenido, nombre, firma)
+    db.commit()
+    db.refresh(documento)
+
+    BitacoraActividadService.create(db, BitacoraActividadCreate(
+        siniestro_id=documento.siniestro_id,
+        usuario_id=current_user.id,
+        tipo_actividad="documento",
+        descripcion=f"Documento autorizado: {documento.nombre_archivo}",
+        horas_trabajadas=Decimal("0"),
+        comentarios=None,
+        fecha_actividad=datetime.now(timezone.utc),
+        area_id=documento.area_id,
+        flujo_trabajo_id=documento.flujo_trabajo_id,
+    ))
+
+    NotificacionService.create(db, NotificacionCreate(
+        usuario_id=current_user.id,
+        siniestro_id=documento.siniestro_id,
+        tipo="general",
+        titulo="Documento autorizado",
+        mensaje=f"Se autorizó el documento «{documento.nombre_archivo}».",
+    ))
+
+    siniestro_obj = db.query(Siniestro).filter(Siniestro.id == documento.siniestro_id).first()
+    empresa_id = siniestro_obj.empresa_id if siniestro_obj else current_user.empresa_id
+    AuditoriaService.registrar_accion(
+        db=db,
+        usuario_id=current_user.id,
+        empresa_id=empresa_id,
+        accion="documento_autorizado",
+        modulo="siniestros",
+        tabla="siniestros",
+        registro_id=documento.siniestro_id,
+        descripcion=f"Documento autorizado: {documento.nombre_archivo}",
+        datos_nuevos={
+            "documento_id": str(documento.id),
+            "autorizado_por": str(current_user.id),
+            "autorizado_nombre": nombre,
+        },
     )
 
     return _build_documento_response(documento, request=request)
@@ -483,6 +640,7 @@ def update_documento(
         area_id=documento.area_id,
         flujo_trabajo_id=documento.flujo_trabajo_id,
     ))
+    _notificar_documento_requiere_autorizacion(db, documento, current_user.id)
 
     # Auditoría: documento actualizado
     siniestro_obj = db.query(Siniestro).filter(Siniestro.id == documento.siniestro_id).first()

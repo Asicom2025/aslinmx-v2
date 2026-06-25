@@ -263,6 +263,7 @@ class PlantillaDocumento(Base):
     formato = Column(String(50))  # Ej: 'A4', 'oficio', 'carta', etc.
     logo_url = Column(Text)  # URL o base64 del logo de la plantilla
     campos_formulario = Column(JSONB, nullable=True)  # Definición de campos del formulario personalizado
+    requiere_autorizacion = Column(Boolean, nullable=False, default=False)
     activo = Column(Boolean, nullable=False, default=True)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     actualizado_en = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -400,6 +401,12 @@ class Documento(Base):
     fecha_documento = Column(Date)
     es_principal = Column(Boolean, default=False)
     es_adicional = Column(Boolean, default=False)
+    requiere_autorizacion = Column(Boolean, nullable=False, default=False)
+    autorizado = Column(Boolean, nullable=False, default=False)
+    autorizado_por = Column(UUID(as_uuid=True), ForeignKey("usuarios.id", ondelete="SET NULL"), nullable=True)
+    autorizado_nombre = Column(String(255), nullable=True)
+    autorizado_firma = Column(Text, nullable=True)
+    autorizado_en = Column(DateTime(timezone=True), nullable=True)
     activo = Column(Boolean, nullable=False, default=True)
     eliminado = Column(Boolean, nullable=False, default=False)
     creado_en = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

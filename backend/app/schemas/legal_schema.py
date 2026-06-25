@@ -483,6 +483,7 @@ class PlantillaDocumentoBase(BaseModel):
     formato: Optional[str] = Field(None, max_length=50)
     logo_url: Optional[str] = None  # URL o base64 del logo de la plantilla
     campos_formulario: Optional[List[CampoFormulario]] = None  # Definición de campos del formulario personalizado
+    requiere_autorizacion: bool = False
     activo: bool = True
 
 
@@ -505,6 +506,7 @@ class PlantillaDocumentoUpdate(BaseModel):
     categoria_id: Optional[UUID] = None
     header_plantilla_id: Optional[UUID] = None  # Header opcional (auto-referencia)
     plantilla_continuacion_id: Optional[UUID] = None  # Segunda sección
+    requiere_autorizacion: Optional[bool] = None
     activo: Optional[bool] = None
 
 
@@ -868,6 +870,12 @@ class DocumentoBase(BaseModel):
     fecha_documento: Optional[date] = None
     es_principal: bool = False
     es_adicional: bool = False
+    requiere_autorizacion: bool = False
+    autorizado: bool = False
+    autorizado_por: Optional[UUID] = None
+    autorizado_nombre: Optional[str] = None
+    autorizado_firma: Optional[str] = None
+    autorizado_en: Optional[datetime] = None
     activo: bool = True
 
 
@@ -922,6 +930,12 @@ class DocumentoUpdate(BaseModel):
     requisito_documento_id: Optional[UUID] = None  # Requisito documental asociado
     storage_object_id: Optional[UUID] = None
     activo: Optional[bool] = None
+    requiere_autorizacion: Optional[bool] = None
+    autorizado: Optional[bool] = None
+    autorizado_por: Optional[UUID] = None
+    autorizado_nombre: Optional[str] = None
+    autorizado_firma: Optional[str] = None
+    autorizado_en: Optional[datetime] = None
     # Campos para bitácora al actualizar documento (actualización de informe)
     horas_trabajadas_bitacora: Optional[Decimal] = Field(None, ge=0, le=24)
     comentarios_bitacora: Optional[str] = None
