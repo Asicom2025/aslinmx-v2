@@ -921,6 +921,14 @@ export default function SiniestroDetailPage() {
     );
     const nombreFirmaPdf = getUserDisplayName(uFirmaPdf, autorNombre);
     const firmaImg = buildFirmaPhysicalHtml(uFirmaPdf ?? {});
+    const autorizaNombre =
+      (doc as any)?.autorizado && (doc as any)?.autorizado_nombre
+        ? String((doc as any).autorizado_nombre)
+        : "";
+    const autorizaFirma =
+      (doc as any)?.autorizado && (doc as any)?.autorizado_firma
+        ? buildFirmaPhysicalHtml({ firma: (doc as any).autorizado_firma })
+        : "---";
 
     return {
       ...buildCatalogoInformePlaceholders({
@@ -938,6 +946,10 @@ export default function SiniestroDetailPage() {
       creado_por: nombreFirmaPdf,
       firmado_por: firmaImg,
       firma_fisica: firmaImg,
+      autoriza_nombre: autorizaNombre,
+      autorizado_por: autorizaNombre,
+      autoriza_firma: autorizaFirma,
+      firma_autorizacion: autorizaFirma,
       asegurado: nombreAsegurado,
       area: areaNombre || "",
       fecha_registro: creadoEn,
@@ -3200,6 +3212,37 @@ export default function SiniestroDetailPage() {
     }
   };
 
+  const handleAutorizarDocumento = async (documento: any) => {
+    if (!documento?.id) return;
+    if (!documento?.requiere_autorizacion) {
+      swalError("Este documento no requiere autorización.");
+      return;
+    }
+    const confirmed = await swalConfirm(
+      documento?.autorizado
+        ? "Se volverán a aplicar el nombre y la firma guardados de la autorización."
+        : "Se registrará tu nombre y firma como autorización del documento.",
+      documento?.autorizado ? "Reaplicar autorización" : "Autorizar documento",
+      documento?.autorizado ? "Reaplicar" : "Autorizar",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+
+    try {
+      await apiService.autorizarDocumento(documento.id);
+      await swalSuccess(documento?.autorizado ? "Autorización reaplicada" : "Documento autorizado");
+      let flujoTrabajoIdActual: string | undefined = undefined;
+      if (activeFlujoTab?.startsWith("general-")) {
+        flujoTrabajoIdActual = activeFlujoTab.replace("general-", "");
+      } else if (activeFlujoTab?.startsWith("area-")) {
+        flujoTrabajoIdActual = activeFlujoTab.replace("area-", "");
+      }
+      await loadDocumentosFiltrados(activeAreaTab || undefined, flujoTrabajoIdActual);
+    } catch (e: any) {
+      swalError(e.response?.data?.detail || "Error al autorizar el documento");
+    }
+  };
+
   /** Eliminación lógica: el documento deja de mostrarse pero permanece en base de datos. */
   const handleEliminarDocumento = async (documento: any) => {
     if (!documento?.id || !puedeEliminarArchivoExpediente) return;
@@ -4268,6 +4311,11 @@ export default function SiniestroDetailPage() {
                                                 ? handleDownloadInforme
                                                 : undefined
                                             }
+                                            onAuthorizeDocument={
+                                              puedeMutarExpediente
+                                                ? handleAutorizarDocumento
+                                                : undefined
+                                            }
                                             onDeleteDocument={
                                               puedeEliminarArchivoExpediente
                                                 ? handleEliminarDocumento
@@ -4476,6 +4524,11 @@ export default function SiniestroDetailPage() {
                                           onDownloadInforme={
                                             puedeMutarExpediente
                                               ? handleDownloadInforme
+                                              : undefined
+                                          }
+                                          onAuthorizeDocument={
+                                            puedeMutarExpediente
+                                              ? handleAutorizarDocumento
                                               : undefined
                                           }
                                           onDeleteDocument={
@@ -7534,6 +7587,7 @@ function DocumentosList({
   onSendByEmail,
   onDownloadDocument,
   onDownloadInforme,
+  onAuthorizeDocument,
   onDeleteDocument,
   onUploadClick,
   siniestroId,
@@ -7547,6 +7601,7 @@ function DocumentosList({
   onSendByEmail: (documento: any) => void;
   onDownloadDocument?: (documento: any) => void;
   onDownloadInforme?: (documento: any) => void;
+  onAuthorizeDocument?: (documento: any) => void;
   onDeleteDocument?: (documento: any) => void;
   onUploadClick?: () => void;
   siniestroId: string;
@@ -7570,6 +7625,7 @@ function DocumentosList({
               onSendByEmail={onSendByEmail}
               onDownloadDocument={onDownloadDocument}
               onDownloadInforme={onDownloadInforme}
+              onAuthorizeDocument={onAuthorizeDocument}
               onDeleteDocument={onDeleteDocument}
             />
           );
@@ -7613,6 +7669,30 @@ function DocumentosList({
             {row.original.descripcion || "-"}
           </span>
         ),
+      },
+      {
+        id: "autorizacion",
+        header: "Autorización",
+        cell: ({ row }) => {
+          if (!row.original.requiere_autorizacion) {
+            return <span className="text-xs text-gray-400">No requiere</span>;
+          }
+          if (row.original.autorizado) {
+            return (
+              <span
+                className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                title={row.original.autorizado_nombre || undefined}
+              >
+                Autorizado
+              </span>
+            );
+          }
+          return (
+            <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+              Pendiente
+            </span>
+          );
+        },
       },
       {
         accessorKey: "version",
@@ -7675,6 +7755,7 @@ function DocumentosList({
       onSendByEmail,
       onDownloadDocument,
       onDownloadInforme,
+      onAuthorizeDocument,
       onDeleteDocument,
       empresaColors,
       etapas,

@@ -1468,6 +1468,11 @@ const documentoService = {
     return response.data;
   },
 
+  autorizarDocumento: async (documentoId: string) => {
+    const response = await api.post(`/documentos/${documentoId}/autorizar`);
+    return response.data;
+  },
+
   deleteDocumento: async (documentoId: string) => {
     const response = await api.delete(`/documentos/${documentoId}`);
     return response.data;

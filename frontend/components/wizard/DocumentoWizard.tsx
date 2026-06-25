@@ -49,6 +49,7 @@ export default function DocumentoWizard({ open, onClose, onSuccess }: DocumentoW
     descripcion: "",
     contenido: "",
     formato: "",
+    requiere_autorizacion: false,
     activo: true,
   });
 
@@ -177,7 +178,7 @@ export default function DocumentoWizard({ open, onClose, onSuccess }: DocumentoW
     setSaltarCategoria(false);
     setNuevoTipoForm({ nombre: "", descripcion: "", formato: "", tipo: "editor", activo: true });
     setNuevaCategoriaForm({ nombre: "", descripcion: "", activo: true });
-    setPlantillaForm({ nombre: "", descripcion: "", contenido: "", formato: "", activo: true });
+    setPlantillaForm({ nombre: "", descripcion: "", contenido: "", formato: "", requiere_autorizacion: false, activo: true });
     onClose();
   };
 
@@ -485,6 +486,25 @@ export default function DocumentoWizard({ open, onClose, onSuccess }: DocumentoW
               }
               placeholder="Ej: A4, oficio"
             />
+            <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={plantillaForm.requiere_autorizacion}
+                onChange={(e) =>
+                  setPlantillaForm({
+                    ...plantillaForm,
+                    requiere_autorizacion: e.target.checked,
+                  })
+                }
+                className="mt-1 h-4 w-4 rounded border-gray-300"
+              />
+              <span>
+                <span className="block font-medium text-gray-900">Requiere autorización</span>
+                <span className="block text-xs text-gray-500">
+                  Los documentos generados desde esta plantilla quedarán pendientes de autorización.
+                </span>
+              </span>
+            </label>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Contenido de la plantilla (HTML)

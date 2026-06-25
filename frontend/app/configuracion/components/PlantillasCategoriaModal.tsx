@@ -62,6 +62,7 @@ export default function PlantillasCategoriaModal({
     logo_url: "",
     header_plantilla_id: "",
     plantilla_continuacion_id: "",
+    requiere_autorizacion: false,
     activo: true,
   });
   const [logoPreview, setLogoPreview] = useState<string>("");
@@ -97,7 +98,7 @@ export default function PlantillasCategoriaModal({
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ nombre: "", descripcion: "", contenido: "", formato: "", logo_url: "", header_plantilla_id: "", plantilla_continuacion_id: "", activo: true });
+    setForm({ nombre: "", descripcion: "", contenido: "", formato: "", logo_url: "", header_plantilla_id: "", plantilla_continuacion_id: "", requiere_autorizacion: false, activo: true });
     setLogoPreview("");
     setModalOpen(true);
   };
@@ -112,6 +113,7 @@ export default function PlantillasCategoriaModal({
       logo_url: plantilla.logo_url || "",
       header_plantilla_id: plantilla.header_plantilla_id || "",
       plantilla_continuacion_id: plantilla.plantilla_continuacion_id || "",
+      requiere_autorizacion: !!plantilla.requiere_autorizacion,
       activo: !!plantilla.activo,
     });
     setLogoPreview(plantilla.logo_url || "");
@@ -251,6 +253,11 @@ export default function PlantillasCategoriaModal({
       header: "Formato",
       accessorKey: "formato",
       cell: (info) => <span className="text-sm text-gray-600">{(info.getValue() as string) || "-"}</span>,
+    },
+    {
+      header: "Autorización",
+      accessorKey: "requiere_autorizacion",
+      cell: (info) => <span className="text-sm text-gray-600">{info.getValue() ? "Requiere" : "No"}</span>,
     },
     {
       header: "Activo",
@@ -427,6 +434,21 @@ export default function PlantillasCategoriaModal({
               onChange={(content) => setForm({ ...form, contenido: content })}
             />
           </div>
+          <label className="flex items-start gap-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              name="requiere_autorizacion"
+              checked={form.requiere_autorizacion}
+              onChange={changeForm}
+              className="mt-1 h-4 w-4 rounded border-gray-300"
+            />
+            <span>
+              <span className="block font-medium text-gray-900">Requiere autorización</span>
+              <span className="block text-xs text-gray-500">
+                Los documentos generados desde esta plantilla quedarán pendientes hasta que un usuario los autorice.
+              </span>
+            </span>
+          </label>
           <div className="pt-2 flex justify-end gap-3">
             <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
               Cancelar
