@@ -62,7 +62,7 @@ router = APIRouter()
 # Menos de ~4cm suele solapar el cuerpo con el encabezado en WeasyPrint.
 PDF_HEADER_MARGIN_TOP = "4.8cm"
 
-_PDF_IMAGE_VAR_KEYS = {"firma", "firma_digital", "foto_de_perfil"}
+_PDF_IMAGE_VAR_KEYS = {"firma", "firma_digital", "foto_de_perfil", "autoriza_firma"}
 _PDF_MIME_BY_EXT = {
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -739,6 +739,19 @@ def _variables_plantilla_alineadas_frontend(
     except Exception:
         firma_html = "---"
 
+    autoriza_nombre = str(getattr(doc, "autorizado_nombre", None) or "").strip()
+    autoriza_firma_html = "---"
+    if getattr(doc, "autorizado", False):
+        autoriza_firma_html = _perfil_firma_src_for_pdf_img(getattr(doc, "autorizado_firma", None))
+        if autoriza_firma_html:
+            autoriza_firma_html = (
+                '<img src="'
+                + autoriza_firma_html.replace('"', "&quot;")
+                + '" alt="Firma de autorización" class="pdf-firma" style="width:60px;height:auto;"/>'
+            )
+        else:
+            autoriza_firma_html = "---"
+
     id_formato = _id_legible_para_plantillas(db, siniestro)
 
     creado_src = (
@@ -800,6 +813,10 @@ def _variables_plantilla_alineadas_frontend(
             "creado_por": autor,
             "firmado_por": firma_html,
             "firma_fisica": firma_html,
+            "autoriza_nombre": autoriza_nombre,
+            "autorizado_por": autoriza_nombre,
+            "autoriza_firma": autoriza_firma_html,
+            "firma_autorizacion": autoriza_firma_html,
             "id": id_formato,
             "asegurado": nombre_asegurado,
             "nombre_asegurado": nombre_asegurado,

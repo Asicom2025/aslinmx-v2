@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Button from "@/components/ui/Button";
-import { FiEdit3, FiEye, FiFile, FiMail, FiSave, FiMoreVertical, FiTrash2 } from "react-icons/fi";
+import { FiCheckCircle, FiEdit3, FiEye, FiFile, FiMail, FiSave, FiMoreVertical, FiTrash2 } from "react-icons/fi";
 
 export type DocumentoEmpresaColors = {
   primary: string;
@@ -20,6 +20,7 @@ type TablaFilaProps = {
   onSendByEmail?: (documento: unknown) => void;
   onDownloadDocument?: (documento: unknown) => void;
   onDownloadInforme?: (documento: unknown) => void;
+  onAuthorizeDocument?: (documento: unknown) => void;
   /** Eliminación lógica (oculta en listados; el registro permanece en BD). */
   onDeleteDocument?: (documento: unknown) => void;
 };
@@ -90,6 +91,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
       onSendByEmail,
       onDownloadDocument,
       onDownloadInforme,
+      onAuthorizeDocument,
       onDeleteDocument,
     } = props;
     const plantillaDocId = (documento as any).plantilla_documento_id;
@@ -105,6 +107,8 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
     const tieneId = !!(documento as any).id;
     const puedeDescargarArchivo = !!onDownloadDocument && tieneId && tieneRutaArchivo;
     const puedeDescargarInforme = !!onDownloadInforme && tieneId && !!plantillaDocId;
+    const requiereAutorizacion = !!(documento as any).requiere_autorizacion;
+    const autorizado = !!(documento as any).autorizado;
 
     const items: Array<{
       key: string;
@@ -124,6 +128,15 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
     });
 
     if (esInforme) {
+      if (requiereAutorizacion) {
+        items.push({
+          key: "autorizar",
+          label: autorizado ? "Reaplicar autorización" : "Autorizar",
+          icon: <FiCheckCircle className="w-4 h-4 text-emerald-600" />,
+          disabled: !onAuthorizeDocument,
+          action: () => onAuthorizeDocument?.(documento),
+        });
+      }
       items.push({
         key: "editar",
         label: "Editar",

@@ -2294,6 +2294,17 @@ class DocumentoService:
     def create(db: Session, payload: DocumentoCreate) -> Documento:
         """Crea un nuevo documento. Excluye campos solo usados para bitácora."""
         data = payload.model_dump(exclude={"horas_trabajadas_bitacora", "comentarios_bitacora"})
+        plantilla_id = data.get("plantilla_documento_id")
+        data["requiere_autorizacion"] = False
+        data["autorizado"] = False
+        data["autorizado_por"] = None
+        data["autorizado_nombre"] = None
+        data["autorizado_firma"] = None
+        data["autorizado_en"] = None
+        if plantilla_id:
+            plantilla = db.query(PlantillaDocumento).filter(PlantillaDocumento.id == plantilla_id).first()
+            requiere_autorizacion = bool(getattr(plantilla, "requiere_autorizacion", False))
+            data["requiere_autorizacion"] = requiere_autorizacion
         documento = Documento(**data)
         db.add(documento)
         db.flush()
@@ -2360,11 +2371,17 @@ class DocumentoService:
         documento.activo = False
 
         # Construir nuevo documento copiando el anterior y aplicando cambios
+        nueva_plantilla_id = updates.get("plantilla_documento_id", documento.plantilla_documento_id)
+        requiere_autorizacion = False
+        if nueva_plantilla_id:
+            plantilla = db.query(PlantillaDocumento).filter(PlantillaDocumento.id == nueva_plantilla_id).first()
+            requiere_autorizacion = bool(getattr(plantilla, "requiere_autorizacion", False))
+
         nuevo = Documento(
             siniestro_id=documento.siniestro_id,
             tipo_documento_id=updates.get("tipo_documento_id", documento.tipo_documento_id),
             etapa_flujo_id=updates.get("etapa_flujo_id", documento.etapa_flujo_id),
-            plantilla_documento_id=updates.get("plantilla_documento_id", documento.plantilla_documento_id),
+            plantilla_documento_id=nueva_plantilla_id,
             area_id=updates.get("area_id", documento.area_id),
             flujo_trabajo_id=updates.get("flujo_trabajo_id", documento.flujo_trabajo_id),
             storage_object_id=updates.get("storage_object_id", documento.storage_object_id),
@@ -2379,6 +2396,12 @@ class DocumentoService:
             fecha_documento=updates.get("fecha_documento", documento.fecha_documento),
             es_principal=updates.get("es_principal", documento.es_principal),
             es_adicional=updates.get("es_adicional", documento.es_adicional),
+            requiere_autorizacion=requiere_autorizacion,
+            autorizado=False,
+            autorizado_por=None,
+            autorizado_nombre=None,
+            autorizado_firma=None,
+            autorizado_en=None,
             activo=True,
             eliminado=False,
         )
