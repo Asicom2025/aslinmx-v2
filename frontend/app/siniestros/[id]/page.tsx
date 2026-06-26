@@ -484,10 +484,11 @@ export default function SiniestroDetailPage() {
   const [loadingInvolucrados, setLoadingInvolucrados] = useState(false);
   const [todasLasAreas, setTodasLasAreas] = useState<any[]>([]);
   const [todosLosUsuarios, setTodosLosUsuarios] = useState<any[]>([]);
-  /** Perfil con firma (GET /users/:id) del abogado usado en variables de informe según el ámbito de área. */
-  const [usuarioPrincipalInforme, setUsuarioPrincipalInforme] = useState<
-    any | null
-  >(null);
+  /** Perfiles con firma (GET /users/:id) usados en variables de informe por ámbito de área. */
+  const usuariosFirmaInformeRef = useRef<Record<string, any>>({});
+  const [usuariosFirmaInformeCache, setUsuariosFirmaInformeCache] = useState<
+    Record<string, any>
+  >({});
   const [nuevoInvolucradoUsuarioId, setNuevoInvolucradoUsuarioId] =
     useState<string>("");
   const [agregandoInvolucradoUsuarioId, setAgregandoInvolucradoUsuarioId] =
@@ -683,16 +684,49 @@ export default function SiniestroDetailPage() {
     (autorUsuarioParam: any, areaIdOverride?: string | null) => {
       const idFirma = resolveIdAbogadoFirma(areaIdOverride);
       if (!idFirma) return autorUsuarioParam;
-      if (
-        usuarioPrincipalInforme &&
-        String(usuarioPrincipalInforme.id) === idFirma
-      ) {
-        return usuarioPrincipalInforme;
-      }
+      const usuarioConFirma =
+        usuariosFirmaInformeCache[idFirma] ||
+        usuariosFirmaInformeRef.current[idFirma];
+      if (usuarioConFirma) return usuarioConFirma;
       const u = todosLosUsuarios.find((x) => String(x.id) === idFirma);
       return u ?? autorUsuarioParam;
     },
-    [resolveIdAbogadoFirma, todosLosUsuarios, usuarioPrincipalInforme],
+    [resolveIdAbogadoFirma, todosLosUsuarios, usuariosFirmaInformeCache],
+  );
+
+  const cacheUsuarioFirmaInforme = useCallback((usuario: any) => {
+    if (!usuario?.id) return;
+    const id = String(usuario.id);
+    usuariosFirmaInformeRef.current[id] = usuario;
+    setUsuariosFirmaInformeCache((prev) =>
+      prev[id] === usuario ? prev : { ...prev, [id]: usuario },
+    );
+  }, []);
+
+  const ensureUsuarioFirmaInforme = useCallback(
+    async (areaIdOverride?: string | null) => {
+      const idFirma = resolveIdAbogadoFirma(areaIdOverride);
+      if (!idFirma) return null;
+      const cached =
+        usuariosFirmaInformeRef.current[idFirma] ||
+        usuariosFirmaInformeCache[idFirma];
+      if (cached) return cached;
+      try {
+        const u = await apiService.getUserById(idFirma);
+        if (u) {
+          cacheUsuarioFirmaInforme(u);
+          return u;
+        }
+      } catch {
+        // El PDF puede generarse sin firma si el perfil no se puede cargar.
+      }
+      return null;
+    },
+    [
+      cacheUsuarioFirmaInforme,
+      resolveIdAbogadoFirma,
+      usuariosFirmaInformeCache,
+    ],
   );
 
   /**
@@ -1135,27 +1169,29 @@ export default function SiniestroDetailPage() {
   // Abogado de firma en informes: GET /users/:id (perfil con firma; el listado no trae firma)
   useEffect(() => {
     const idFirma = resolveIdAbogadoFirma(undefined);
-    if (!idFirma) {
-      setUsuarioPrincipalInforme(null);
-      return;
-    }
     let cancelled = false;
     (async () => {
+      if (!idFirma) return;
       try {
         const u = await apiService.getUserById(idFirma);
         if (!cancelled) {
-          setUsuarioPrincipalInforme(u);
+          cacheUsuarioFirmaInforme(u);
         }
       } catch {
-        if (!cancelled) {
-          setUsuarioPrincipalInforme(null);
-        }
+        // Sin firma precargada: se intentará de nuevo al generar el documento.
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [resolveIdAbogadoFirma, involucrados, areasAdicionales, activeAreaTab, siniestro]);
+  }, [
+    cacheUsuarioFirmaInforme,
+    resolveIdAbogadoFirma,
+    involucrados,
+    areasAdicionales,
+    activeAreaTab,
+    siniestro,
+  ]);
 
   const loadVersionesDescripcionHechos = useCallback(
     async (fallbackDescripcionHtml?: string) => {
@@ -2577,6 +2613,9 @@ export default function SiniestroDetailPage() {
         }
       }
       const autorNombre = getUserDisplayName(autorUsuario, "");
+      await ensureUsuarioFirmaInforme(
+        (docExistente?.area_id as string | undefined) || activeAreaTab || null,
+      );
 
       let variables = getVariablesForPdf(
         siniestro,
@@ -2685,6 +2724,9 @@ export default function SiniestroDetailPage() {
           }
         }
         const autorNombre = getUserDisplayName(autorUsuarioDoc, "");
+        await ensureUsuarioFirmaInforme(
+          (documento?.area_id as string | undefined) || activeAreaTab || null,
+        );
 
         let variables = getVariablesForPdf(
           siniestro,
@@ -3158,6 +3200,9 @@ export default function SiniestroDetailPage() {
         }
       }
       const autorNombre = getUserDisplayName(autorUsuarioDl as any, "");
+      await ensureUsuarioFirmaInforme(
+        (documento?.area_id as string | undefined) || activeAreaTab || null,
+      );
 
       let variables = getVariablesForPdf(
         siniestro,
@@ -3620,6 +3665,9 @@ export default function SiniestroDetailPage() {
         // para alinear con PDF / id_formato aunque el HTML guardado tenga valor antiguo o placeholders sin resolver.
         setDocumentoExistente(docExistente);
         const decoded = decodeHtmlForEditor(docExistente.contenido || "");
+        await ensureUsuarioFirmaInforme(
+          (docExistente?.area_id as string | undefined) || areaIdActual || null,
+        );
         setDocumentoContenido(
           aplicarPlaceholdersPlantilla(
             decoded,
@@ -3659,6 +3707,7 @@ export default function SiniestroDetailPage() {
             ) || "<p>Contenido de la plantilla...</p>";
 
           // Aplicar placeholders solo cuando se genera el documento por primera vez
+          await ensureUsuarioFirmaInforme(areaIdActual || null);
           const contenidoConDatos = aplicarPlaceholdersPlantilla(
             contenidoBase,
             etapa,
