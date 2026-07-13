@@ -962,6 +962,14 @@ const catalogService = {
     const res = await api.post(`/catalogos/provenientes/${provenienteId}/contactos`, data);
     return res.data;
   },
+  updateProvenienteContacto: async (
+    provenienteId: string,
+    contactoId: string,
+    data: { nombre?: string; correo?: string; activo?: boolean },
+  ) => {
+    const res = await api.put(`/catalogos/provenientes/${provenienteId}/contactos/${contactoId}`, data);
+    return res.data;
+  },
   deleteProvenienteContacto: async (provenienteId: string, contactoId: string) => {
     const res = await api.delete(`/catalogos/provenientes/${provenienteId}/contactos/${contactoId}`);
     return res.data;

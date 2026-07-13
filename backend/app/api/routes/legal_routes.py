@@ -39,6 +39,7 @@ from app.schemas.legal_schema import (
     ProvenienteUpdate,
     ProvenienteResponse,
     ProvenienteContactoCreate,
+    ProvenienteContactoUpdate,
     ProvenienteContactoResponse,
     TiposDocumentoCreate,
     TiposDocumentoUpdate,
@@ -869,6 +870,36 @@ def create_proveniente_contacto(
     return ProvenienteContactoService.create(db, proveniente_id, payload)
 
 
+@router.put(
+    "/provenientes/{proveniente_id}/contactos/{contacto_id}",
+    response_model=ProvenienteContactoResponse,
+)
+def update_proveniente_contacto(
+    proveniente_id: UUID,
+    contacto_id: UUID,
+    payload: ProvenienteContactoUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("configuracion", "update"),
+            ("parametros", "update"),
+            ("siniestros", "update"),
+        )
+    ),
+):
+    proveniente = db.query(Proveniente).filter(
+        Proveniente.id == proveniente_id,
+        Proveniente.empresa_id == current_user.empresa_id,
+        Proveniente.eliminado_en.is_(None),
+    ).first()
+    if not proveniente:
+        raise HTTPException(status_code=404, detail="Proveniente no encontrado")
+    contacto = ProvenienteContactoService.update(db, proveniente_id, contacto_id, payload)
+    if not contacto:
+        raise HTTPException(status_code=404, detail="Contacto no encontrado")
+    return contacto
+
+
 @router.delete(
     "/provenientes/{proveniente_id}/contactos/{contacto_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -877,7 +908,13 @@ def delete_proveniente_contacto(
     proveniente_id: UUID,
     contacto_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(
+        require_any_permiso(
+            ("configuracion", "delete"),
+            ("parametros", "delete"),
+            ("siniestros", "delete"),
+        )
+    ),
 ):
     proveniente = db.query(Proveniente).filter(
         Proveniente.id == proveniente_id,
