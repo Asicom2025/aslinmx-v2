@@ -61,6 +61,7 @@ from app.schemas.legal_schema import (
     ProvenienteCreate,
     ProvenienteUpdate,
     ProvenienteContactoCreate,
+    ProvenienteContactoUpdate,
     TiposDocumentoCreate,
     TiposDocumentoUpdate,
     CategoriaDocumentoCreate,
@@ -810,6 +811,46 @@ class ProvenienteContactoService:
             activo=payload.activo,
         )
         db.add(contacto)
+        db.commit()
+        db.refresh(contacto)
+        return contacto
+
+    @staticmethod
+    def update(
+        db: Session,
+        proveniente_id: UUID,
+        contacto_id: UUID,
+        payload: ProvenienteContactoUpdate,
+    ) -> Optional[ProvenienteContacto]:
+        contacto = db.query(ProvenienteContacto).filter(
+            ProvenienteContacto.id == contacto_id,
+            ProvenienteContacto.proveniente_id == proveniente_id,
+            ProvenienteContacto.eliminado_en.is_(None),
+        ).first()
+        if not contacto:
+            return None
+
+        update_data = payload.model_dump(exclude_unset=True)
+        if "correo" in update_data and update_data["correo"] is not None:
+            correo_normalizado = update_data["correo"].strip().lower()
+            existente = db.query(ProvenienteContacto).filter(
+                ProvenienteContacto.proveniente_id == proveniente_id,
+                ProvenienteContacto.id != contacto_id,
+                func.lower(ProvenienteContacto.correo) == correo_normalizado,
+                ProvenienteContacto.eliminado_en.is_(None),
+            ).first()
+            if existente:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Ya existe un contacto con ese correo para este proveniente",
+                )
+            contacto.correo = update_data["correo"].strip()
+
+        if "nombre" in update_data and update_data["nombre"] is not None:
+            contacto.nombre = update_data["nombre"].strip()
+        if "activo" in update_data:
+            contacto.activo = update_data["activo"]
+
         db.commit()
         db.refresh(contacto)
         return contacto

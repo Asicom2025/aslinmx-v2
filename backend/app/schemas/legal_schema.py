@@ -353,6 +353,13 @@ class ProvenienteContactoCreate(ProvenienteContactoBase):
     pass
 
 
+class ProvenienteContactoUpdate(BaseModel):
+    """Schema para actualizar contacto de proveniente"""
+    nombre: Optional[str] = Field(None, min_length=1, max_length=200)
+    correo: Optional[str] = Field(None, min_length=1, max_length=255)
+    activo: Optional[bool] = None
+
+
 class ProvenienteContactoResponse(ProvenienteContactoBase):
     """Schema de respuesta de contacto de proveniente"""
     id: UUID

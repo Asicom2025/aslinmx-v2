@@ -28,6 +28,7 @@ import {
 import { getUserDisplayName } from "@/lib/userName";
 import {
   filtrarAbogadosPorAreas,
+  getUsuarioAreaIds,
   usuarioComparteAlgunaArea,
 } from "@/lib/usuariosAreas";
 import Button from "@/components/ui/Button";
@@ -344,6 +345,19 @@ export default function SiniestroDetailPage() {
   const [provenienteContactos, setProvenienteContactos] = useState<
     ProvenienteContacto[]
   >([]);
+  const [showContactosProvenienteModal, setShowContactosProvenienteModal] =
+    useState(false);
+  const [loadingContactosProveniente, setLoadingContactosProveniente] =
+    useState(false);
+  const [savingContactoProveniente, setSavingContactoProveniente] =
+    useState(false);
+  const [editingContactoProvenienteId, setEditingContactoProvenienteId] =
+    useState<string | null>(null);
+  const [contactoProvenienteForm, setContactoProvenienteForm] = useState({
+    nombre: "",
+    correo: "",
+    activo: true,
+  });
   const [showNuevoContactoModal, setShowNuevoContactoModal] = useState(false);
   const [nuevoContactoForm, setNuevoContactoForm] = useState({
     nombre: "",
@@ -379,6 +393,10 @@ export default function SiniestroDetailPage() {
   const canEliminarArchivos = can("siniestros", "eliminar_archivos");
   const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
+  const canEditarContactosProvenienteCatalogo =
+    can("configuracion", "update") || can("parametros", "update");
+  const canEliminarContactosProvenienteCatalogo =
+    can("configuracion", "delete") || can("parametros", "delete");
   const nivelRol = Number(user?.rol?.nivel ?? 99);
   const esNivelOperativo = nivelRol === 4;
 
@@ -412,6 +430,14 @@ export default function SiniestroDetailPage() {
     (puedeMutarExpediente || puedeCrearEditarInformesPropios) && canGenerarPdf;
   const puedeEliminarArchivoExpediente =
     puedeMutarExpediente && canEliminarArchivos;
+  const canEditarContactosProveniente =
+    canEditarContactosProvenienteCatalogo || puedeActualizarSiniestroExpediente;
+  const canEliminarContactosProveniente =
+    canEliminarContactosProvenienteCatalogo ||
+    (puedeMutarExpediente && canEliminarSiniestro);
+  const puedeGestionarContactosProveniente =
+    Boolean(siniestro?.proveniente_id) &&
+    (canEditarContactosProveniente || canEliminarContactosProveniente);
 
   // Estados para status y calificación
   const [estadosSiniestro, setEstadosSiniestro] = useState<EstadoSiniestro[]>(
@@ -480,6 +506,7 @@ export default function SiniestroDetailPage() {
   // Estados para administrar áreas e involucrados
   const [areasAdicionales, setAreasAdicionales] = useState<SiniestroArea[]>([]);
   const [involucrados, setInvolucrados] = useState<SiniestroUsuario[]>([]);
+  const [activeAbogadosAreaId, setActiveAbogadosAreaId] = useState<string>("");
   const [loadingAreas, setLoadingAreas] = useState(false);
   const [loadingInvolucrados, setLoadingInvolucrados] = useState(false);
   const [todasLasAreas, setTodasLasAreas] = useState<any[]>([]);
@@ -2849,6 +2876,180 @@ export default function SiniestroDetailPage() {
     setProvenienteContactos(contactos || []);
   }, [siniestro?.proveniente_id]);
 
+  const removeCorreoFromEmailSelections = useCallback((correo?: string) => {
+    const normalized = (correo || "").trim().toLowerCase();
+    if (!normalized) return;
+    const keepOther = (email: string) => email.trim().toLowerCase() !== normalized;
+    setEmailPara((prev) => prev.filter(keepOther));
+    setEmailCc((prev) => prev.filter(keepOther));
+    setEmailCco((prev) => prev.filter(keepOther));
+  }, []);
+
+  const resetContactoProvenienteForm = () => {
+    setEditingContactoProvenienteId(null);
+    setContactoProvenienteForm({
+      nombre: "",
+      correo: "",
+      activo: true,
+    });
+  };
+
+  const handleOpenContactosProvenienteModal = async () => {
+    if (!siniestro?.proveniente_id) {
+      swalError("El siniestro no tiene proveniente asociado");
+      return;
+    }
+    resetContactoProvenienteForm();
+    setShowContactosProvenienteModal(true);
+    try {
+      setLoadingContactosProveniente(true);
+      await loadProvenienteContactos();
+    } catch (error: any) {
+      console.error("Error al cargar contactos del proveniente:", error);
+      swalError(
+        error?.response?.data?.detail ||
+          "Error al cargar los contactos del proveniente",
+      );
+    } finally {
+      setLoadingContactosProveniente(false);
+    }
+  };
+
+  const handleStartEditContactoProveniente = (contacto: ProvenienteContacto) => {
+    setEditingContactoProvenienteId(contacto.id);
+    setContactoProvenienteForm({
+      nombre: contacto.nombre || "",
+      correo: contacto.correo || "",
+      activo: contacto.activo !== false,
+    });
+  };
+
+  const handleSaveContactoProveniente = async () => {
+    if (!siniestro?.proveniente_id || !editingContactoProvenienteId) return;
+    if (!canEditarContactosProveniente) {
+      swalError("No tienes permiso para editar contactos del proveniente");
+      return;
+    }
+    const nombre = contactoProvenienteForm.nombre.trim();
+    const correo = contactoProvenienteForm.correo.trim().toLowerCase();
+    if (!nombre || !correo) {
+      swalError("Debes capturar nombre y correo");
+      return;
+    }
+    const duplicado = provenienteContactos.some(
+      (c) =>
+        c.id !== editingContactoProvenienteId &&
+        c.correo.trim().toLowerCase() === correo,
+    );
+    if (duplicado) {
+      swalError("Ese correo ya existe en los contactos del proveniente");
+      return;
+    }
+
+    try {
+      setSavingContactoProveniente(true);
+      const original = provenienteContactos.find(
+        (c) => c.id === editingContactoProvenienteId,
+      );
+      const actualizado = (await apiService.updateProvenienteContacto(
+        siniestro.proveniente_id,
+        editingContactoProvenienteId,
+        {
+          nombre,
+          correo,
+          activo: contactoProvenienteForm.activo,
+        },
+      )) as ProvenienteContacto;
+      setProvenienteContactos((prev) =>
+        prev.map((contacto) =>
+          contacto.id === actualizado.id ? actualizado : contacto,
+        ),
+      );
+      if (original?.correo && original.correo.trim().toLowerCase() !== correo) {
+        removeCorreoFromEmailSelections(original.correo);
+      }
+      if (actualizado.activo === false) {
+        removeCorreoFromEmailSelections(actualizado.correo);
+      }
+      resetContactoProvenienteForm();
+      swalSuccess("Contacto actualizado correctamente");
+    } catch (error: any) {
+      console.error("Error al actualizar contacto del proveniente:", error);
+      swalError(
+        error?.response?.data?.detail ||
+          "Error al actualizar el contacto del proveniente",
+      );
+    } finally {
+      setSavingContactoProveniente(false);
+    }
+  };
+
+  const handleToggleContactoProvenienteActivo = async (
+    contacto: ProvenienteContacto,
+  ) => {
+    if (!siniestro?.proveniente_id || !canEditarContactosProveniente) return;
+    const nextActivo = contacto.activo === false;
+    try {
+      setSavingContactoProveniente(true);
+      const actualizado = (await apiService.updateProvenienteContacto(
+        siniestro.proveniente_id,
+        contacto.id,
+        { activo: nextActivo },
+      )) as ProvenienteContacto;
+      setProvenienteContactos((prev) =>
+        prev.map((item) => (item.id === actualizado.id ? actualizado : item)),
+      );
+      if (!nextActivo) {
+        removeCorreoFromEmailSelections(contacto.correo);
+      }
+      swalSuccess(nextActivo ? "Contacto activado" : "Contacto inactivado");
+    } catch (error: any) {
+      console.error("Error al cambiar estado del contacto:", error);
+      swalError(
+        error?.response?.data?.detail ||
+          "Error al cambiar el estado del contacto",
+      );
+    } finally {
+      setSavingContactoProveniente(false);
+    }
+  };
+
+  const handleDeleteContactoProveniente = async (
+    contacto: ProvenienteContacto,
+  ) => {
+    if (!siniestro?.proveniente_id || !canEliminarContactosProveniente) return;
+    const confirmed = await swalConfirm(
+      `Se eliminará el contacto ${contacto.nombre || contacto.correo}.`,
+      "Eliminar contacto",
+      "Sí, eliminar",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+    try {
+      setSavingContactoProveniente(true);
+      await apiService.deleteProvenienteContacto(
+        siniestro.proveniente_id,
+        contacto.id,
+      );
+      setProvenienteContactos((prev) =>
+        prev.filter((item) => item.id !== contacto.id),
+      );
+      removeCorreoFromEmailSelections(contacto.correo);
+      if (editingContactoProvenienteId === contacto.id) {
+        resetContactoProvenienteForm();
+      }
+      swalSuccess("Contacto eliminado correctamente");
+    } catch (error: any) {
+      console.error("Error al eliminar contacto del proveniente:", error);
+      swalError(
+        error?.response?.data?.detail ||
+          "Error al eliminar el contacto del proveniente",
+      );
+    } finally {
+      setSavingContactoProveniente(false);
+    }
+  };
+
   // Abrir modal de envío de correo desde un documento (plantilla "Te envían un archivo"; si es informe se adjunta PDF)
   const handleOpenEmailModalFromDocumento = (documento: any) => {
     if (!siniestro) return;
@@ -2975,7 +3176,7 @@ export default function SiniestroDetailPage() {
         });
 
     provenienteContactos
-      .filter((c) => c.correo)
+      .filter((c) => c.correo && c.activo !== false)
       .forEach((c) => {
         const email = (c.correo || "").trim().toLowerCase();
         if (!email || vistos.has(email)) return;
@@ -2995,6 +3196,96 @@ export default function SiniestroDetailPage() {
         .map((areaRelacion) => String(areaRelacion.area_id || "").trim())
         .filter(Boolean),
     [areasAdicionales],
+  );
+
+  const userAreaIds = useMemo(
+    () =>
+      (user?.areas || [])
+        .map((area) => String(area?.id || "").trim())
+        .filter(Boolean),
+    [user?.areas],
+  );
+
+  const areasActivasSiniestro = useMemo(
+    () =>
+      (areasAdicionales || []).filter(
+        (areaRelacion) => areaRelacion.activo !== false,
+      ),
+    [areasAdicionales],
+  );
+
+  const defaultAbogadosAreaId = useMemo(() => {
+    const areaDelUsuario = areasActivasSiniestro.find((areaRelacion) =>
+      userAreaIds.includes(String(areaRelacion.area_id || "")),
+    );
+    return (
+      areaDelUsuario?.area_id ||
+      areasActivasSiniestro[0]?.area_id ||
+      "sin-area"
+    );
+  }, [areasActivasSiniestro, userAreaIds]);
+
+  const abogadosDesignadosPorArea = useMemo(() => {
+    const grupos = areasActivasSiniestro.map((areaRelacion) => {
+      const areaId = String(areaRelacion.area_id || "");
+      const area = todasLasAreas.find((item) => item.id === areaRelacion.area_id);
+      const abogados = involucrados.filter((inv) => {
+        const usuario = todosLosUsuarios.find((u) => u.id === inv.usuario_id);
+        return usuarioComparteAlgunaArea(usuario, [areaId]);
+      });
+      return {
+        id: areaId,
+        nombre: area?.nombre || "Área desconocida",
+        abogados,
+      };
+    });
+
+    const areaIdsAsignadas = new Set(
+      areasActivasSiniestro.map((areaRelacion) => String(areaRelacion.area_id || "")),
+    );
+    const sinArea = involucrados.filter((inv) => {
+      const usuario = todosLosUsuarios.find((u) => u.id === inv.usuario_id);
+      const usuarioAreaIds = getUsuarioAreaIds(usuario);
+      return !usuarioAreaIds.some((areaId) => areaIdsAsignadas.has(areaId));
+    });
+
+    if (sinArea.length > 0) {
+      grupos.push({
+        id: "sin-area",
+        nombre: "Sin área asignada",
+        abogados: sinArea,
+      });
+    }
+
+    return grupos;
+  }, [areasActivasSiniestro, involucrados, todasLasAreas, todosLosUsuarios]);
+
+  useEffect(() => {
+    if (abogadosDesignadosPorArea.length === 0) {
+      if (activeAbogadosAreaId) setActiveAbogadosAreaId("");
+      return;
+    }
+    const exists = abogadosDesignadosPorArea.some(
+      (grupo) => grupo.id === activeAbogadosAreaId,
+    );
+    if (!activeAbogadosAreaId || !exists) {
+      const preferred = abogadosDesignadosPorArea.find(
+        (grupo) => grupo.id === defaultAbogadosAreaId,
+      );
+      setActiveAbogadosAreaId(
+        preferred?.id || abogadosDesignadosPorArea[0]?.id || "",
+      );
+    }
+  }, [abogadosDesignadosPorArea, activeAbogadosAreaId, defaultAbogadosAreaId]);
+
+  const activeAbogadosArea = useMemo(
+    () =>
+      abogadosDesignadosPorArea.find(
+        (grupo) => grupo.id === activeAbogadosAreaId,
+      ) ||
+      abogadosDesignadosPorArea[0] ||
+      null,
+    [abogadosDesignadosPorArea, activeAbogadosAreaId],
   );
 
   const abogadosDisponibles = useMemo(
@@ -5022,14 +5313,27 @@ export default function SiniestroDetailPage() {
                   {/* Proveniente */}
                   {provenienteInfo && (
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 mb-2">
-                        <FiFile
-                          className="w-5 h-5"
-                          style={{ color: empresaColors.secondary }}
-                        />
-                        <h3 className="font-semibold text-gray-700">
-                          Proveniente
-                        </h3>
+                      <div className="flex flex-col gap-2 mb-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-2">
+                          <FiFile
+                            className="w-5 h-5"
+                            style={{ color: empresaColors.secondary }}
+                          />
+                          <h3 className="font-semibold text-gray-700">
+                            Proveniente
+                          </h3>
+                        </div>
+                        {puedeGestionarContactosProveniente && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={handleOpenContactosProvenienteModal}
+                          >
+                            <FiEdit3 className="w-4 h-4" />
+                            Editar contactos
+                          </Button>
+                        )}
                       </div>
                       <p className="text-sm text-gray-600">
                         {provenienteInfo.nombre}
@@ -5355,81 +5659,143 @@ export default function SiniestroDetailPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Lista de involucrados */}
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                      {involucrados.length === 0 ? (
+                    {/* Lista de involucrados por área */}
+                    <div className="space-y-3">
+                      {abogadosDesignadosPorArea.length === 0 ? (
                         <p className="text-sm text-gray-500 text-center py-4">
                           No hay involucrados asignados
                         </p>
                       ) : (
-                        involucrados.map((involucrado) => {
-                          const usuario = todosLosUsuarios.find(
-                            (u) => u.id === involucrado.usuario_id,
-                          );
-                          const rolUsuario =
-                            usuario?.rol?.nombre ||
-                            (usuario?.rol_id
-                              ? `Rol ID: ${usuario.rol_id}`
-                              : "Sin rol");
-
-                          return (
-                            <div
-                              key={involucrado.id}
-                              className={`p-2 rounded-lg transition-colors ${
-                                involucrado.activo
-                                  ? "bg-gray-50 hover:bg-gray-100"
-                                  : "border border-red-300 bg-red-50"
-                              }`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-gray-700 truncate">
-                                      {getUserDisplayName(usuario, usuario?.email || "Usuario desconocido")}
-                                    </p>
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    <span className="font-medium text-gray-700">
-                                      {rolUsuario} del área {usuario?.areas?.map((area: { nombre: string }) => area.nombre).join(", ")}
+                        <>
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {abogadosDesignadosPorArea.map((grupo) => {
+                              const active = grupo.id === activeAbogadosAreaId;
+                              const currentUserArea = userAreaIds.includes(grupo.id);
+                              return (
+                                <button
+                                  key={grupo.id}
+                                  type="button"
+                                  onClick={() => setActiveAbogadosAreaId(grupo.id)}
+                                  className={`flex-shrink-0 rounded-md border px-3 py-2 text-xs font-medium transition-colors ${
+                                    active
+                                      ? "border-blue-500 bg-blue-50 text-blue-700"
+                                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                                  }`}
+                                  title={grupo.nombre}
+                                >
+                                  <span className="inline-flex items-center gap-1">
+                                    <span className="max-w-[130px] truncate">
+                                      {grupo.nombre}
                                     </span>
-                                    {!involucrado.activo && (
-                                      <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs">
-                                        Inactivo
+                                    <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+                                      {grupo.abogados.length}
+                                    </span>
+                                    {currentUserArea && (
+                                      <span className="rounded-full bg-green-50 px-1.5 py-0.5 text-[11px] text-green-700">
+                                        Mi área
                                       </span>
                                     )}
-                                  </p>
-                                </div>
-                                {puedeActualizarSiniestroExpediente && (
-                                  involucrado.activo ? (
-                                    <div className="flex items-center gap-1 ml-2 flex-shrink-0">
-                                      <button
-                                        onClick={() =>
-                                          handleRemoveInvolucrado(
-                                            involucrado.id,
-                                          )
-                                        }
-                                        className="p-1 text-red-600 hover:text-red-800 transition-colors"
-                                        title="Desactivar involucrado"
-                                      >
-                                        <FiTrash2 className="w-4 h-4" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <button
-                                      onClick={() =>
-                                        handleReactivateInvolucrado(
-                                          involucrado.id,
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                            {!activeAbogadosArea ||
+                            activeAbogadosArea.abogados.length === 0 ? (
+                              <p className="text-sm text-gray-500 text-center py-4">
+                                No hay abogados asignados en esta área
+                              </p>
+                            ) : (
+                              activeAbogadosArea.abogados.map((involucrado) => {
+                                const usuario = todosLosUsuarios.find(
+                                  (u) => u.id === involucrado.usuario_id,
+                                );
+                                const rolUsuario =
+                                  usuario?.rol?.nombre ||
+                                  (usuario?.rol_id
+                                    ? `Rol ID: ${usuario.rol_id}`
+                                    : "Sin rol");
+                                const areaTexto =
+                                  usuario?.areas
+                                    ?.map((area: { nombre: string }) => area.nombre)
+                                    .filter(Boolean)
+                                    .join(", ") || "Sin área";
+                                const esJefeArea =
+                                  Number(usuario?.rol?.nivel ?? 99) === 2;
+
+                                return (
+                                  <div
+                                    key={involucrado.id}
+                                    className={`p-2 rounded-lg transition-colors ${
+                                      involucrado.activo
+                                        ? "bg-gray-50 hover:bg-gray-100"
+                                        : "border border-red-300 bg-red-50"
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-sm font-medium text-gray-700 truncate">
+                                            {getUserDisplayName(
+                                              usuario,
+                                              usuario?.email || "Usuario desconocido",
+                                            )}
+                                          </p>
+                                          {esJefeArea && (
+                                            <span className="flex-shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                                              Jefe de área
+                                            </span>
+                                          )}
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-1">
+                                          <span className="font-medium text-gray-700">
+                                            {rolUsuario} del área {areaTexto}
+                                          </span>
+                                          {!involucrado.activo && (
+                                            <span className="ml-2 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs">
+                                              Inactivo
+                                            </span>
+                                          )}
+                                        </p>
+                                      </div>
+                                      {puedeActualizarSiniestroExpediente && (
+                                        involucrado.activo ? (
+                                          <div className="flex items-center gap-1 ml-2 flex-shrink-0">
+                                            <button
+                                              onClick={() =>
+                                                handleRemoveInvolucrado(
+                                                  involucrado.id,
+                                                )
+                                              }
+                                              className="p-1 text-red-600 hover:text-red-800 transition-colors"
+                                              title="Desactivar involucrado"
+                                            >
+                                              <FiTrash2 className="w-4 h-4" />
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            onClick={() =>
+                                              handleReactivateInvolucrado(
+                                                involucrado.id,
+                                              )
+                                            }
+                                            className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors ml-2 flex-shrink-0"
+                                            title="Reactivar involucrado"
+                                          >
+                                            Reactivar
+                                          </button>
                                         )
-                                      }
-                                      className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700 transition-colors ml-2 flex-shrink-0"
-                                      title="Reactivar involucrado"
-                                    >
-                                      Reactivar
-                                    </button>
-                                  )
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
                       )}
                     </div>
 
@@ -6474,6 +6840,196 @@ export default function SiniestroDetailPage() {
             >
               {emailSending ? "Enviando..." : "Enviar correo"}
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal de Contactos del Proveniente */}
+      <Modal
+        open={showContactosProvenienteModal}
+        onClose={() => {
+          if (savingContactoProveniente) return;
+          setShowContactosProvenienteModal(false);
+          resetContactoProvenienteForm();
+        }}
+        title="Editar contactos"
+        maxWidthClass="max-w-4xl"
+      >
+        <div className="space-y-5">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-gray-900">
+              {provenienteInfo?.nombre || "Proveniente"}
+            </p>
+            <p className="text-xs text-gray-500">
+              Los contactos activos aparecen como destinatarios externos al enviar documentos.
+            </p>
+          </div>
+
+          {editingContactoProvenienteId && canEditarContactosProveniente && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+                <div className="md:col-span-4">
+                  <Input
+                    label="Nombre"
+                    name="contacto_proveniente_nombre"
+                    value={contactoProvenienteForm.nombre}
+                    onChange={(e) =>
+                      setContactoProvenienteForm((prev) => ({
+                        ...prev,
+                        nombre: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <Input
+                    label="Correo"
+                    name="contacto_proveniente_correo"
+                    type="email"
+                    value={contactoProvenienteForm.correo}
+                    onChange={(e) =>
+                      setContactoProvenienteForm((prev) => ({
+                        ...prev,
+                        correo: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-700 md:col-span-2 md:pb-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    checked={contactoProvenienteForm.activo}
+                    onChange={(e) =>
+                      setContactoProvenienteForm((prev) => ({
+                        ...prev,
+                        activo: e.target.checked,
+                      }))
+                    }
+                  />
+                  Activo
+                </label>
+                <div className="flex gap-2 md:col-span-2 md:justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={resetContactoProvenienteForm}
+                    disabled={savingContactoProveniente}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    onClick={handleSaveContactoProveniente}
+                    disabled={savingContactoProveniente}
+                  >
+                    {savingContactoProveniente ? "Guardando..." : "Guardar"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">
+                    Nombre
+                  </th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">
+                    Correo
+                  </th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">
+                    Estado
+                  </th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {loadingContactosProveniente ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      Cargando contactos...
+                    </td>
+                  </tr>
+                ) : provenienteContactos.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      No hay contactos registrados.
+                    </td>
+                  </tr>
+                ) : (
+                  provenienteContactos.map((contacto) => (
+                    <tr key={contacto.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-900">
+                        {contacto.nombre || "-"}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {contacto.correo || "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${
+                            contacto.activo !== false
+                              ? "border-green-200 bg-green-50 text-green-700"
+                              : "border-gray-200 bg-gray-100 text-gray-600"
+                          }`}
+                        >
+                          {contacto.activo !== false ? "Activo" : "Inactivo"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {canEditarContactosProveniente && (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() =>
+                                  handleStartEditContactoProveniente(contacto)
+                                }
+                                disabled={savingContactoProveniente}
+                              >
+                                Editar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() =>
+                                  handleToggleContactoProvenienteActivo(contacto)
+                                }
+                                disabled={savingContactoProveniente}
+                              >
+                                {contacto.activo !== false ? "Inactivar" : "Activar"}
+                              </Button>
+                            </>
+                          )}
+                          {canEliminarContactosProveniente && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="danger"
+                              onClick={() => handleDeleteContactoProveniente(contacto)}
+                              disabled={savingContactoProveniente}
+                            >
+                              Eliminar
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </Modal>

@@ -1378,12 +1378,31 @@ function SiniestrosPageContent() {
     if (!userId) return "-";
     const u = usuarios.find((x: any) => String(x.id) === String(userId));
     if (!u) return "-";
-    const parts = [u.nombre, u.apellido_paterno, u.apellido_materno].filter(
-      Boolean,
-    );
+    const perfil = u.perfil || {};
+    const parts = [
+      perfil.nombre || u.nombre,
+      perfil.apellido_paterno || u.apellido_paterno,
+      perfil.apellido_materno || u.apellido_materno,
+    ].filter(Boolean);
     if (parts.length) return parts.join(" ");
     return u.email || u.username || String(userId);
   };
+
+  const getUsuarioById = (userId?: string | null) =>
+    usuarios.find((x: any) => String(x.id) === String(userId));
+
+  const isJefeAreaUsuario = (usuario: any) =>
+    Number(usuario?.rol?.nivel ?? 99) === 2;
+
+  const getUsuariosAsignadosPorNivel = (s: Siniestro, jefeArea: boolean) =>
+    (s.usuarios_asignados_ids ?? [])
+      .map((id) => getUsuarioById(id))
+      .filter((usuario) => usuario && isJefeAreaUsuario(usuario) === jefeArea)
+      .map((usuario) => getUsuarioNombre(usuario.id))
+      .filter((n) => n && n !== "-");
+
+  const formatUsuariosAsignadosPorNivel = (s: Siniestro, jefeArea: boolean) =>
+    getUsuariosAsignadosPorNivel(s, jefeArea).join(", ") || "—";
 
   const fmtMonto = (n: number | null | undefined) => {
     if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
@@ -1452,7 +1471,8 @@ function SiniestrosPageContent() {
         s.descripcion_hechos,
         s.observaciones,
         getUsuarioNombre(s.creado_por),
-        ...(s.usuarios_asignados_ids ?? []).map((id) => getUsuarioNombre(id)),
+        formatUsuariosAsignadosPorNivel(s, true),
+        formatUsuariosAsignadosPorNivel(s, false),
       ];
       return parts.filter(Boolean).join(" ");
     },
@@ -2102,18 +2122,31 @@ function SiniestrosPageContent() {
     {
       id: "abogados_asignados",
       header: "Abogado(s) asignado(s)",
-      accessorFn: (row) =>
-        (row.usuarios_asignados_ids ?? [])
-          .map((id) => getUsuarioNombre(id))
-          .filter((n) => n && n !== "-")
-          .join(", ") || "—",
+      accessorFn: (row) => formatUsuariosAsignadosPorNivel(row, false),
       cell: ({ row, table }) => {
         const fluid = isDataTableFluidLayout(table);
-        const texto =
-          (row.original.usuarios_asignados_ids ?? [])
-            .map((id) => getUsuarioNombre(id))
-            .filter((n) => n && n !== "-")
-            .join(", ") || "—";
+        const texto = formatUsuariosAsignadosPorNivel(row.original, false);
+        return (
+          <span
+            className={
+              fluid
+                ? "text-sm block min-w-0 max-w-full break-words"
+                : "text-sm truncate block max-w-[160px]"
+            }
+            title={texto !== "—" ? texto : undefined}
+          >
+            {texto}
+          </span>
+        );
+      },
+    },
+    {
+      id: "jefe_area",
+      header: "Jefe de área",
+      accessorFn: (row) => formatUsuariosAsignadosPorNivel(row, true),
+      cell: ({ row, table }) => {
+        const fluid = isDataTableFluidLayout(table);
+        const texto = formatUsuariosAsignadosPorNivel(row.original, true);
         return (
           <span
             className={
