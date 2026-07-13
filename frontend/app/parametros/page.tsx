@@ -16,7 +16,7 @@ import Switch from "@/components/ui/Switch";
 import { swalSuccess, swalError, swalConfirmDelete } from "@/lib/swal";
 import { ColumnDef } from "@tanstack/react-table";
 import DataTable from "@/components/ui/DataTable";
-import { FiDownload, FiUpload, FiPlus } from "react-icons/fi";
+import { FiDownload, FiUpload, FiPlus, FiUsers } from "react-icons/fi";
 import { useTour } from "@/hooks/useTour";
 import TourButton from "@/components/ui/TourButton";
 
@@ -929,6 +929,17 @@ function ProvenientesTab({ router, user }: { router: any; user: any }) {
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
+  const [contactosModalOpen, setContactosModalOpen] = useState(false);
+  const [contactosLoading, setContactosLoading] = useState(false);
+  const [contactosSaving, setContactosSaving] = useState(false);
+  const [selectedProveniente, setSelectedProveniente] = useState<any | null>(null);
+  const [contactos, setContactos] = useState<any[]>([]);
+  const [editingContacto, setEditingContacto] = useState<any | null>(null);
+  const [contactoForm, setContactoForm] = useState({
+    nombre: "",
+    correo: "",
+    activo: true,
+  });
   const [form, setForm] = useState({
     nombre: "",
     codigo: "",
@@ -1065,6 +1076,170 @@ function ProvenientesTab({ router, user }: { router: any; user: any }) {
     }
   };
 
+  const resetContactoForm = () => {
+    setEditingContacto(null);
+    setContactoForm({
+      nombre: "",
+      correo: "",
+      activo: true,
+    });
+  };
+
+  const syncContactosInItems = (provenienteId: string, nextContactos: any[]) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === provenienteId ? { ...item, contactos: nextContactos } : item,
+      ),
+    );
+  };
+
+  const loadContactos = async (provenienteId: string) => {
+    const data = await apiService.getProvenienteContactos(provenienteId);
+    const next = (Array.isArray(data) ? data : []).filter(
+      (contacto: any) => String(contacto?.proveniente_id || "") === String(provenienteId),
+    );
+    setContactos(next);
+    syncContactosInItems(provenienteId, next);
+  };
+
+  const openContactos = async (proveniente: any) => {
+    setSelectedProveniente(proveniente);
+    setContactos([]);
+    setContactosModalOpen(true);
+    resetContactoForm();
+    try {
+      setContactosLoading(true);
+      await loadContactos(proveniente.id);
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al cargar contactos");
+    } finally {
+      setContactosLoading(false);
+    }
+  };
+
+  const startCreateContacto = () => {
+    resetContactoForm();
+  };
+
+  const startEditContacto = (contacto: any) => {
+    setEditingContacto(contacto);
+    setContactoForm({
+      nombre: contacto.nombre || "",
+      correo: contacto.correo || "",
+      activo: contacto.activo !== false,
+    });
+  };
+
+  const saveContacto = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProveniente?.id) return;
+
+    const nombre = contactoForm.nombre.trim();
+    const correo = contactoForm.correo.trim().toLowerCase();
+    if (!nombre || !correo) {
+      swalError("Debes capturar nombre y correo");
+      return;
+    }
+
+    const contactosDelProveniente = contactos.filter(
+      (contacto) =>
+        String(contacto?.proveniente_id || "") === String(selectedProveniente.id),
+    );
+    const duplicado = contactosDelProveniente.some(
+      (contacto) =>
+        contacto.id !== editingContacto?.id &&
+        String(contacto.correo || "").trim().toLowerCase() === correo,
+    );
+    if (duplicado) {
+      swalError("Ese correo ya existe en los contactos del proveniente");
+      return;
+    }
+
+    try {
+      setContactosSaving(true);
+      if (editingContacto) {
+        await apiService.updateProvenienteContacto(
+          selectedProveniente.id,
+          editingContacto.id,
+          {
+            nombre,
+            correo,
+            activo: contactoForm.activo,
+          },
+        );
+        await swalSuccess("Contacto actualizado");
+      } else {
+        await apiService.createProvenienteContacto(selectedProveniente.id, {
+          nombre,
+          correo,
+          activo: contactoForm.activo,
+        });
+        await swalSuccess("Contacto creado");
+      }
+      resetContactoForm();
+      await loadContactos(selectedProveniente.id);
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al guardar contacto");
+    } finally {
+      setContactosSaving(false);
+    }
+  };
+
+  const toggleContactoActivo = async (contacto: any) => {
+    if (!selectedProveniente?.id) return;
+    try {
+      setContactosSaving(true);
+      await apiService.updateProvenienteContacto(
+        selectedProveniente.id,
+        contacto.id,
+        { activo: contacto.activo === false },
+      );
+      await swalSuccess(contacto.activo === false ? "Contacto activado" : "Contacto inactivado");
+      await loadContactos(selectedProveniente.id);
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al cambiar estado del contacto");
+    } finally {
+      setContactosSaving(false);
+    }
+  };
+
+  const deleteContacto = async (contacto: any) => {
+    if (!selectedProveniente?.id) return;
+    const confirmed = await swalConfirmDelete(
+      `¿Está seguro de eliminar el contacto ${contacto.nombre || contacto.correo}?`,
+    );
+    if (!confirmed) return;
+    try {
+      setContactosSaving(true);
+      await apiService.deleteProvenienteContacto(selectedProveniente.id, contacto.id);
+      await swalSuccess("Contacto eliminado");
+      if (editingContacto?.id === contacto.id) {
+        resetContactoForm();
+      }
+      await loadContactos(selectedProveniente.id);
+    } catch (e: any) {
+      if (e.response?.status === 401) {
+        router.push("/login");
+        return;
+      }
+      swalError(e.response?.data?.detail || "Error al eliminar contacto");
+    } finally {
+      setContactosSaving(false);
+    }
+  };
+
   const [importing, setImporting] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -1139,6 +1314,7 @@ function ProvenientesTab({ router, user }: { router: any; user: any }) {
           data={items}
           onEdit={openEdit}
           onDelete={(id: string) => deleteItem(id)}
+          onManageContactos={openContactos}
         />
       )}
       <Modal
@@ -1232,6 +1408,180 @@ function ProvenientesTab({ router, user }: { router: any; user: any }) {
           </div>
         </form>
       </Modal>
+      <Modal
+        open={contactosModalOpen}
+        onClose={() => {
+          if (contactosSaving) return;
+          setContactosModalOpen(false);
+          setSelectedProveniente(null);
+          setContactos([]);
+          resetContactoForm();
+        }}
+        title="Editar contactos"
+        maxWidthClass="max-w-4xl"
+      >
+        <div className="space-y-5">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium text-gray-900">
+              {selectedProveniente?.nombre || "Proveniente"}
+            </p>
+            <p className="text-xs text-gray-500">
+              Los contactos activos estarán disponibles como destinatarios externos.
+            </p>
+          </div>
+
+          <form onSubmit={saveContacto} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-12 md:items-end">
+              <div className="md:col-span-4">
+                <Input
+                  label="Nombre"
+                  name="contacto_nombre"
+                  value={contactoForm.nombre}
+                  onChange={(e) =>
+                    setContactoForm((prev) => ({ ...prev, nombre: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <div className="md:col-span-4">
+                <Input
+                  label="Correo"
+                  name="contacto_correo"
+                  type="email"
+                  value={contactoForm.correo}
+                  onChange={(e) =>
+                    setContactoForm((prev) => ({ ...prev, correo: e.target.value }))
+                  }
+                  required
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-gray-700 md:col-span-2 md:pb-2">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  checked={contactoForm.activo}
+                  onChange={(e) =>
+                    setContactoForm((prev) => ({ ...prev, activo: e.target.checked }))
+                  }
+                />
+                Activo
+              </label>
+              <div className="flex gap-2 md:col-span-2 md:justify-end">
+                {editingContacto && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={startCreateContacto}
+                    disabled={contactosSaving}
+                  >
+                    Cancelar
+                  </Button>
+                )}
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={contactosSaving}
+                >
+                  {contactosSaving
+                    ? "Guardando..."
+                    : editingContacto
+                    ? "Guardar"
+                    : "Nuevo contacto"}
+                </Button>
+              </div>
+            </div>
+          </form>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Nombre</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Correo</th>
+                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Estado</th>
+                  <th className="px-4 py-3 text-right font-semibold text-gray-700">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {contactosLoading ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      Cargando contactos...
+                    </td>
+                  </tr>
+                ) : contactos.filter(
+                    (contacto) =>
+                      String(contacto?.proveniente_id || "") ===
+                      String(selectedProveniente?.id || ""),
+                  ).length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
+                      No hay contactos registrados.
+                    </td>
+                  </tr>
+                ) : (
+                  contactos
+                    .filter(
+                      (contacto) =>
+                        String(contacto?.proveniente_id || "") ===
+                        String(selectedProveniente?.id || ""),
+                    )
+                    .map((contacto) => (
+                      <tr key={contacto.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-gray-900">{contacto.nombre || "-"}</td>
+                        <td className="px-4 py-3 text-gray-600">{contacto.correo || "-"}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-1 text-xs font-medium ${
+                              contacto.activo !== false
+                                ? "border-green-200 bg-green-50 text-green-700"
+                                : "border-gray-200 bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {contacto.activo !== false ? "Activo" : "Inactivo"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => startEditContacto(contacto)}
+                              disabled={contactosSaving}
+                            >
+                              Editar
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => toggleContactoActivo(contacto)}
+                              disabled={contactosSaving}
+                            >
+                              {contacto.activo !== false ? "Inactivar" : "Activar"}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="danger"
+                              size="sm"
+                              onClick={() => deleteContacto(contacto)}
+                              disabled={contactosSaving}
+                            >
+                              Eliminar
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -1240,10 +1590,12 @@ function ProvenientesTable({
   data,
   onEdit,
   onDelete,
+  onManageContactos,
 }: {
   data: any[];
   onEdit: (row: any) => void;
   onDelete: (id: string) => void;
+  onManageContactos: (row: any) => void;
 }) {
   const columns: ColumnDef<any>[] = [
     {
@@ -1268,9 +1620,13 @@ function ProvenientesTable({
       header: "Contactos",
       accessorKey: "contactos",
       cell: ({ row }) => {
-        const contactos = Array.isArray(row.original?.contactos)
+        const contactos = (Array.isArray(row.original?.contactos)
           ? row.original.contactos
-          : [];
+          : []
+        ).filter(
+          (contacto: any) =>
+            String(contacto?.proveniente_id || "") === String(row.original?.id || ""),
+        );
         if (contactos.length === 0) {
           return <span className="text-sm text-gray-500">-</span>;
         }
@@ -1298,6 +1654,14 @@ function ProvenientesTable({
       header: "",
       cell: ({ row }) => (
         <div className="flex gap-2 justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onManageContactos(row.original)}
+          >
+            <FiUsers className="w-4 h-4 mr-1" />
+            Contactos
+          </Button>
           <Button
             variant="secondary"
             size="sm"
