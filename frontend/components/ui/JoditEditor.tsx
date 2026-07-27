@@ -18,6 +18,7 @@ type JoditEditorProps = {
   label?: string;
   value: string;
   onChange: (value: string) => void;
+  onLatestValueChange?: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
   height?: number;
@@ -105,6 +106,7 @@ export default function JoditEditorComponent({
   label,
   value,
   onChange,
+  onLatestValueChange,
   placeholder = "Escribe el contenido de la plantilla aquí...",
   disabled = false,
   height = 500,
@@ -122,7 +124,8 @@ export default function JoditEditorComponent({
   // actualizar el ref sin re-renderizar el editor.
   useEffect(() => {
     contentRef.current = normalizedValue;
-  }, [normalizedValue]);
+    onLatestValueChange?.(normalizedValue);
+  }, [normalizedValue, onLatestValueChange]);
 
   // Configuración completa de Jodit con todas las opciones disponibles
   const config = useMemo(() => ({
@@ -778,6 +781,7 @@ export default function JoditEditorComponent({
               const normalizedContent = normalizeImageStylesForEditorHtml(newContent);
               // Al perder el foco, actualizar el valor externo UNA sola vez
               contentRef.current = normalizedContent;
+              onLatestValueChange?.(normalizedContent);
               if (normalizedContent !== normalizedValue) {
                 onChange(normalizedContent);
               }
@@ -785,6 +789,7 @@ export default function JoditEditorComponent({
             onChange={(newContent: string) => {
               // Solo actualizamos el ref local, sin tocar estado de React
               contentRef.current = newContent;
+              onLatestValueChange?.(newContent);
             }}
           />
         </div>

@@ -81,6 +81,7 @@ import {
   FiUpload,
   FiChevronRight,
   FiX,
+  FiRefreshCw,
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
@@ -204,6 +205,303 @@ function getDisplayPolizasFromSiniestro(siniestro: Siniestro | null): PolizaDraf
   );
 }
 
+const PLACEHOLDERS_FIRMA_INFORME = ["firmado_por", "firma_fisica"];
+const PLACEHOLDERS_NOMBRE_FIRMA_INFORME = ["creado_por", "autor"];
+
+function normalizeSignatureText(value?: string | null): string {
+  return (value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function hasAuthorizationMarker(value?: string | null): boolean {
+  return normalizeSignatureText(value).includes("autoriza");
+}
+
+function replaceInformePlaceholders(
+  html: string,
+  firmaHtml: string,
+  nombreFirma: string,
+): string {
+  let resultado = html;
+  PLACEHOLDERS_FIRMA_INFORME.forEach((key) => {
+    resultado = resultado.replace(
+      new RegExp(`{{\\s*${escapePlaceholderKeyForRegex(key)}\\s*}}`, "g"),
+      firmaHtml,
+    );
+  });
+  PLACEHOLDERS_NOMBRE_FIRMA_INFORME.forEach((key) => {
+    resultado = resultado.replace(
+      new RegExp(`{{\\s*${escapePlaceholderKeyForRegex(key)}\\s*}}`, "g"),
+      nombreFirma,
+    );
+  });
+  return resultado;
+}
+
+function buildSignatureImageFromHtml(firmaHtml: string): HTMLImageElement | null {
+  const template = document.createElement("template");
+  template.innerHTML = firmaHtml;
+  return template.content.querySelector("img");
+}
+
+function getNumericCssValue(value?: string | null): number | null {
+  if (!value) return null;
+  const match = /(\d+(?:\.\d+)?)/.exec(value);
+  return match ? Number(match[1]) : null;
+}
+
+function getImageInlineSize(image: HTMLImageElement): {
+  width: number | null;
+  height: number | null;
+} {
+  const style = image.getAttribute("style") || "";
+  const widthFromStyle = /(?:^|;)\s*width\s*:\s*([^;]+)/i.exec(style)?.[1];
+  const heightFromStyle = /(?:^|;)\s*height\s*:\s*([^;]+)/i.exec(style)?.[1];
+
+  return {
+    width:
+      getNumericCssValue(widthFromStyle) ||
+      getNumericCssValue(image.getAttribute("width")),
+    height:
+      getNumericCssValue(heightFromStyle) ||
+      getNumericCssValue(image.getAttribute("height")),
+  };
+}
+
+function isLikelySignatureSize(image: HTMLImageElement): boolean {
+  const { width, height } = getImageInlineSize(image);
+  if (width == null && height == null) return true;
+  if (width != null && width > 260) return false;
+  if (height != null && height > 180) return false;
+  return true;
+}
+
+function textHasAnyKnownName(text: string, nombresAnteriores: string[]): boolean {
+  const normalizedText = normalizeSignatureText(text);
+  return nombresAnteriores.some((nombre) => {
+    const normalizedName = normalizeSignatureText(nombre);
+    return normalizedName.length >= 4 && normalizedText.includes(normalizedName);
+  });
+}
+
+function hasSignatureContextText(
+  text: string,
+  nombresAnteriores: string[],
+): boolean {
+  const normalizedText = normalizeSignatureText(text);
+  const hasClosing = /\batentamente\b/.test(normalizedText);
+  const hasLawyerLabel =
+    /\blic\.?\b/.test(normalizedText) ||
+    /\babogad[oa]\b/.test(normalizedText);
+
+  return (
+    (hasClosing && hasLawyerLabel) ||
+    (hasClosing && textHasAnyKnownName(text, nombresAnteriores)) ||
+    (hasLawyerLabel && textHasAnyKnownName(text, nombresAnteriores))
+  );
+}
+
+function isInformeSignatureImage(
+  image: HTMLImageElement,
+  nombresAnteriores: string[],
+): boolean {
+  const attrText = [
+    image.getAttribute("alt"),
+    image.getAttribute("class"),
+    image.getAttribute("id"),
+    image.getAttribute("title"),
+    image.getAttribute("src"),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const contextText =
+    image.closest("p, div, td, th, tr")?.textContent || "";
+
+  if (hasAuthorizationMarker(attrText) || hasAuthorizationMarker(contextText)) {
+    return false;
+  }
+
+  const alt = normalizeSignatureText(image.getAttribute("alt"));
+  const classNames = (image.getAttribute("class") || "")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (alt === "firma" || classNames.includes("pdf-firma")) {
+    return true;
+  }
+
+  if (!isLikelySignatureSize(image)) {
+    return false;
+  }
+
+  const nearbyText = collectNameScopesNearSignature(image)
+    .map((scope) => scope.textContent || "")
+    .join(" ");
+
+  return hasSignatureContextText(nearbyText, nombresAnteriores);
+}
+
+function getSiblingElements(
+  element: Element,
+  direction: "previous" | "next",
+  limit: number,
+): Element[] {
+  const siblings: Element[] = [];
+  let current =
+    direction === "previous"
+      ? element.previousElementSibling
+      : element.nextElementSibling;
+
+  while (current && siblings.length < limit) {
+    siblings.push(current);
+    current =
+      direction === "previous"
+        ? current.previousElementSibling
+        : current.nextElementSibling;
+  }
+
+  return siblings;
+}
+
+function collectNameScopesNearSignature(image: HTMLImageElement): Element[] {
+  const scopes = new Set<Element>();
+  const block = image.closest("p, div, li");
+  const cell = image.closest("td, th");
+
+  if (image.parentElement) scopes.add(image.parentElement);
+
+  if (block) {
+    scopes.add(block);
+    getSiblingElements(block, "previous", 3).forEach((item) => scopes.add(item));
+    getSiblingElements(block, "next", 3).forEach((item) => scopes.add(item));
+  }
+
+  if (cell) {
+    scopes.add(cell);
+    const row = cell.parentElement;
+    const cellIndex = row ? Array.from(row.children).indexOf(cell) : -1;
+    if (row && cellIndex >= 0) {
+      [
+        ...getSiblingElements(row, "previous", 2),
+        ...getSiblingElements(row, "next", 2),
+      ].forEach((rowCandidate) => {
+        const cells = Array.from(rowCandidate.children);
+        const sameColumnCell =
+          cells[cellIndex] || (cells.length === 1 ? cells[0] : null);
+        if (sameColumnCell) scopes.add(sameColumnCell);
+      });
+    }
+  }
+
+  return Array.from(scopes).filter(
+    (scope) => !hasAuthorizationMarker(scope.textContent),
+  );
+}
+
+function buildFlexibleNameRegex(name: string): RegExp | null {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const pattern = parts.map(escapePlaceholderKeyForRegex).join("\\s+");
+  return new RegExp(
+    `(^|[^\\wÁÉÍÓÚÜÑáéíóúüñ])(${pattern})(?=$|[^\\wÁÉÍÓÚÜÑáéíóúüñ])`,
+    "gi",
+  );
+}
+
+function replaceKnownNamesInTextNodes(
+  root: Element,
+  nombresAnteriores: string[],
+  nombreFirma: string,
+): boolean {
+  if (!nombreFirma || nombresAnteriores.length === 0) return false;
+
+  let changed = false;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode as Text);
+  }
+
+  textNodes.forEach((node) => {
+    let value = node.nodeValue || "";
+    const original = value;
+
+    nombresAnteriores.forEach((nombreAnterior) => {
+      const regex = buildFlexibleNameRegex(nombreAnterior);
+      if (!regex) return;
+      value = value.replace(regex, (_match, prefix) => `${prefix}${nombreFirma}`);
+    });
+
+    if (value !== original) {
+      node.nodeValue = value;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function restablecerFirmaInformeHtml(input: {
+  html: string;
+  firmaHtml: string;
+  nombreFirma: string;
+  nombresAnteriores: string[];
+}): { html: string; changed: boolean } {
+  const htmlConPlaceholders = replaceInformePlaceholders(
+    input.html,
+    input.firmaHtml,
+    input.nombreFirma,
+  );
+
+  if (typeof document === "undefined") {
+    return {
+      html: htmlConPlaceholders,
+      changed: htmlConPlaceholders !== input.html,
+    };
+  }
+
+  const firmaImage = buildSignatureImageFromHtml(input.firmaHtml);
+  if (!firmaImage) {
+    return {
+      html: htmlConPlaceholders,
+      changed: htmlConPlaceholders !== input.html,
+    };
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = htmlConPlaceholders;
+
+  const replacementImages: HTMLImageElement[] = [];
+  template.content.querySelectorAll("img").forEach((image) => {
+    if (!isInformeSignatureImage(image, input.nombresAnteriores)) return;
+
+    const replacement = firmaImage.cloneNode(true) as HTMLImageElement;
+    image.replaceWith(replacement);
+    replacementImages.push(replacement);
+  });
+
+  replacementImages.forEach((image) => {
+    collectNameScopesNearSignature(image).forEach((scope) => {
+      replaceKnownNamesInTextNodes(
+        scope,
+        input.nombresAnteriores,
+        input.nombreFirma,
+      );
+    });
+  });
+
+  const htmlFinal = template.innerHTML;
+  return {
+    html: htmlFinal,
+    changed: htmlFinal !== input.html,
+  };
+}
+
 export default function SiniestroDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -240,10 +538,24 @@ export default function SiniestroDetailPage() {
   const [savingDocument, setSavingDocument] = useState(false);
   const [currentEtapa, setCurrentEtapa] = useState<EtapaFlujo | null>(null);
   const [documentoContenido, setDocumentoContenido] = useState<string>("");
+  const documentoContenidoRef = useRef<string>("");
   const [documentoExistente, setDocumentoExistente] =
     useState<DocumentoEtapa | null>(null);
   const [plantillaActual, setPlantillaActual] =
     useState<PlantillaDocumento | null>(null);
+
+  useEffect(() => {
+    documentoContenidoRef.current = documentoContenido;
+  }, [documentoContenido]);
+
+  const handleDocumentoContenidoChange = useCallback((value: string) => {
+    documentoContenidoRef.current = value;
+    setDocumentoContenido(value);
+  }, []);
+
+  const handleDocumentoContenidoLatestChange = useCallback((value: string) => {
+    documentoContenidoRef.current = value;
+  }, []);
 
   // Estado para modal de visualización de PDF
   const [showPdfModal, setShowPdfModal] = useState(false);
@@ -645,26 +957,29 @@ export default function SiniestroDetailPage() {
    * HTML de firma física para plantillas ({{firmado_por}}, {{firma_fisica}}).
    * La firma inline (data URL) solo viene en GET /users/:id; el listado GET /users no incluye firma en perfil.
    */
-  const buildFirmaPhysicalHtml = (autorUsuario: any): string => {
+  const getFirmaPhysicalSrc = (autorUsuario: any): string => {
     const firmaRaw =
       (autorUsuario?.perfil && (autorUsuario.perfil as any).firma) ||
       autorUsuario?.firma ||
       "";
-    let firmaSrc = "";
     if (typeof firmaRaw === "string" && firmaRaw.trim()) {
       const raw = firmaRaw.trim();
       if (raw.startsWith("data:")) {
-        firmaSrc = raw;
+        return raw;
       } else if (
         raw.startsWith("http://") ||
         raw.startsWith("https://") ||
         raw.startsWith("/")
       ) {
-        firmaSrc = raw;
-      } else {
-        firmaSrc = `data:image/png;base64,${raw}`;
+        return raw;
       }
+      return `data:image/png;base64,${raw}`;
     }
+    return "";
+  };
+
+  const buildFirmaPhysicalHtml = (autorUsuario: any): string => {
+    const firmaSrc = getFirmaPhysicalSrc(autorUsuario);
     return firmaSrc
       ? `<img src="${firmaSrc.replace(/"/g, "&quot;")}" alt="Firma" class="pdf-firma" style="width:60px;height:auto;"/>`
       : "---";
@@ -1397,11 +1712,13 @@ export default function SiniestroDetailPage() {
       return;
     }
     try {
-      const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
-        activo: true,
-      });
+      const documentos = await apiService.getDocumentosSiniestro(siniestroId);
       setDocumentosEtapas(documentos);
-      setDocumentosExistentes(getUltimasVersionesDocumentos(documentos));
+      setDocumentosExistentes(
+        getUltimasVersionesDocumentos(
+          documentos.filter((doc: any) => doc?.activo !== false),
+        ),
+      );
     } catch (error: any) {
       console.error("Error al cargar documentos:", error);
     }
@@ -2591,7 +2908,6 @@ export default function SiniestroDetailPage() {
         const documentosRaw = await apiService.getDocumentosSiniestro(siniestroId, {
           activo: true,
         });
-        setDocumentosEtapas(documentosRaw);
         listaDocumentos = getUltimasVersionesDocumentos(documentosRaw);
         setDocumentosExistentes(listaDocumentos);
       }
@@ -3919,7 +4235,6 @@ export default function SiniestroDetailPage() {
         const documentosRaw = await apiService.getDocumentosSiniestro(siniestroId, {
           activo: true,
         });
-        setDocumentosEtapas(documentosRaw);
         listaDocumentos = getUltimasVersionesDocumentos(documentosRaw);
         setDocumentosExistentes(listaDocumentos);
       }
@@ -4023,6 +4338,71 @@ export default function SiniestroDetailPage() {
     } finally {
       setEditorLoading(false);
     }
+  };
+
+  const handleRestablecerFirmaDocumento = async () => {
+    if (!documentoExistente || savingDocument || !user) return;
+
+    const firmaSrc = getFirmaPhysicalSrc(user);
+    if (!firmaSrc) {
+      swalError("Tu usuario no tiene firma física registrada.");
+      return;
+    }
+
+    const nombreFirma = getUserDisplayName(user, "").trim();
+    if (!nombreFirma) {
+      swalError("No se pudo determinar el nombre del usuario actual.");
+      return;
+    }
+
+    const confirmed = await swalConfirm(
+      "Se reemplazará en el editor la firma y el nombre detectables por los del usuario actual. Para guardar el cambio presiona Actualizar Documento.",
+      "Restablecer firma",
+      "Restablecer",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+
+    let usuariosParaNombres = todosLosUsuarios;
+    if (usuariosParaNombres.length === 0) {
+      try {
+        usuariosParaNombres = await apiService.getUsers();
+        setTodosLosUsuarios(usuariosParaNombres);
+      } catch {
+        usuariosParaNombres = [];
+      }
+    }
+
+    const nombreFirmaNormalizado = normalizeSignatureText(nombreFirma);
+    const nombresAnteriores = Array.from(
+      new Set(
+        usuariosParaNombres
+          .map((usuario) => getUserDisplayName(usuario, "").trim())
+          .filter((nombre) => {
+            if (nombre.length < 4) return false;
+            return normalizeSignatureText(nombre) !== nombreFirmaNormalizado;
+          }),
+      ),
+    ).sort((a, b) => b.length - a.length);
+
+    const htmlActual = documentoContenidoRef.current || documentoContenido;
+    const result = restablecerFirmaInformeHtml({
+      html: htmlActual,
+      firmaHtml: buildFirmaPhysicalHtml(user),
+      nombreFirma,
+      nombresAnteriores,
+    });
+
+    if (!result.changed) {
+      swalError("No se encontró una firma o nombre identificable para restablecer.");
+      return;
+    }
+
+    documentoContenidoRef.current = result.html;
+    setDocumentoContenido(result.html);
+    await swalSuccess(
+      "Firma restablecida en el editor. Presiona Actualizar Documento para guardar.",
+    );
   };
 
   // Función para guardar el documento
@@ -4569,8 +4949,9 @@ export default function SiniestroDetailPage() {
                                         <EtapasTimeline
                                           etapas={flujoConEtapas.etapas}
                                           documentosExistentes={
-                                            documentosEtapas
+                                            documentosExistentes
                                           }
+                                          documentosVersiones={documentosEtapas}
                                           onOpenEditor={
                                             handleOpenDocumentEditor
                                           }
@@ -4788,8 +5169,9 @@ export default function SiniestroDetailPage() {
                                       <EtapasTimeline
                                         etapas={flujoConEtapas.etapas}
                                         documentosExistentes={
-                                          documentosEtapas
+                                          documentosExistentes
                                         }
+                                        documentosVersiones={documentosEtapas}
                                         onOpenEditor={handleOpenDocumentEditor}
                                         onViewDocument={handleViewDocument}
                                         onViewDocumento={handleViewDocumento}
@@ -6118,7 +6500,8 @@ export default function SiniestroDetailPage() {
               <JoditEditor
                 label="Contenido del Documento"
                 value={documentoContenido}
-                onChange={setDocumentoContenido}
+                onChange={handleDocumentoContenidoChange}
+                onLatestValueChange={handleDocumentoContenidoLatestChange}
                 placeholder="Escribe el contenido del documento aquí..."
                 height={400}
                 disabled={savingDocument}
@@ -6166,6 +6549,15 @@ export default function SiniestroDetailPage() {
                 >
                   Cancelar
                 </Button>
+                {documentoExistente && !savingDocument && (
+                  <Button
+                    variant="secondary"
+                    onClick={handleRestablecerFirmaDocumento}
+                  >
+                    <FiRefreshCw className="w-4 h-4 mr-2" />
+                    Restablecer firma
+                  </Button>
+                )}
                 <Button
                   variant="primary"
                   onClick={handleSaveDocument}
@@ -7724,6 +8116,7 @@ export default function SiniestroDetailPage() {
 const EtapasTimeline = React.memo(function EtapasTimeline({
   etapas,
   documentosExistentes,
+  documentosVersiones,
   onOpenEditor,
   onViewDocument,
   onViewDocumento,
@@ -7746,6 +8139,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
 }: {
   etapas: EtapaFlujo[];
   documentosExistentes: DocumentoEtapa[];
+  documentosVersiones?: DocumentoEtapa[];
   onOpenEditor: (etapa: EtapaFlujo) => void;
   onViewDocument: (etapa: EtapaFlujo) => void;
   onViewDocumento?: (documento: any) => void;
@@ -7809,7 +8203,11 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
       <div className="relative">
         {etapasOrdenadas.map((etapa, index) => {
           // Cómputos compartidos entre botones y contador de archivos
-          const docsEtapa = documentosExistentes.filter(
+          const esEditor = esTipoEditor(etapa);
+          const documentosParaEtapa = esEditor
+            ? documentosVersiones || documentosExistentes
+            : documentosExistentes;
+          const docsEtapa = documentosParaEtapa.filter(
             (d: any) =>
               d.etapa_flujo_id === etapa.id &&
               (!flujoTrabajoId || d.flujo_trabajo_id === flujoTrabajoId) &&
@@ -7820,10 +8218,16 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
               new Date(a.creado_en || 0).getTime(),
           );
           const countEtapa = docsEtapa.length;
-          const esEditor = esTipoEditor(etapa);
           const docMasReciente =
-            countEtapa > 0
-              ? [...docsEtapa].sort(
+            documentosExistentes.length > 0
+              ? documentosExistentes
+                  .filter(
+                    (d: any) =>
+                      d.etapa_flujo_id === etapa.id &&
+                      (!flujoTrabajoId || d.flujo_trabajo_id === flujoTrabajoId) &&
+                      (!areaId || d.area_id === areaId),
+                  )
+                  .sort(
                   (a: any, b: any) =>
                     new Date(b.creado_en || 0).getTime() -
                     new Date(a.creado_en || 0).getTime(),
@@ -8073,7 +8477,10 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
       {etapaDocumentosModal &&
         (() => {
           const esEditorModal = esTipoEditor(etapaDocumentosModal);
-          const documentosModal = documentosExistentes
+          const documentosModalSource = esEditorModal
+            ? documentosVersiones || documentosExistentes
+            : documentosExistentes;
+          const documentosModal = documentosModalSource
             .filter(
               (d: any) =>
                 d.etapa_flujo_id === etapaDocumentosModal.id &&
