@@ -502,6 +502,24 @@ function replaceKnownNamesInTextNodes(
   return changed;
 }
 
+function buildNombresFirmaCandidatos(
+  usuarios: any[],
+  nombreFirma: string,
+): string[] {
+  const candidatos = [
+    nombreFirma,
+    ...(usuarios || []).map((usuario) => getUserDisplayName(usuario, "")),
+  ];
+
+  return Array.from(
+    new Set(
+      candidatos
+        .map((nombre) => (nombre || "").trim())
+        .filter((nombre) => nombre.length >= 4),
+    ),
+  ).sort((a, b) => b.length - a.length);
+}
+
 const SIGNATURE_INLINE_TAGS = new Set([
   "A",
   "B",
@@ -750,6 +768,36 @@ function restablecerFirmaInformeHtml(input: {
   };
 }
 
+function aplicarFirmaTextualInformeHtmlBase(input: {
+  html: string;
+  firmaHtml: string;
+  nombreFirma: string;
+  nombresAnteriores: string[];
+}): string {
+  const htmlConPlaceholders = replaceInformePlaceholders(
+    input.html,
+    input.firmaHtml,
+    input.nombreFirma,
+  );
+
+  if (typeof document === "undefined") return htmlConPlaceholders;
+
+  const firmaImage = buildSignatureImageFromHtml(input.firmaHtml);
+  if (!firmaImage) return htmlConPlaceholders;
+
+  const template = document.createElement("template");
+  template.innerHTML = htmlConPlaceholders;
+
+  insertarFirmaEnBloquesTextuales({
+    root: template.content,
+    firmaImage,
+    nombresAnteriores: input.nombresAnteriores,
+    nombreFirma: input.nombreFirma,
+  });
+
+  return template.innerHTML;
+}
+
 export default function SiniestroDetailPage() {
   const router = useRouter();
   const params = useParams();
@@ -795,6 +843,11 @@ export default function SiniestroDetailPage() {
   useEffect(() => {
     documentoContenidoRef.current = documentoContenido;
   }, [documentoContenido]);
+
+  const setDocumentoContenidoActual = useCallback((value: string) => {
+    documentoContenidoRef.current = value;
+    setDocumentoContenido(value);
+  }, []);
 
   const handleDocumentoContenidoChange = useCallback((value: string) => {
     documentoContenidoRef.current = value;
@@ -1233,6 +1286,24 @@ export default function SiniestroDetailPage() {
       : "---";
   };
 
+  const aplicarFirmaTextualInformeHtml = (
+    html: string,
+    firmaHtml: string,
+    nombreFirma: string,
+  ): string => {
+    if (firmaHtml === "---" || !nombreFirma) return html;
+
+    return aplicarFirmaTextualInformeHtmlBase({
+      html,
+      firmaHtml,
+      nombreFirma,
+      nombresAnteriores: buildNombresFirmaCandidatos(
+        todosLosUsuarios,
+        nombreFirma,
+      ),
+    });
+  };
+
   /**
    * Usuario cuya firma/nombre se usan en plantillas: primero abogado por relación
    * siniestro–área (abogado_principal_informe_id); si no, involucrado con es_principal (legado).
@@ -1458,7 +1529,7 @@ export default function SiniestroDetailPage() {
       resultado = resultado.replace(regex, value ?? "");
     });
 
-    return resultado;
+    return aplicarFirmaTextualInformeHtml(resultado, firmaHtml, autorNombre);
   };
 
   /**
@@ -3243,11 +3314,17 @@ export default function SiniestroDetailPage() {
         }
       }
 
+      const htmlParaPdf = aplicarFirmaTextualInformeHtml(
+        decodeHtmlForEditor(docExistente.contenido || ""),
+        String(variables.firmado_por || variables.firma_fisica || ""),
+        String(variables.creado_por || variables.autor || ""),
+      );
+
       const filename =
         docExistente.nombre_archivo.replace(".html", ".pdf") ||
         `${etapa.nombre}.pdf`;
       const pdfResponse = await apiService.generatePDF({
-        html_content: decodeHtmlForEditor(docExistente.contenido || ""),
+        html_content: htmlParaPdf,
         plantilla_id: plantillaId || undefined,
         siniestro_id: siniestroId,
         variables,
@@ -3349,10 +3426,16 @@ export default function SiniestroDetailPage() {
           }
         }
 
+        const htmlParaPdf = aplicarFirmaTextualInformeHtml(
+          decodeHtmlForEditor(documento.contenido || ""),
+          String(variables.firmado_por || variables.firma_fisica || ""),
+          String(variables.creado_por || variables.autor || ""),
+        );
+
         const filename =
           documento.nombre_archivo.replace(".html", ".pdf") || "documento.pdf";
         const pdfResponse = await apiService.generatePDF({
-          html_content: decodeHtmlForEditor(documento.contenido || ""),
+          html_content: htmlParaPdf,
           plantilla_id: documento.plantilla_documento_id || undefined,
           siniestro_id: siniestroId,
           variables,
@@ -3996,7 +4079,7 @@ export default function SiniestroDetailPage() {
     }
 
     // Abrir el editor con la etapa encontrada
-    await handleOpenDocumentEditor(etapaEncontrada);
+    await handleOpenDocumentEditor(etapaEncontrada, documento);
   };
 
   // Descargar archivo de un documento (documentos subidos: fotos, PDF, etc.)
@@ -4093,9 +4176,14 @@ export default function SiniestroDetailPage() {
       const filename = baseName.toLowerCase().endsWith(".pdf")
         ? baseName
         : baseName.replace(/\.[^/.]+$/, "") + ".pdf";
+      const htmlParaPdf = aplicarFirmaTextualInformeHtml(
+        decodeHtmlForEditor(documento.contenido || ""),
+        String(variables.firmado_por || variables.firma_fisica || ""),
+        String(variables.creado_por || variables.autor || ""),
+      );
 
       await apiService.downloadPDF({
-        html_content: decodeHtmlForEditor(documento.contenido || ""),
+        html_content: htmlParaPdf,
         plantilla_id: documento.plantilla_documento_id,
         siniestro_id: siniestroId,
         variables,
@@ -4459,22 +4547,29 @@ export default function SiniestroDetailPage() {
   }, [handleOpenFormularioContinuacion]);
 
   // Función para abrir el editor de documentos
-  const handleOpenDocumentEditor = async (etapa: EtapaFlujo) => {
+  const handleOpenDocumentEditor = async (
+    etapa: EtapaFlujo,
+    documentoContexto?: any,
+  ) => {
     setCurrentEtapa(etapa);
     setEditorLoading(true);
     setShowEditorModal(true);
     setDocumentoExistente(null);
     setPlantillaActual(null);
-    setDocumentoContenido("");
+    setDocumentoContenidoActual("");
 
     try {
       // Determinar el flujo_trabajo_id actual basado en el tab activo
-      let flujoTrabajoIdActual: string | undefined = undefined;
-      const areaIdActual: string | undefined = activeAreaTab || undefined;
+      let flujoTrabajoIdActual: string | undefined =
+        documentoContexto?.flujo_trabajo_id || undefined;
+      const areaIdActual: string | undefined =
+        documentoContexto?.area_id || activeAreaTab || undefined;
       if (activeFlujoTab.startsWith("general-")) {
-        flujoTrabajoIdActual = activeFlujoTab.replace("general-", "");
+        flujoTrabajoIdActual =
+          flujoTrabajoIdActual || activeFlujoTab.replace("general-", "");
       } else if (activeFlujoTab.startsWith("area-")) {
-        flujoTrabajoIdActual = activeFlujoTab.replace("area-", "");
+        flujoTrabajoIdActual =
+          flujoTrabajoIdActual || activeFlujoTab.replace("area-", "");
       }
 
       // Datos al día (evita mostrar HTML guardado tras eliminar documento o usar caché obsoleta)
@@ -4488,12 +4583,22 @@ export default function SiniestroDetailPage() {
       }
 
       // Misma regla de área que en la timeline: nunca reutilizar el informe de otra área
-      const docExistente = resolverDocumentoParaEtapaYContexto(
+      let docExistente = resolverDocumentoParaEtapaYContexto(
         listaDocumentos,
         etapa.id,
         flujoTrabajoIdActual,
         areaIdActual,
       );
+      if (
+        documentoContexto?.id &&
+        (!docExistente ||
+          String(docExistente.id) !== String(documentoContexto.id))
+      ) {
+        docExistente =
+          listaDocumentos.find(
+            (doc: any) => String(doc.id) === String(documentoContexto.id),
+          ) || documentoContexto;
+      }
       const esDocumentoPropio =
         user?.id && String(docExistente?.usuario_subio || "") === String(user.id);
       if (
@@ -4522,7 +4627,7 @@ export default function SiniestroDetailPage() {
         await ensureUsuarioFirmaInforme(
           (docExistente?.area_id as string | undefined) || areaIdActual || null,
         );
-        setDocumentoContenido(
+        setDocumentoContenidoActual(
           aplicarPlaceholdersPlantilla(
             decoded,
             etapa,
@@ -4571,10 +4676,10 @@ export default function SiniestroDetailPage() {
             areaIdActual,
           );
 
-          setDocumentoContenido(contenidoConDatos);
+          setDocumentoContenidoActual(contenidoConDatos);
         } else {
           // Sin plantilla, iniciar con contenido vacío
-          setDocumentoContenido(
+          setDocumentoContenidoActual(
             "<p>Escribe el contenido del documento aquí...</p>",
           );
         }
@@ -4621,17 +4726,10 @@ export default function SiniestroDetailPage() {
       }
     }
 
-    const nombreFirmaNormalizado = normalizeSignatureText(nombreFirma);
-    const nombresAnteriores = Array.from(
-      new Set(
-        usuariosParaNombres
-          .map((usuario) => getUserDisplayName(usuario, "").trim())
-          .filter((nombre) => {
-            if (nombre.length < 4) return false;
-            return normalizeSignatureText(nombre) !== nombreFirmaNormalizado;
-          }),
-      ),
-    ).sort((a, b) => b.length - a.length);
+    const nombresAnteriores = buildNombresFirmaCandidatos(
+      usuariosParaNombres,
+      nombreFirma,
+    );
 
     const htmlActual = documentoContenidoRef.current || documentoContenido;
     const result = restablecerFirmaInformeHtml({
@@ -4646,8 +4744,7 @@ export default function SiniestroDetailPage() {
       return;
     }
 
-    documentoContenidoRef.current = result.html;
-    setDocumentoContenido(result.html);
+    setDocumentoContenidoActual(result.html);
     await swalSuccess(
       "Firma restablecida en el editor. Presiona Actualizar Documento para guardar.",
     );
@@ -4750,27 +4847,47 @@ export default function SiniestroDetailPage() {
       )}_${fecha}.html`;
 
       // Determinar area_id y flujo_trabajo_id basándose en el contexto actual
-      let areaId: string | undefined = activeAreaTab || undefined;
-      let flujoTrabajoId: string | undefined = undefined;
+      let areaId: string | undefined =
+        (documentoExistente?.area_id as string | undefined) ||
+        activeAreaTab ||
+        undefined;
+      let flujoTrabajoId: string | undefined =
+        (documentoExistente?.flujo_trabajo_id as string | undefined) ||
+        undefined;
 
       if (activeFlujoTab.startsWith("general-")) {
         const flujoId = activeFlujoTab.replace("general-", "");
-        flujoTrabajoId = flujoId;
+        flujoTrabajoId = flujoTrabajoId || flujoId;
       } else if (activeFlujoTab.startsWith("area-")) {
         const flujoId = activeFlujoTab.replace("area-", "");
-        flujoTrabajoId = flujoId;
-        areaId = activeAreaTab; // El área actual del tab
+        flujoTrabajoId = flujoTrabajoId || flujoId;
+        areaId = areaId || activeAreaTab; // El área actual del tab
       }
 
       const horasBita = docHorasBitacora.trim()
         ? parseFloat(docHorasBitacora)
         : undefined;
       const comentarioBita = docComentarioBitacora.trim() || undefined;
+      const contenidoEditor = documentoContenidoRef.current || documentoContenido;
+      await ensureUsuarioFirmaInforme(areaId || null);
+      const usuarioFirmaGuardar = resolveUsuarioFirmaParaInforme(
+        user,
+        areaId || null,
+      );
+      const nombreFirmaGuardar = getUserDisplayName(usuarioFirmaGuardar, "");
+      const contenidoParaGuardar = aplicarFirmaTextualInformeHtml(
+        contenidoEditor,
+        buildFirmaPhysicalHtml(usuarioFirmaGuardar),
+        nombreFirmaGuardar,
+      );
+      if (contenidoParaGuardar !== contenidoEditor) {
+        setDocumentoContenidoActual(contenidoParaGuardar);
+      }
 
       if (documentoExistente) {
         // Actualizar documento existente
         await apiService.updateDocumento(documentoExistente.id, {
-          contenido: documentoContenido,
+          contenido: contenidoParaGuardar,
           nombre_archivo: nombreArchivo,
           area_id: areaId,
           flujo_trabajo_id: flujoTrabajoId,
@@ -4796,7 +4913,7 @@ export default function SiniestroDetailPage() {
           flujo_trabajo_id: flujoTrabajoId,
           nombre_archivo: nombreArchivo,
           ruta_archivo: `/documentos/${siniestroId}/${nombreArchivo}`,
-          contenido: documentoContenido,
+          contenido: contenidoParaGuardar,
           tipo_mime: "text/html",
           usuario_subio: user.id,
           version: 1,
