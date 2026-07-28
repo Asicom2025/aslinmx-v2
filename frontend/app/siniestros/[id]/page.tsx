@@ -446,6 +446,160 @@ function replaceKnownNamesInTextNodes(
   return changed;
 }
 
+const SIGNATURE_INLINE_TAGS = new Set([
+  "A",
+  "B",
+  "EM",
+  "I",
+  "SPAN",
+  "STRONG",
+  "U",
+]);
+
+function findKnownNameTextNode(
+  root: Element,
+  nombresAnteriores: string[],
+): Text | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    const nodeText = normalizeSignatureText(node.nodeValue || "");
+    const hasKnownName = nombresAnteriores.some((nombre) => {
+      const normalizedName = normalizeSignatureText(nombre);
+      return normalizedName.length >= 4 && nodeText.includes(normalizedName);
+    });
+    if (hasKnownName) return node;
+  }
+
+  return null;
+}
+
+function isLikelySignatureNameText(value?: string | null): boolean {
+  const raw = (value || "").replace(/\s+/g, " ").trim();
+  if (!raw) return false;
+
+  const normalized = normalizeSignatureText(raw);
+  if (
+    /\b(atentamente|ciudad|mexico|abogad[oa]|legal|fecha|julio|junio|enero|febrero|marzo|abril|mayo|agosto|septiembre|octubre|noviembre|diciembre)\b/.test(
+      normalized,
+    )
+  ) {
+    return false;
+  }
+  if (/\d/.test(raw)) return false;
+
+  const words = raw
+    .split(/\s+/)
+    .filter((word) => /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(word));
+
+  return words.length >= 2 && words.length <= 7;
+}
+
+function findLikelyNameBeforeLawyerLabel(root: Element): Text | null {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const textNodes: Text[] = [];
+
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode as Text);
+  }
+
+  const lawyerIndex = textNodes.findIndex((node) =>
+    /\babogad[oa]\b/.test(normalizeSignatureText(node.nodeValue || "")),
+  );
+  const candidates =
+    lawyerIndex >= 0 ? textNodes.slice(0, lawyerIndex).reverse() : textNodes.reverse();
+
+  return candidates.find((node) => isLikelySignatureNameText(node.nodeValue)) || null;
+}
+
+function getSignatureInsertAnchor(textNode: Text, scope: Element): Node {
+  let anchor: Node = textNode;
+  let parent = textNode.parentElement;
+
+  while (
+    parent &&
+    parent !== scope &&
+    SIGNATURE_INLINE_TAGS.has(parent.tagName)
+  ) {
+    anchor = parent;
+    parent = parent.parentElement;
+  }
+
+  return anchor;
+}
+
+function insertSignatureBeforeKnownName(
+  scope: Element,
+  firmaImage: HTMLImageElement,
+  nombresAnteriores: string[],
+): boolean {
+  const nameNode =
+    findKnownNameTextNode(scope, nombresAnteriores) ||
+    findLikelyNameBeforeLawyerLabel(scope);
+  if (!nameNode) return false;
+
+  const anchor = getSignatureInsertAnchor(nameNode, scope);
+  const parent = anchor.parentNode;
+  if (!parent) return false;
+
+  const signature = firmaImage.cloneNode(true) as HTMLImageElement;
+  parent.insertBefore(signature, anchor);
+  parent.insertBefore(document.createElement("br"), anchor);
+  return true;
+}
+
+function replaceLikelySignatureNameText(
+  scope: Element,
+  nombreFirma: string,
+): boolean {
+  const nameNode = findLikelyNameBeforeLawyerLabel(scope);
+  if (!nameNode) return false;
+
+  const current = (nameNode.nodeValue || "").trim();
+  if (normalizeSignatureText(current) === normalizeSignatureText(nombreFirma)) {
+    return false;
+  }
+
+  nameNode.nodeValue = nombreFirma;
+  return true;
+}
+
+function insertarFirmaEnBloquesTextuales(input: {
+  root: DocumentFragment;
+  firmaImage: HTMLImageElement;
+  nombresAnteriores: string[];
+  nombreFirma: string;
+}): boolean {
+  let changed = false;
+  const scopes = Array.from(
+    input.root.querySelectorAll("p, div, td, th, li"),
+  ).filter((scope) => {
+    if (scope.querySelector("img")) return false;
+    if (hasAuthorizationMarker(scope.textContent)) return false;
+    return hasSignatureContextText(scope.textContent || "", input.nombresAnteriores);
+  });
+
+  scopes.forEach((scope) => {
+    if (scope.querySelector("img")) return;
+    const inserted = insertSignatureBeforeKnownName(
+      scope,
+      input.firmaImage,
+      input.nombresAnteriores,
+    );
+    const renamed = replaceKnownNamesInTextNodes(
+      scope,
+      input.nombresAnteriores,
+      input.nombreFirma,
+    );
+    const renamedByFallback = renamed
+      ? false
+      : replaceLikelySignatureNameText(scope, input.nombreFirma);
+    changed = inserted || renamed || renamedByFallback || changed;
+  });
+
+  return changed;
+}
+
 function restablecerFirmaInformeHtml(input: {
   html: string;
   firmaHtml: string;
@@ -493,6 +647,13 @@ function restablecerFirmaInformeHtml(input: {
         input.nombreFirma,
       );
     });
+  });
+
+  insertarFirmaEnBloquesTextuales({
+    root: template.content,
+    firmaImage,
+    nombresAnteriores: input.nombresAnteriores,
+    nombreFirma: input.nombreFirma,
   });
 
   const htmlFinal = template.innerHTML;
