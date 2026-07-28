@@ -8,6 +8,13 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
+import {
+  DndContext,
+  useDraggable,
+  useDroppable,
+} from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import { CSS } from "@dnd-kit/utilities";
 import { useUser } from "@/context/UserContext";
 import { usePermisos } from "@/hooks/usePermisos";
 import apiService from "@/lib/apiService";
@@ -82,6 +89,7 @@ import {
   FiChevronRight,
   FiX,
   FiRefreshCw,
+  FiMove,
 } from "react-icons/fi";
 import FormularioContinuacionModal from "@/components/plantillas/FormularioContinuacionModal";
 import CrearAseguradoModal from "@/components/siniestros/CrearAseguradoModal";
@@ -144,12 +152,18 @@ interface PlantillaDocumento {
 
 interface DocumentoEtapa {
   id: string;
+  siniestro_id?: string;
+  tipo_documento_id?: string;
   nombre_archivo: string;
   contenido?: string;
   etapa_flujo_id: string;
   area_id?: string;
+  flujo_trabajo_id?: string;
   plantilla_documento_id?: string;
   usuario_subio?: string | null;
+  descripcion?: string | null;
+  activo?: boolean;
+  eliminado?: boolean;
   /** Categoría (viene del requisito o de la plantilla) */
   categoria_documento_nombre?: string | null;
   version: number;
@@ -162,6 +176,23 @@ interface VersionDescripcionHechos {
   descripcion_html: string;
   es_actual: boolean;
   creado_en?: string;
+}
+
+function sameDocumentoContextValue(
+  a?: string | number | null,
+  b?: string | number | null,
+): boolean {
+  return String(a ?? "") === String(b ?? "");
+}
+
+function isSameInformeContext(a: any, b: any): boolean {
+  return (
+    sameDocumentoContextValue(a?.siniestro_id, b?.siniestro_id) &&
+    sameDocumentoContextValue(a?.etapa_flujo_id, b?.etapa_flujo_id) &&
+    sameDocumentoContextValue(a?.flujo_trabajo_id, b?.flujo_trabajo_id) &&
+    sameDocumentoContextValue(a?.plantilla_documento_id, b?.plantilla_documento_id) &&
+    sameDocumentoContextValue(a?.area_id, b?.area_id)
+  );
 }
 
 function buildPolizaTempId(prefix = "poliza") {
@@ -207,6 +238,7 @@ function getDisplayPolizasFromSiniestro(siniestro: Siniestro | null): PolizaDraf
 
 const PLACEHOLDERS_FIRMA_INFORME = ["firmado_por", "firma_fisica"];
 const PLACEHOLDERS_NOMBRE_FIRMA_INFORME = ["creado_por", "autor"];
+const RECOVER_VERSION_DROP_ZONE_ID = "recover-version-drop-zone";
 
 function normalizeSignatureText(value?: string | null): string {
   return (value || "")
@@ -286,15 +318,23 @@ function textHasAnyKnownName(text: string, nombresAnteriores: string[]): boolean
   });
 }
 
+function hasSignatureClosing(text: string): boolean {
+  const normalizedText = normalizeSignatureText(text);
+  const compactLetters = normalizedText.replace(/[^a-z]/g, "");
+  return /\batentamente\b/.test(normalizedText) || compactLetters.includes("atentamente");
+}
+
+function hasLawyerRoleText(text: string): boolean {
+  const normalizedText = normalizeSignatureText(text);
+  return /\blic\.?\b/.test(normalizedText) || /\babogad[oa]\b/.test(normalizedText);
+}
+
 function hasSignatureContextText(
   text: string,
   nombresAnteriores: string[],
 ): boolean {
-  const normalizedText = normalizeSignatureText(text);
-  const hasClosing = /\batentamente\b/.test(normalizedText);
-  const hasLawyerLabel =
-    /\blic\.?\b/.test(normalizedText) ||
-    /\babogad[oa]\b/.test(normalizedText);
+  const hasClosing = hasSignatureClosing(text);
+  const hasLawyerLabel = hasLawyerRoleText(text);
 
   return (
     (hasClosing && hasLawyerLabel) ||
@@ -576,7 +616,15 @@ function insertarFirmaEnBloquesTextuales(input: {
   ).filter((scope) => {
     if (scope.querySelector("img")) return false;
     if (hasAuthorizationMarker(scope.textContent)) return false;
-    return hasSignatureContextText(scope.textContent || "", input.nombresAnteriores);
+    const text = scope.textContent || "";
+    if (hasSignatureContextText(text, input.nombresAnteriores)) return true;
+    return (
+      hasLawyerRoleText(text) &&
+      Boolean(
+        findKnownNameTextNode(scope, input.nombresAnteriores) ||
+          findLikelyNameBeforeLawyerLabel(scope),
+      )
+    );
   });
 
   scopes.forEach((scope) => {
@@ -4566,6 +4614,84 @@ export default function SiniestroDetailPage() {
     );
   };
 
+  const handleRecoverDocumentoVersion = async (documentoVersion: any) => {
+    if (!documentoVersion?.id || !user) return;
+    if (!puedeMutarDocumentosPdfExpediente) {
+      swalError("No tiene permiso para recuperar versiones de este informe.");
+      return;
+    }
+
+    const esDocumentoPropio =
+      String(documentoVersion.usuario_subio || "") === String(user.id);
+    if (!puedeMutarExpediente && esNivelOperativo && !esDocumentoPropio) {
+      swalError("No tiene permiso para recuperar esta versión del informe.");
+      return;
+    }
+
+    const versionActiva = documentosExistentes
+      .filter((doc: any) => isSameInformeContext(doc, documentoVersion))
+      .sort(
+        (a: any, b: any) =>
+          Number(b.version || 1) - Number(a.version || 1) ||
+          new Date(b.creado_en || 0).getTime() -
+            new Date(a.creado_en || 0).getTime(),
+      )[0];
+
+    if (versionActiva?.id && String(versionActiva.id) === String(documentoVersion.id)) {
+      swalError("Esta versión ya es la última activa.");
+      return;
+    }
+
+    const targetDocumentoId =
+      !puedeMutarExpediente && esNivelOperativo
+        ? documentoVersion.id
+        : versionActiva?.id || documentoVersion.id;
+    const versionLabel = documentoVersion.version
+      ? `versión ${documentoVersion.version}`
+      : "esta versión";
+    const confirmed = await swalConfirm(
+      `Se recuperará ${versionLabel} como una nueva última versión del informe.`,
+      "Recuperar versión",
+      "Recuperar esta versión",
+      "Cancelar",
+    );
+    if (!confirmed) return;
+
+    try {
+      await apiService.updateDocumento(targetDocumentoId, {
+        contenido: documentoVersion.contenido || "",
+        nombre_archivo:
+          documentoVersion.nombre_archivo ||
+          versionActiva?.nombre_archivo ||
+          "informe.html",
+        descripcion:
+          documentoVersion.descripcion ||
+          versionActiva?.descripcion ||
+          "Versión recuperada del informe",
+        horas_trabajadas_bitacora: 0,
+        comentarios_bitacora: `Recuperación de ${versionLabel}`,
+      });
+
+      await loadDocumentosSiniestro();
+      await loadDocumentosFiltrados(
+        documentoVersion.area_id || activeAreaTab || undefined,
+        documentoVersion.flujo_trabajo_id || undefined,
+      );
+      await loadBitacorasFiltradas(
+        documentoVersion.area_id || activeAreaTab || undefined,
+        documentoVersion.flujo_trabajo_id || undefined,
+      );
+      await loadLogsAuditoria();
+      await swalSuccess("Versión recuperada como última versión del informe.");
+    } catch (error: any) {
+      console.error("Error al recuperar versión del informe:", error);
+      swalError(
+        error.response?.data?.detail ||
+          "Error al recuperar la versión del informe",
+      );
+    }
+  };
+
   // Función para guardar el documento
   const handleSaveDocument = async () => {
     if (!currentEtapa || !siniestro || !user) return;
@@ -5136,6 +5262,11 @@ export default function SiniestroDetailPage() {
                                               ? handleDownloadInforme
                                               : undefined
                                           }
+                                          onRecoverDocumentoVersion={
+                                            puedeMutarDocumentosPdfExpediente
+                                              ? handleRecoverDocumentoVersion
+                                              : undefined
+                                          }
                                           onDeleteDocumento={
                                             puedeEliminarArchivoExpediente
                                               ? handleEliminarDocumento
@@ -5352,6 +5483,11 @@ export default function SiniestroDetailPage() {
                                         onDownloadInforme={
                                           puedeMutarExpediente
                                             ? handleDownloadInforme
+                                            : undefined
+                                        }
+                                        onRecoverDocumentoVersion={
+                                          puedeMutarDocumentosPdfExpediente
+                                            ? handleRecoverDocumentoVersion
                                             : undefined
                                         }
                                         onDeleteDocumento={
@@ -8285,6 +8421,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   onSendDocumento,
   onDownloadDocumento,
   onDownloadInforme,
+  onRecoverDocumentoVersion,
   onDeleteDocumento,
   onContinuar,
   onSubirArchivo,
@@ -8308,6 +8445,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   onSendDocumento?: (documento: any) => void;
   onDownloadDocumento?: (documento: any) => void;
   onDownloadInforme?: (documento: any) => void;
+  onRecoverDocumentoVersion?: (documento: any) => Promise<void> | void;
   onDeleteDocumento?: (documento: any) => void;
   onContinuar?: (etapa: EtapaFlujo, docExistente: any) => void;
   /** Abre el modal de carga de archivo (etapa PDF/imagen: tipo fijo y requisitos de la etapa) */
@@ -8324,6 +8462,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
 }) {
   const [etapaDocumentosModal, setEtapaDocumentosModal] =
     useState<EtapaFlujo | null>(null);
+  const [recoveringVersionId, setRecoveringVersionId] = useState<string | null>(null);
 
   /** Tipo de documento principal = editor → abre el editor; pdf/imagen/otro → modal de subida */
   const esTipoEditor = (e: EtapaFlujo) =>
@@ -8336,6 +8475,46 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
       return;
     }
     onSubirArchivo?.(etapa);
+  };
+
+  const puedeRecuperarVersion = (documento: any, latestDocumentoId?: string | null) => {
+    if (!onRecoverDocumentoVersion || !canEditarDocumento) return false;
+    if (latestDocumentoId && String(documento.id) === String(latestDocumentoId)) {
+      return false;
+    }
+    if (!soloDocumentosPropios) return true;
+    return (
+      !!currentUserId &&
+      String(documento.usuario_subio || "") === String(currentUserId)
+    );
+  };
+
+  const recoverDocumentoVersion = async (documento: any) => {
+    if (!onRecoverDocumentoVersion || !documento?.id) return;
+    setRecoveringVersionId(String(documento.id));
+    try {
+      await onRecoverDocumentoVersion(documento);
+    } finally {
+      setRecoveringVersionId(null);
+    }
+  };
+
+  const handleVersionDragEnd = (
+    event: DragEndEvent,
+    documentosModal: any[],
+    latestDocumentoId?: string | null,
+  ) => {
+    const activeId = String(event.active.id);
+    if (event.over?.id !== RECOVER_VERSION_DROP_ZONE_ID) return;
+
+    const documento = documentosModal.find(
+      (doc: any) => `version-${doc.id}` === activeId,
+    );
+    if (!documento || !puedeRecuperarVersion(documento, latestDocumentoId)) {
+      return;
+    }
+
+    void recoverDocumentoVersion(documento);
   };
 
   if (!etapas || etapas.length === 0) {
@@ -8653,11 +8832,29 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                 new Date(b.creado_en || 0).getTime() -
                 new Date(a.creado_en || 0).getTime(),
             );
+          const latestDocumentoModal = documentosExistentes
+            .filter(
+              (d: any) =>
+                d.etapa_flujo_id === etapaDocumentosModal.id &&
+                (!flujoTrabajoId || d.flujo_trabajo_id === flujoTrabajoId) &&
+                (!areaId || d.area_id === areaId),
+            )
+            .sort(
+              (a: any, b: any) =>
+                Number(b.version || 1) - Number(a.version || 1) ||
+                new Date(b.creado_en || 0).getTime() -
+                  new Date(a.creado_en || 0).getTime(),
+            )[0];
+          const latestDocumentoId = latestDocumentoModal?.id
+            ? String(latestDocumentoModal.id)
+            : null;
 
           return (
             <Modal
               open={!!etapaDocumentosModal}
-              onClose={() => setEtapaDocumentosModal(null)}
+              onClose={() => {
+                setEtapaDocumentosModal(null);
+              }}
               title={`${esEditorModal ? "Versiones" : "Documentos"} - ${etapaDocumentosModal.nombre}`}
               maxWidthClass="max-w-3xl"
             >
@@ -8666,6 +8863,71 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                   <div className="py-8 text-center text-sm text-gray-500">
                     No hay documentos vinculados a esta etapa.
                   </div>
+                ) : esEditorModal ? (
+                  <DndContext
+                    onDragEnd={(event) =>
+                      handleVersionDragEnd(
+                        event,
+                        documentosModal,
+                        latestDocumentoId,
+                      )
+                    }
+                  >
+                    <VersionRecoverDropZone
+                      disabled={!onRecoverDocumentoVersion}
+                      recovering={!!recoveringVersionId}
+                    />
+                    <div className="space-y-2">
+                      {documentosModal.map((documento: any) => {
+                        const isLatest =
+                          latestDocumentoId != null &&
+                          String(documento.id) === latestDocumentoId;
+                        const canRecover = puedeRecuperarVersion(
+                          documento,
+                          latestDocumentoId,
+                        );
+
+                        return (
+                          <VersionDocumentoRow
+                            key={documento.id}
+                            documento={documento}
+                            empresaColors={empresaColors}
+                            isLatest={isLatest}
+                            canRecover={canRecover}
+                            recovering={
+                              recoveringVersionId === String(documento.id)
+                            }
+                            onRecover={() =>
+                              void recoverDocumentoVersion(documento)
+                            }
+                            onViewDocument={(doc) => {
+                              setEtapaDocumentosModal(null);
+                              onViewDocumento?.(doc);
+                            }}
+                            onEditDocument={
+                              onEditDocumento
+                                ? (doc) => {
+                                    setEtapaDocumentosModal(null);
+                                    onEditDocumento(doc);
+                                  }
+                                : undefined
+                            }
+                            onSendByEmail={
+                              onSendDocumento
+                                ? (doc) => {
+                                    setEtapaDocumentosModal(null);
+                                    onSendDocumento(doc);
+                                  }
+                                : undefined
+                            }
+                            onDownloadDocument={onDownloadDocumento}
+                            onDownloadInforme={onDownloadInforme}
+                            onDeleteDocument={onDeleteDocumento}
+                          />
+                        );
+                      })}
+                    </div>
+                  </DndContext>
                 ) : (
                   documentosModal.map((documento: any) => {
                     const version =
@@ -8748,6 +9010,149 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
     </div>
   );
 });
+
+function VersionRecoverDropZone({
+  disabled,
+  recovering,
+}: {
+  disabled?: boolean;
+  recovering?: boolean;
+}) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: RECOVER_VERSION_DROP_ZONE_ID,
+    disabled,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex items-center justify-center gap-2 rounded-lg border-2 border-dashed px-3 py-4 text-sm transition-colors ${
+        disabled
+          ? "border-gray-200 bg-gray-50 text-gray-400"
+          : isOver
+            ? "border-green-400 bg-green-50 text-green-700"
+            : "border-blue-200 bg-blue-50 text-blue-700"
+      }`}
+    >
+      <FiMove className="w-4 h-4" />
+      {recovering
+        ? "Recuperando versión..."
+        : disabled
+          ? "No tiene permiso para recuperar versiones"
+          : "Arrastra una versión aquí para recuperarla como última"}
+    </div>
+  );
+}
+
+function VersionDocumentoRow({
+  documento,
+  empresaColors,
+  isLatest,
+  canRecover,
+  recovering,
+  onRecover,
+  onViewDocument,
+  onEditDocument,
+  onSendByEmail,
+  onDownloadDocument,
+  onDownloadInforme,
+  onDeleteDocument,
+}: {
+  documento: any;
+  empresaColors: { primary: string; secondary: string; tertiary: string };
+  isLatest: boolean;
+  canRecover: boolean;
+  recovering: boolean;
+  onRecover: () => void;
+  onViewDocument: (documento: any) => void;
+  onEditDocument?: (documento: any) => void;
+  onSendByEmail?: (documento: any) => void;
+  onDownloadDocument?: (documento: any) => void;
+  onDownloadInforme?: (documento: any) => void;
+  onDeleteDocument?: (documento: any) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: `version-${documento.id}`,
+      disabled: !canRecover || recovering,
+    });
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    opacity: isDragging ? 0.7 : 1,
+  };
+  const version = documento.version ? `Versión ${documento.version}` : null;
+  const fecha = documento.creado_en
+    ? new Date(documento.creado_en).toLocaleDateString("es-MX", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : null;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`relative flex items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 ${
+        isLatest ? "border-green-200" : "border-gray-200"
+      }`}
+    >
+      <button
+        type="button"
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md border text-gray-500 ${
+          canRecover
+            ? "cursor-grab border-gray-200 hover:bg-gray-50 active:cursor-grabbing"
+            : "cursor-not-allowed border-gray-100 opacity-40"
+        }`}
+        title={
+          canRecover
+            ? "Arrastrar para recuperar como última"
+            : isLatest
+              ? "Esta ya es la última versión"
+              : "No tiene permiso para recuperar esta versión"
+        }
+        disabled={!canRecover || recovering}
+        {...attributes}
+        {...listeners}
+      >
+        <FiMove className="h-4 w-4" />
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-medium text-gray-900">
+            {documento.nombre_archivo || "Documento sin nombre"}
+          </p>
+          {isLatest && (
+            <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
+              Última
+            </span>
+          )}
+        </div>
+        {(version || fecha) && (
+          <p className="mt-0.5 text-xs text-gray-500">
+            {[version, fecha].filter(Boolean).join(" · ")}
+          </p>
+        )}
+      </div>
+
+      <DocumentoAcciones
+        variant="tabla-fila"
+        documento={documento}
+        empresaColors={empresaColors}
+        onViewDocument={onViewDocument}
+        onEditDocument={onEditDocument}
+        onSendByEmail={onSendByEmail}
+        onDownloadDocument={onDownloadDocument}
+        onDownloadInforme={onDownloadInforme}
+        onRecoverVersion={canRecover ? onRecover : undefined}
+        recoverVersionLabel={recovering ? "Recuperando..." : "Recuperar esta version"}
+        recoverVersionDisabled={recovering}
+        onDeleteDocument={onDeleteDocument}
+      />
+    </div>
+  );
+}
 
 /**
  * Componente para mostrar la lista de documentos generados en formato tabla

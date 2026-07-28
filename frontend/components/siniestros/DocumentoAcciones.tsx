@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Button from "@/components/ui/Button";
-import { FiCheckCircle, FiEdit3, FiEye, FiFile, FiMail, FiSave, FiMoreVertical, FiTrash2 } from "react-icons/fi";
+import { FiCheckCircle, FiEdit3, FiEye, FiFile, FiMail, FiSave, FiMoreVertical, FiTrash2, FiRefreshCw } from "react-icons/fi";
 
 export type DocumentoEmpresaColors = {
   primary: string;
@@ -21,6 +21,9 @@ type TablaFilaProps = {
   onDownloadDocument?: (documento: unknown) => void;
   onDownloadInforme?: (documento: unknown) => void;
   onAuthorizeDocument?: (documento: unknown) => void;
+  onRecoverVersion?: (documento: unknown) => void;
+  recoverVersionLabel?: string;
+  recoverVersionDisabled?: boolean;
   /** Eliminación lógica (oculta en listados; el registro permanece en BD). */
   onDeleteDocument?: (documento: unknown) => void;
 };
@@ -92,6 +95,9 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
       onDownloadDocument,
       onDownloadInforme,
       onAuthorizeDocument,
+      onRecoverVersion,
+      recoverVersionLabel = "Recuperar esta version",
+      recoverVersionDisabled = false,
       onDeleteDocument,
     } = props;
     const plantillaDocId = (documento as any).plantilla_documento_id;
@@ -135,6 +141,15 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
           icon: <FiCheckCircle className="w-4 h-4 text-emerald-600" />,
           disabled: !onAuthorizeDocument,
           action: () => onAuthorizeDocument?.(documento),
+        });
+      }
+      if (onRecoverVersion) {
+        items.push({
+          key: "recuperar-version",
+          label: recoverVersionLabel,
+          icon: <FiRefreshCw className="w-4 h-4" />,
+          disabled: recoverVersionDisabled,
+          action: () => onRecoverVersion(documento),
         });
       }
       items.push({
