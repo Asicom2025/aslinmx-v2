@@ -85,3 +85,5 @@ backend/app/tests/*
 # Alembic
 backend/alembic/versions/__pycache__/
 
+AGENTS.md
+
