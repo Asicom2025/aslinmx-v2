@@ -329,17 +329,33 @@ function hasLawyerRoleText(text: string): boolean {
   return /\blic\.?\b/.test(normalizedText) || /\babogad[oa]\b/.test(normalizedText);
 }
 
+/** Encabezado del informe (destinatario, metadatos); no es bloque de cierre/firma. */
+function isLetterheadBlock(text: string): boolean {
+  const normalizedText = normalizeSignatureText(text);
+  const compactLetters = normalizedText.replace(/[^a-z]/g, "");
+
+  return (
+    compactLetters.includes("presente") ||
+    /\bgerente\b/.test(normalizedText) ||
+    /\breporte\s*:/.test(normalizedText) ||
+    /\bsiniestro\s*:/.test(normalizedText) ||
+    /\bpoliza\s*:/.test(normalizedText) ||
+    /\banalista\s*:/.test(normalizedText)
+  );
+}
+
 function hasSignatureContextText(
   text: string,
   nombresAnteriores: string[],
 ): boolean {
+  if (isLetterheadBlock(text)) return false;
+
   const hasClosing = hasSignatureClosing(text);
   const hasLawyerLabel = hasLawyerRoleText(text);
 
   return (
     (hasClosing && hasLawyerLabel) ||
-    (hasClosing && textHasAnyKnownName(text, nombresAnteriores)) ||
-    (hasLawyerLabel && textHasAnyKnownName(text, nombresAnteriores))
+    (hasClosing && textHasAnyKnownName(text, nombresAnteriores))
   );
 }
 
@@ -604,22 +620,36 @@ function replaceLikelySignatureNameText(
   return true;
 }
 
+function pickSignatureInsertScope(scopes: Element[]): Element | null {
+  if (scopes.length === 0) return null;
+
+  const withClosing = scopes.filter((scope) =>
+    hasSignatureClosing(scope.textContent || ""),
+  );
+  if (withClosing.length > 0) {
+    return withClosing[withClosing.length - 1];
+  }
+
+  return scopes[scopes.length - 1];
+}
+
 function insertarFirmaEnBloquesTextuales(input: {
   root: DocumentFragment;
   firmaImage: HTMLImageElement;
   nombresAnteriores: string[];
   nombreFirma: string;
 }): boolean {
-  let changed = false;
   const scopes = Array.from(
     input.root.querySelectorAll("p, div, td, th, li"),
   ).filter((scope) => {
     if (scope.querySelector("img")) return false;
     if (hasAuthorizationMarker(scope.textContent)) return false;
     const text = scope.textContent || "";
+    if (isLetterheadBlock(text)) return false;
     if (hasSignatureContextText(text, input.nombresAnteriores)) return true;
     return (
-      hasLawyerRoleText(text) &&
+      hasSignatureClosing(text) &&
+      /\babogad[oa]\b/.test(normalizeSignatureText(text)) &&
       Boolean(
         findKnownNameTextNode(scope, input.nombresAnteriores) ||
           findLikelyNameBeforeLawyerLabel(scope),
@@ -627,25 +657,24 @@ function insertarFirmaEnBloquesTextuales(input: {
     );
   });
 
-  scopes.forEach((scope) => {
-    if (scope.querySelector("img")) return;
-    const inserted = insertSignatureBeforeKnownName(
-      scope,
-      input.firmaImage,
-      input.nombresAnteriores,
-    );
-    const renamed = replaceKnownNamesInTextNodes(
-      scope,
-      input.nombresAnteriores,
-      input.nombreFirma,
-    );
-    const renamedByFallback = renamed
-      ? false
-      : replaceLikelySignatureNameText(scope, input.nombreFirma);
-    changed = inserted || renamed || renamedByFallback || changed;
-  });
+  const scope = pickSignatureInsertScope(scopes);
+  if (!scope || scope.querySelector("img")) return false;
 
-  return changed;
+  const inserted = insertSignatureBeforeKnownName(
+    scope,
+    input.firmaImage,
+    input.nombresAnteriores,
+  );
+  const renamed = replaceKnownNamesInTextNodes(
+    scope,
+    input.nombresAnteriores,
+    input.nombreFirma,
+  );
+  const renamedByFallback = renamed
+    ? false
+    : replaceLikelySignatureNameText(scope, input.nombreFirma);
+
+  return inserted || renamed || renamedByFallback;
 }
 
 function restablecerFirmaInformeHtml(input: {
@@ -681,6 +710,16 @@ function restablecerFirmaInformeHtml(input: {
   const replacementImages: HTMLImageElement[] = [];
   template.content.querySelectorAll("img").forEach((image) => {
     if (!isInformeSignatureImage(image, input.nombresAnteriores)) return;
+
+    const scope = image.closest("p, div, td, th, li");
+    const scopeText = scope?.textContent || "";
+    if (
+      isLetterheadBlock(scopeText) &&
+      !hasSignatureClosing(scopeText)
+    ) {
+      image.remove();
+      return;
+    }
 
     const replacement = firmaImage.cloneNode(true) as HTMLImageElement;
     image.replaceWith(replacement);
