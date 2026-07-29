@@ -776,26 +776,6 @@ function getCandidateSignatureTextScopes(
   );
 }
 
-function findSignatureNameInInformeHtml(
-  html: string,
-  nombresAnteriores: string[],
-): string {
-  if (!html || typeof document === "undefined") return "";
-
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  const scope = pickSignatureInsertScope(
-    getCandidateSignatureTextScopes(template.content, nombresAnteriores),
-  );
-  if (!scope) return "";
-
-  const nameNode =
-    findKnownNameTextNode(scope, nombresAnteriores) ||
-    findLikelyNameBeforeLawyerLabel(scope);
-
-  return (nameNode?.nodeValue || "").replace(/\s+/g, " ").trim();
-}
-
 function hasFirmaImgHtml(value: string): boolean {
   return /<img\b[^>]*(?:class\s*=\s*["'][^"']*\bpdf-firma\b|alt\s*=\s*["']\s*firma\s*["'])/i.test(
     value || "",
@@ -919,6 +899,48 @@ function insertarFirmaEnBloquesTextuales(input: {
   return inserted || renamed || renamedByFallback;
 }
 
+function normalizeInformeFirmaToClosingBlock(input: {
+  root: DocumentFragment;
+  firmaImage: HTMLImageElement;
+  nombresAnteriores: string[];
+  nombreFirma: string;
+}): boolean {
+  const scope = pickSignatureInsertScope(
+    getCandidateSignatureTextScopes(input.root, input.nombresAnteriores),
+  );
+  if (!scope) return false;
+
+  const nameNode =
+    findKnownNameTextNode(scope, input.nombresAnteriores) ||
+    findLikelyNameBeforeLawyerLabel(scope);
+  if (!nameNode) return false;
+
+  const anchor = getSignatureInsertAnchor(nameNode, scope);
+  const parent = anchor.parentNode;
+  if (!parent) return false;
+
+  input.root.querySelectorAll("img").forEach((image) => {
+    if (isInlineSignatureImageElement(image)) {
+      image.remove();
+    }
+  });
+
+  const signature = input.firmaImage.cloneNode(true) as HTMLImageElement;
+  parent.insertBefore(signature, anchor);
+  parent.insertBefore(document.createElement("br"), anchor);
+
+  const renamed = replaceKnownNamesInTextNodes(
+    scope,
+    input.nombresAnteriores,
+    input.nombreFirma,
+  );
+  if (!renamed) {
+    replaceLikelySignatureNameText(scope, input.nombreFirma);
+  }
+
+  return true;
+}
+
 function restablecerFirmaInformeHtml(input: {
   html: string;
   firmaHtml: string;
@@ -988,12 +1010,20 @@ function restablecerFirmaInformeHtml(input: {
     });
   });
 
-  insertarFirmaEnBloquesTextuales({
+  const normalizedToClosing = normalizeInformeFirmaToClosingBlock({
     root: template.content,
     firmaImage,
     nombresAnteriores: input.nombresAnteriores,
     nombreFirma: input.nombreFirma,
   });
+  if (!normalizedToClosing) {
+    insertarFirmaEnBloquesTextuales({
+      root: template.content,
+      firmaImage,
+      nombresAnteriores: input.nombresAnteriores,
+      nombreFirma: input.nombreFirma,
+    });
+  }
 
   const htmlDom = template.innerHTML;
   const fallback = insertFirmaInClosingBlocksByHtmlPattern({
@@ -1006,52 +1036,6 @@ function restablecerFirmaInformeHtml(input: {
     html: htmlFinal,
     changed: htmlFinal !== input.html,
   };
-}
-
-function aplicarFirmaTextualInformeHtmlBase(input: {
-  html: string;
-  firmaHtml: string;
-  nombreFirma: string;
-  nombresAnteriores: string[];
-}): string {
-  const htmlConPlaceholders = replaceInformePlaceholders(
-    input.html,
-    input.firmaHtml,
-    input.nombreFirma,
-  );
-
-  if (typeof document === "undefined") {
-    return insertFirmaInClosingBlocksByHtmlPattern({
-      html: htmlConPlaceholders,
-      firmaHtml: input.firmaHtml,
-      nombreFirma: input.nombreFirma,
-    }).html;
-  }
-
-  const firmaImage = buildSignatureImageFromHtml(input.firmaHtml);
-  if (!firmaImage) {
-    return insertFirmaInClosingBlocksByHtmlPattern({
-      html: htmlConPlaceholders,
-      firmaHtml: input.firmaHtml,
-      nombreFirma: input.nombreFirma,
-    }).html;
-  }
-
-  const template = document.createElement("template");
-  template.innerHTML = htmlConPlaceholders;
-
-  insertarFirmaEnBloquesTextuales({
-    root: template.content,
-    firmaImage,
-    nombresAnteriores: input.nombresAnteriores,
-    nombreFirma: input.nombreFirma,
-  });
-
-  return insertFirmaInClosingBlocksByHtmlPattern({
-    html: template.innerHTML,
-    firmaHtml: input.firmaHtml,
-    nombreFirma: input.nombreFirma,
-  }).html;
 }
 
 export default function SiniestroDetailPage() {
@@ -1544,24 +1528,6 @@ export default function SiniestroDetailPage() {
       : "---";
   };
 
-  const aplicarFirmaTextualInformeHtml = (
-    html: string,
-    firmaHtml: string,
-    nombreFirma: string,
-  ): string => {
-    if (firmaHtml === "---" || !nombreFirma) return html;
-
-    return aplicarFirmaTextualInformeHtmlBase({
-      html,
-      firmaHtml,
-      nombreFirma,
-      nombresAnteriores: buildNombresFirmaCandidatos(
-        todosLosUsuarios,
-        nombreFirma,
-      ),
-    });
-  };
-
   /**
    * Usuario cuya firma/nombre se usan en plantillas: primero abogado por relación
    * siniestro–área (abogado_principal_informe_id); si no, involucrado con es_principal (legado).
@@ -1644,83 +1610,6 @@ export default function SiniestroDetailPage() {
     [
       cacheUsuarioFirmaInforme,
       resolveIdAbogadoFirma,
-      usuariosFirmaInformeCache,
-    ],
-  );
-
-  const ensureTodosLosUsuariosFirma = useCallback(async (): Promise<any[]> => {
-    if (todosLosUsuarios.length > 0) return todosLosUsuarios;
-    try {
-      const usuarios = await apiService.getUsers();
-      setTodosLosUsuarios(usuarios);
-      return usuarios;
-    } catch {
-      return [];
-    }
-  }, [todosLosUsuarios]);
-
-  const resolveUsuarioFirmaDesdeHtml = useCallback(
-    async (html: string, nombreFallback = ""): Promise<any | null> => {
-      const usuarios = await ensureTodosLosUsuariosFirma();
-      const usuariosConocidos = [
-        user,
-        ...usuarios,
-        ...Object.values(usuariosFirmaInformeRef.current),
-        ...Object.values(usuariosFirmaInformeCache),
-      ].filter(Boolean);
-      const nombresCandidatos = buildNombresFirmaCandidatos(
-        usuariosConocidos,
-        nombreFallback,
-      );
-      const nombreDetectado = findSignatureNameInInformeHtml(
-        html,
-        nombresCandidatos,
-      );
-      if (!nombreDetectado) return null;
-
-      const nombreNormalizado = normalizeSignatureNameForCompare(nombreDetectado);
-      if (!nombreNormalizado) return null;
-
-      const usuarioLista = usuariosConocidos.find(
-        (usuario) =>
-          normalizeSignatureNameForCompare(getUserDisplayName(usuario, "")) ===
-          nombreNormalizado,
-      );
-      if (!usuarioLista?.id) {
-        return usuarioLista && getFirmaPhysicalSrc(usuarioLista)
-          ? usuarioLista
-          : null;
-      }
-
-      const id = String(usuarioLista.id);
-      const cached =
-        usuariosFirmaInformeRef.current[id] ||
-        usuariosFirmaInformeCache[id];
-      if (cached) return cached;
-
-      const conocidoConFirma = usuariosConocidos.find(
-        (usuario) =>
-          String(usuario?.id || "") === id &&
-          Boolean(getFirmaPhysicalSrc(usuario)),
-      );
-      if (conocidoConFirma) return conocidoConFirma;
-
-      try {
-        const usuarioCompleto = await apiService.getUserById(id);
-        if (usuarioCompleto) {
-          cacheUsuarioFirmaInforme(usuarioCompleto);
-          return usuarioCompleto;
-        }
-      } catch {
-        return null;
-      }
-
-      return null;
-    },
-    [
-      cacheUsuarioFirmaInforme,
-      ensureTodosLosUsuariosFirma,
-      user,
       usuariosFirmaInformeCache,
     ],
   );
@@ -1864,7 +1753,7 @@ export default function SiniestroDetailPage() {
       resultado = resultado.replace(regex, value ?? "");
     });
 
-    return aplicarFirmaTextualInformeHtml(resultado, firmaHtml, autorNombre);
+    return resultado;
   };
 
   /**
@@ -3649,17 +3538,11 @@ export default function SiniestroDetailPage() {
         }
       }
 
-      const htmlParaPdf = aplicarFirmaTextualInformeHtml(
-        decodeHtmlForEditor(docExistente.contenido || ""),
-        String(variables.firmado_por || variables.firma_fisica || ""),
-        String(variables.creado_por || variables.autor || ""),
-      );
-
       const filename =
         docExistente.nombre_archivo.replace(".html", ".pdf") ||
         `${etapa.nombre}.pdf`;
       const pdfResponse = await apiService.generatePDF({
-        html_content: htmlParaPdf,
+        html_content: decodeHtmlForEditor(docExistente.contenido || ""),
         plantilla_id: plantillaId || undefined,
         siniestro_id: siniestroId,
         variables,
@@ -3761,16 +3644,10 @@ export default function SiniestroDetailPage() {
           }
         }
 
-        const htmlParaPdf = aplicarFirmaTextualInformeHtml(
-          decodeHtmlForEditor(documento.contenido || ""),
-          String(variables.firmado_por || variables.firma_fisica || ""),
-          String(variables.creado_por || variables.autor || ""),
-        );
-
         const filename =
           documento.nombre_archivo.replace(".html", ".pdf") || "documento.pdf";
         const pdfResponse = await apiService.generatePDF({
-          html_content: htmlParaPdf,
+          html_content: decodeHtmlForEditor(documento.contenido || ""),
           plantilla_id: documento.plantilla_documento_id || undefined,
           siniestro_id: siniestroId,
           variables,
@@ -4511,14 +4388,8 @@ export default function SiniestroDetailPage() {
       const filename = baseName.toLowerCase().endsWith(".pdf")
         ? baseName
         : baseName.replace(/\.[^/.]+$/, "") + ".pdf";
-      const htmlParaPdf = aplicarFirmaTextualInformeHtml(
-        decodeHtmlForEditor(documento.contenido || ""),
-        String(variables.firmado_por || variables.firma_fisica || ""),
-        String(variables.creado_por || variables.autor || ""),
-      );
-
       await apiService.downloadPDF({
-        html_content: htmlParaPdf,
+        html_content: decodeHtmlForEditor(documento.contenido || ""),
         plantilla_id: documento.plantilla_documento_id,
         siniestro_id: siniestroId,
         variables,
@@ -4962,25 +4833,16 @@ export default function SiniestroDetailPage() {
         await ensureUsuarioFirmaInforme(
           (docExistente?.area_id as string | undefined) || areaIdActual || null,
         );
-        let contenidoParaEditor = aplicarPlaceholdersPlantilla(
-          decoded,
-          etapa,
-          siniestro,
-          user,
-          aseguradoInfo,
-          (docExistente?.area_id as string | undefined) || areaIdActual,
+        setDocumentoContenidoActual(
+          aplicarPlaceholdersPlantilla(
+            decoded,
+            etapa,
+            siniestro,
+            user,
+            aseguradoInfo,
+            (docExistente?.area_id as string | undefined) || areaIdActual,
+          ),
         );
-        const usuarioFirmaPorNombre = await resolveUsuarioFirmaDesdeHtml(
-          contenidoParaEditor,
-        );
-        if (usuarioFirmaPorNombre) {
-          contenidoParaEditor = aplicarFirmaTextualInformeHtml(
-            contenidoParaEditor,
-            buildFirmaPhysicalHtml(usuarioFirmaPorNombre),
-            getUserDisplayName(usuarioFirmaPorNombre, ""),
-          );
-        }
-        setDocumentoContenidoActual(contenidoParaEditor);
       } else {
         // Si no existe, cargar la plantilla para precargar
         let plantillaId = etapa.plantilla_documento_id;
@@ -5011,7 +4873,7 @@ export default function SiniestroDetailPage() {
 
           // Aplicar placeholders solo cuando se genera el documento por primera vez
           await ensureUsuarioFirmaInforme(areaIdActual || null);
-          let contenidoConDatos = aplicarPlaceholdersPlantilla(
+          const contenidoConDatos = aplicarPlaceholdersPlantilla(
             contenidoBase,
             etapa,
             siniestro,
@@ -5019,16 +4881,6 @@ export default function SiniestroDetailPage() {
             aseguradoInfo,
             areaIdActual,
           );
-          const usuarioFirmaPorNombre = await resolveUsuarioFirmaDesdeHtml(
-            contenidoConDatos,
-          );
-          if (usuarioFirmaPorNombre) {
-            contenidoConDatos = aplicarFirmaTextualInformeHtml(
-              contenidoConDatos,
-              buildFirmaPhysicalHtml(usuarioFirmaPorNombre),
-              getUserDisplayName(usuarioFirmaPorNombre, ""),
-            );
-          }
 
           setDocumentoContenidoActual(contenidoConDatos);
         } else {
@@ -5222,27 +5074,8 @@ export default function SiniestroDetailPage() {
         ? parseFloat(docHorasBitacora)
         : undefined;
       const comentarioBita = docComentarioBitacora.trim() || undefined;
-      const contenidoEditor = documentoContenidoRef.current || documentoContenido;
-      await ensureUsuarioFirmaInforme(areaId || null);
-      const usuarioFirmaPorContexto = resolveUsuarioFirmaParaInforme(
-        user,
-        areaId || null,
-      );
-      const usuarioFirmaPorNombre = await resolveUsuarioFirmaDesdeHtml(
-        contenidoEditor,
-        getUserDisplayName(usuarioFirmaPorContexto, ""),
-      );
-      const usuarioFirmaGuardar =
-        usuarioFirmaPorNombre || usuarioFirmaPorContexto;
-      const nombreFirmaGuardar = getUserDisplayName(usuarioFirmaGuardar, "");
-      const contenidoParaGuardar = aplicarFirmaTextualInformeHtml(
-        contenidoEditor,
-        buildFirmaPhysicalHtml(usuarioFirmaGuardar),
-        nombreFirmaGuardar,
-      );
-      if (contenidoParaGuardar !== contenidoEditor) {
-        setDocumentoContenidoActual(contenidoParaGuardar);
-      }
+      const contenidoParaGuardar =
+        documentoContenidoRef.current || documentoContenido;
 
       if (documentoExistente) {
         // Actualizar documento existente
