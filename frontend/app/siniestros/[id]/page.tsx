@@ -239,6 +239,8 @@ function getDisplayPolizasFromSiniestro(siniestro: Siniestro | null): PolizaDraf
 const PLACEHOLDERS_FIRMA_INFORME = ["firmado_por", "firma_fisica"];
 const PLACEHOLDERS_NOMBRE_FIRMA_INFORME = ["creado_por", "autor"];
 const RECOVER_VERSION_DROP_ZONE_ID = "recover-version-drop-zone";
+const SIGNATURE_TEXT_SCOPE_SELECTOR = "p, div, td, th, li";
+const MAX_SIGNATURE_CLOSING_ZONE_SCOPES = 10;
 
 function normalizeSignatureText(value?: string | null): string {
   return (value || "")
@@ -352,12 +354,25 @@ function textHasAnyKnownName(text: string, nombresAnteriores: string[]): boolean
 function hasSignatureClosing(text: string): boolean {
   const normalizedText = normalizeSignatureText(text);
   const compactLetters = normalizedText.replace(/[^a-z]/g, "");
-  return /\batentamente\b/.test(normalizedText) || compactLetters.includes("atentamente");
+  return (
+    /\batentamente\b/.test(normalizedText) ||
+    /\batte(?:\.|\b)/.test(normalizedText) ||
+    compactLetters.includes("atentamente")
+  );
 }
 
 function hasLawyerRoleText(text: string): boolean {
   const normalizedText = normalizeSignatureText(text);
-  return /\blic\.?\b/.test(normalizedText) || /\babogad[oa]\b/.test(normalizedText);
+  return (
+    /\blic(?:\.|\b|da\.?\b|do\.?\b|enciada\b|enciado\b)/.test(normalizedText) ||
+    /\babogad[oa]\b/.test(normalizedText) ||
+    /\babg\.?\b/.test(normalizedText)
+  );
+}
+
+function hasLawyerCargoText(text: string): boolean {
+  const normalizedText = normalizeSignatureText(text);
+  return /\babogad[oa]\b/.test(normalizedText) || /\babg\.?\b/.test(normalizedText);
 }
 
 /** Encabezado del informe (destinatario, metadatos); no es bloque de cierre/firma. */
@@ -609,7 +624,7 @@ function findLikelyNameBeforeLawyerLabel(root: Element): Text | null {
   }
 
   const lawyerIndex = textNodes.findIndex((node) =>
-    /\babogad[oa]\b/.test(normalizeSignatureText(node.nodeValue || "")),
+    hasLawyerCargoText(node.nodeValue || ""),
   );
   const candidates =
     lawyerIndex >= 0 ? textNodes.slice(0, lawyerIndex).reverse() : textNodes.reverse();
@@ -637,6 +652,7 @@ function insertSignatureBeforeKnownName(
   scope: Element,
   firmaImage: HTMLImageElement,
   nombresAnteriores: string[],
+  rootToClean?: ParentNode,
 ): boolean {
   const nameNode =
     findKnownNameTextNode(scope, nombresAnteriores) ||
@@ -647,6 +663,9 @@ function insertSignatureBeforeKnownName(
   const parent = anchor.parentNode;
   if (!parent) return false;
 
+  if (rootToClean) {
+    removeInlineSignatureImages(rootToClean);
+  }
   const signature = firmaImage.cloneNode(true) as HTMLImageElement;
   parent.insertBefore(signature, anchor);
   parent.insertBefore(document.createElement("br"), anchor);
@@ -709,6 +728,7 @@ function insertSignatureBeforeKnownNameAllowingOtherImages(
   scope: Element,
   firmaImage: HTMLImageElement,
   nombresAnteriores: string[],
+  rootToClean?: ParentNode,
 ): boolean {
   const nameNode =
     findKnownNameTextNode(scope, nombresAnteriores) ||
@@ -719,6 +739,9 @@ function insertSignatureBeforeKnownNameAllowingOtherImages(
   const parent = anchor.parentNode;
   if (!parent || hasSignatureImageImmediatelyBefore(anchor)) return false;
 
+  if (rootToClean) {
+    removeInlineSignatureImages(rootToClean);
+  }
   const signature = firmaImage.cloneNode(true) as HTMLImageElement;
   parent.insertBefore(signature, anchor);
   parent.insertBefore(document.createElement("br"), anchor);
@@ -758,7 +781,7 @@ function getCandidateSignatureTextScopes(
   root: ParentNode,
   nombresAnteriores: string[],
 ): Element[] {
-  return Array.from(root.querySelectorAll("p, div, td, th, li")).filter(
+  return Array.from(root.querySelectorAll(SIGNATURE_TEXT_SCOPE_SELECTOR)).filter(
     (scope) => {
       if (hasAuthorizationMarker(scope.textContent)) return false;
       const text = scope.textContent || "";
@@ -766,7 +789,7 @@ function getCandidateSignatureTextScopes(
       if (hasSignatureContextText(text, nombresAnteriores)) return true;
       return (
         hasSignatureClosing(text) &&
-        /\babogad[oa]\b/.test(normalizeSignatureText(text)) &&
+        hasLawyerRoleText(text) &&
         Boolean(
           findKnownNameTextNode(scope, nombresAnteriores) ||
             findLikelyNameBeforeLawyerLabel(scope),
@@ -774,6 +797,294 @@ function getCandidateSignatureTextScopes(
       );
     },
   );
+}
+
+type InformeSignatureInsertTarget = {
+  nameNode: Text | null;
+  scope: Element;
+  relatedScopes: Element[];
+};
+
+function getLeafSignatureTextScopes(root: ParentNode): Element[] {
+  return Array.from(root.querySelectorAll(SIGNATURE_TEXT_SCOPE_SELECTOR)).filter(
+    (scope) => !scope.querySelector(SIGNATURE_TEXT_SCOPE_SELECTOR),
+  );
+}
+
+function getSignatureScopeForTextNode(node: Text): Element | null {
+  return node.parentElement?.closest(SIGNATURE_TEXT_SCOPE_SELECTOR) || null;
+}
+
+function getSignatureScopesText(scopes: Element[]): string {
+  return scopes.map((scope) => scope.textContent || "").join(" ");
+}
+
+function hasSignatureDateText(text: string): boolean {
+  const normalizedText = normalizeSignatureText(text);
+  const hasMonth =
+    /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/.test(
+      normalizedText,
+    );
+
+  return (
+    /\bciudad\b/.test(normalizedText) ||
+    /\bmexico\b/.test(normalizedText) ||
+    /\b\d{1,2}\s+de\s+[a-z]+\s+de\s+\d{4}\b/.test(normalizedText) ||
+    (hasMonth && /\b\d{4}\b/.test(normalizedText))
+  );
+}
+
+function isSignatureZoneContinuationScope(
+  scope: Element,
+  nombresAnteriores: string[],
+): boolean {
+  const text = scope.textContent || "";
+  const normalizedText = normalizeSignatureText(text).replace(/\s+/g, " ").trim();
+
+  if (!normalizedText) return true;
+  if (hasSignatureDateText(text)) return true;
+  if (hasLawyerRoleText(text)) return true;
+  if (textHasAnyKnownName(text, nombresAnteriores)) return true;
+
+  return Boolean(findLikelyNameBeforeLawyerLabel(scope));
+}
+
+function findKnownNameTextNodeInScopes(
+  scopes: Element[],
+  nombresAnteriores: string[],
+): Text | null {
+  for (const scope of scopes) {
+    const node = findKnownNameTextNode(scope, nombresAnteriores);
+    if (node) return node;
+  }
+
+  return null;
+}
+
+function findLikelyNameBeforeLawyerLabelInScopes(scopes: Element[]): Text | null {
+  const textNodes: Text[] = [];
+
+  scopes.forEach((scope) => {
+    const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      textNodes.push(walker.currentNode as Text);
+    }
+  });
+
+  const lawyerIndex = textNodes.findIndex((node) =>
+    hasLawyerCargoText(node.nodeValue || ""),
+  );
+  const candidates =
+    lawyerIndex >= 0
+      ? textNodes.slice(0, lawyerIndex).reverse()
+      : textNodes.slice().reverse();
+
+  return candidates.find((node) => isLikelySignatureNameText(node.nodeValue)) || null;
+}
+
+function findSignatureNameTextNodeInScopes(
+  scopes: Element[],
+  nombresAnteriores: string[],
+): Text | null {
+  return (
+    findKnownNameTextNodeInScopes(scopes, nombresAnteriores) ||
+    findLikelyNameBeforeLawyerLabelInScopes(scopes)
+  );
+}
+
+function collectSignatureClosingZoneScopes(
+  scopes: Element[],
+  startIndex: number,
+  nombresAnteriores: string[],
+): Element[] {
+  const zone: Element[] = [];
+
+  for (
+    let index = startIndex;
+    index < scopes.length && zone.length < MAX_SIGNATURE_CLOSING_ZONE_SCOPES;
+    index += 1
+  ) {
+    const scope = scopes[index];
+    const text = scope.textContent || "";
+
+    if (index > startIndex && hasSignatureClosing(text)) break;
+    if (hasAuthorizationMarker(text)) break;
+    if (index > startIndex && isLetterheadBlock(text)) break;
+    if (
+      index > startIndex &&
+      !isSignatureZoneContinuationScope(scope, nombresAnteriores)
+    ) {
+      break;
+    }
+
+    zone.push(scope);
+
+    if (index > startIndex) {
+      const zoneText = getSignatureScopesText(zone);
+      const hasName = Boolean(
+        findSignatureNameTextNodeInScopes(zone, nombresAnteriores),
+      );
+      if (
+        hasName &&
+        (hasLawyerRoleText(zoneText) ||
+          textHasAnyKnownName(zoneText, nombresAnteriores))
+      ) {
+        break;
+      }
+    }
+  }
+
+  return zone;
+}
+
+function collectSignatureRoleZoneScopes(
+  scopes: Element[],
+  endIndex: number,
+  nombresAnteriores: string[],
+): Element[] {
+  const zone: Element[] = [];
+
+  for (
+    let index = endIndex;
+    index >= 0 && zone.length < MAX_SIGNATURE_CLOSING_ZONE_SCOPES;
+    index -= 1
+  ) {
+    const scope = scopes[index];
+    const text = scope.textContent || "";
+
+    if (hasAuthorizationMarker(text)) break;
+    if (index < endIndex && isLetterheadBlock(text)) break;
+    if (
+      index < endIndex &&
+      !hasSignatureClosing(text) &&
+      !isSignatureZoneContinuationScope(scope, nombresAnteriores)
+    ) {
+      break;
+    }
+
+    zone.unshift(scope);
+
+    if (index < endIndex && hasSignatureClosing(text)) break;
+
+    const zoneText = getSignatureScopesText(zone);
+    const hasName = Boolean(
+      findSignatureNameTextNodeInScopes(zone, nombresAnteriores),
+    );
+    if (
+      index < endIndex &&
+      hasName &&
+      (hasLawyerCargoText(zoneText) ||
+        textHasAnyKnownName(zoneText, nombresAnteriores))
+    ) {
+      break;
+    }
+  }
+
+  return zone;
+}
+
+function buildSignatureInsertTargetFromScopes(
+  scopes: Element[],
+  nombresAnteriores: string[],
+): InformeSignatureInsertTarget | null {
+  const nameNode = findSignatureNameTextNodeInScopes(scopes, nombresAnteriores);
+  if (nameNode) {
+    const scope = getSignatureScopeForTextNode(nameNode);
+    if (scope) {
+      return { nameNode, scope, relatedScopes: scopes };
+    }
+  }
+
+  const closingScope = scopes.find((scope) =>
+    hasSignatureClosing(scope.textContent || ""),
+  );
+  return closingScope
+    ? { nameNode: null, scope: closingScope, relatedScopes: scopes }
+    : null;
+}
+
+function findInformeSignatureInsertTarget(
+  root: ParentNode,
+  nombresAnteriores: string[],
+): InformeSignatureInsertTarget | null {
+  const scopes = getLeafSignatureTextScopes(root);
+  const closingTargets: InformeSignatureInsertTarget[] = [];
+  const lawyerTargets: InformeSignatureInsertTarget[] = [];
+
+  scopes.forEach((scope, index) => {
+    const text = scope.textContent || "";
+    if (hasAuthorizationMarker(text)) return;
+    if (isLetterheadBlock(text)) return;
+
+    if (hasSignatureClosing(text)) {
+      const zone = collectSignatureClosingZoneScopes(
+        scopes,
+        index,
+        nombresAnteriores,
+      );
+      const target = buildSignatureInsertTargetFromScopes(
+        zone,
+        nombresAnteriores,
+      );
+      if (target) {
+        closingTargets.push(target);
+      }
+    }
+
+    if (hasLawyerRoleText(text)) {
+      const zone = collectSignatureRoleZoneScopes(
+        scopes,
+        index,
+        nombresAnteriores,
+      );
+      const zoneText = getSignatureScopesText(zone);
+      const target = buildSignatureInsertTargetFromScopes(
+        zone,
+        nombresAnteriores,
+      );
+      if (
+        target?.nameNode &&
+        (hasLawyerCargoText(zoneText) ||
+          textHasAnyKnownName(zoneText, nombresAnteriores))
+      ) {
+        lawyerTargets.push(target);
+      }
+    }
+  });
+
+  if (closingTargets.length > 0) {
+    return closingTargets[closingTargets.length - 1];
+  }
+  if (lawyerTargets.length > 0) {
+    return lawyerTargets[lawyerTargets.length - 1];
+  }
+
+  return null;
+}
+
+function removeInlineSignatureImages(root: ParentNode): void {
+  root.querySelectorAll("img").forEach((image) => {
+    if (isInlineSignatureImageElement(image)) {
+      image.remove();
+    }
+  });
+}
+
+function replaceSignatureNameInTarget(
+  target: InformeSignatureInsertTarget,
+  nombresAnteriores: string[],
+  nombreFirma: string,
+): void {
+  const renamed = target.relatedScopes.reduce(
+    (changed, scope) =>
+      replaceKnownNamesInTextNodes(scope, nombresAnteriores, nombreFirma) ||
+      changed,
+    false,
+  );
+
+  if (!renamed && target.nameNode) {
+    replaceLikelySignatureNameText(target.scope, nombreFirma);
+  }
 }
 
 function hasFirmaImgHtml(value: string): boolean {
@@ -788,7 +1099,7 @@ function insertFirmaBeforeLawyerNameInBlockHtml(input: {
   nombreFirma: string;
 }): { html: string; changed: boolean } {
   const nameBeforeLawyerRegex =
-    /((<(?:strong|b)\b[^>]*>)\s*)([^<]{4,160}?)(\s*(<\/(?:strong|b)>)\s*<br\s*\/?>\s*((?:&nbsp;|\s|<[^>]+>)*)(?:Abogad[ao]|Lic\.?))/i;
+    /((<(?:strong|b)\b[^>]*>)\s*)([^<]{4,160}?)(\s*(<\/(?:strong|b)>)\s*<br\s*\/?>\s*((?:&nbsp;|\s|<[^>]+>)*)(?:Abogad[ao]|Abg\.?|Lic\.?|Licda\.?|Licdo\.?|Licenciada|Licenciado))/i;
   const match = nameBeforeLawyerRegex.exec(input.blockHtml);
   if (!match) return { html: input.blockHtml, changed: false };
 
@@ -869,6 +1180,7 @@ function insertarFirmaEnBloquesTextuales(input: {
       fallbackScope,
       input.firmaImage,
       input.nombresAnteriores,
+      input.root,
     );
     const fallbackRenamed = replaceKnownNamesInTextNodes(
       fallbackScope,
@@ -886,6 +1198,7 @@ function insertarFirmaEnBloquesTextuales(input: {
     scope,
     input.firmaImage,
     input.nombresAnteriores,
+    input.root,
   );
   const renamed = replaceKnownNamesInTextNodes(
     scope,
@@ -905,37 +1218,38 @@ function normalizeInformeFirmaToClosingBlock(input: {
   nombresAnteriores: string[];
   nombreFirma: string;
 }): boolean {
-  const scope = pickSignatureInsertScope(
-    getCandidateSignatureTextScopes(input.root, input.nombresAnteriores),
-  );
-  if (!scope) return false;
-
-  const nameNode =
-    findKnownNameTextNode(scope, input.nombresAnteriores) ||
-    findLikelyNameBeforeLawyerLabel(scope);
-  if (!nameNode) return false;
-
-  const anchor = getSignatureInsertAnchor(nameNode, scope);
-  const parent = anchor.parentNode;
-  if (!parent) return false;
-
-  input.root.querySelectorAll("img").forEach((image) => {
-    if (isInlineSignatureImageElement(image)) {
-      image.remove();
-    }
-  });
-
-  const signature = input.firmaImage.cloneNode(true) as HTMLImageElement;
-  parent.insertBefore(signature, anchor);
-  parent.insertBefore(document.createElement("br"), anchor);
-
-  const renamed = replaceKnownNamesInTextNodes(
-    scope,
+  const target = findInformeSignatureInsertTarget(
+    input.root,
     input.nombresAnteriores,
-    input.nombreFirma,
   );
-  if (!renamed) {
-    replaceLikelySignatureNameText(scope, input.nombreFirma);
+  if (!target) return false;
+
+  if (target.nameNode) {
+    const anchor = getSignatureInsertAnchor(target.nameNode, target.scope);
+    const parent = anchor.parentNode;
+    if (!parent) return false;
+
+    removeInlineSignatureImages(input.root);
+    const signature = input.firmaImage.cloneNode(true) as HTMLImageElement;
+    parent.insertBefore(signature, anchor);
+    parent.insertBefore(document.createElement("br"), anchor);
+    replaceSignatureNameInTarget(
+      target,
+      input.nombresAnteriores,
+      input.nombreFirma,
+    );
+    return true;
+  }
+
+  removeInlineSignatureImages(input.root);
+  const signature = input.firmaImage.cloneNode(true) as HTMLImageElement;
+  target.scope.appendChild(document.createElement("br"));
+  target.scope.appendChild(signature);
+  target.scope.appendChild(document.createElement("br"));
+  if (input.nombreFirma.trim()) {
+    const name = document.createElement("strong");
+    name.textContent = input.nombreFirma.trim();
+    target.scope.appendChild(name);
   }
 
   return true;
@@ -985,7 +1299,7 @@ function restablecerFirmaInformeHtml(input: {
   template.content.querySelectorAll("img").forEach((image) => {
     if (!isInformeSignatureImage(image, input.nombresAnteriores)) return;
 
-    const scope = image.closest("p, div, td, th, li");
+    const scope = image.closest(SIGNATURE_TEXT_SCOPE_SELECTOR);
     const scopeText = scope?.textContent || "";
     if (
       isLetterheadBlock(scopeText) &&
@@ -1016,22 +1330,23 @@ function restablecerFirmaInformeHtml(input: {
     nombresAnteriores: input.nombresAnteriores,
     nombreFirma: input.nombreFirma,
   });
-  if (!normalizedToClosing) {
-    insertarFirmaEnBloquesTextuales({
-      root: template.content,
-      firmaImage,
-      nombresAnteriores: input.nombresAnteriores,
-      nombreFirma: input.nombreFirma,
-    });
-  }
+  const changedByDom = normalizedToClosing
+    ? true
+    : insertarFirmaEnBloquesTextuales({
+        root: template.content,
+        firmaImage,
+        nombresAnteriores: input.nombresAnteriores,
+        nombreFirma: input.nombreFirma,
+      });
 
   const htmlDom = template.innerHTML;
-  const fallback = insertFirmaInClosingBlocksByHtmlPattern({
-    html: htmlDom,
-    firmaHtml: input.firmaHtml,
-    nombreFirma: input.nombreFirma,
-  });
-  const htmlFinal = fallback.html;
+  const htmlFinal = changedByDom
+    ? htmlDom
+    : insertFirmaInClosingBlocksByHtmlPattern({
+        html: htmlDom,
+        firmaHtml: input.firmaHtml,
+        nombreFirma: input.nombreFirma,
+      }).html;
   return {
     html: htmlFinal,
     changed: htmlFinal !== input.html,
