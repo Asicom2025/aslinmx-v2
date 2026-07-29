@@ -1502,8 +1502,6 @@ export default function SiniestroDetailPage() {
     const firmaRaw =
       (autorUsuario?.perfil && (autorUsuario.perfil as any).firma) ||
       autorUsuario?.firma ||
-      (autorUsuario?.perfil && (autorUsuario.perfil as any).firma_digital) ||
-      autorUsuario?.firma_digital ||
       "";
     if (typeof firmaRaw === "string" && firmaRaw.trim()) {
       const raw = firmaRaw.trim();
