@@ -622,6 +622,78 @@ function insertSignatureBeforeKnownName(
   return true;
 }
 
+function isInlineSignatureImageElement(element: Element | null): boolean {
+  if (!element || element.tagName !== "IMG") return false;
+
+  const attrText = [
+    element.getAttribute("alt"),
+    element.getAttribute("class"),
+    element.getAttribute("id"),
+    element.getAttribute("title"),
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (hasAuthorizationMarker(attrText)) return false;
+
+  const alt = normalizeSignatureText(element.getAttribute("alt"));
+  const classNames = (element.getAttribute("class") || "")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return alt === "firma" || classNames.includes("pdf-firma");
+}
+
+function hasSignatureImageImmediatelyBefore(anchor: Node): boolean {
+  let current = anchor.previousSibling;
+  let inspected = 0;
+
+  while (current && inspected < 8) {
+    inspected += 1;
+
+    if (current.nodeType === Node.TEXT_NODE) {
+      if (!(current.textContent || "").trim()) {
+        current = current.previousSibling;
+        continue;
+      }
+      return false;
+    }
+
+    if (current.nodeType === Node.ELEMENT_NODE) {
+      const element = current as Element;
+      if (element.tagName === "BR") {
+        current = current.previousSibling;
+        continue;
+      }
+      return isInlineSignatureImageElement(element);
+    }
+
+    current = current.previousSibling;
+  }
+
+  return false;
+}
+
+function insertSignatureBeforeKnownNameAllowingOtherImages(
+  scope: Element,
+  firmaImage: HTMLImageElement,
+  nombresAnteriores: string[],
+): boolean {
+  const nameNode =
+    findKnownNameTextNode(scope, nombresAnteriores) ||
+    findLikelyNameBeforeLawyerLabel(scope);
+  if (!nameNode) return false;
+
+  const anchor = getSignatureInsertAnchor(nameNode, scope);
+  const parent = anchor.parentNode;
+  if (!parent || hasSignatureImageImmediatelyBefore(anchor)) return false;
+
+  const signature = firmaImage.cloneNode(true) as HTMLImageElement;
+  parent.insertBefore(signature, anchor);
+  parent.insertBefore(document.createElement("br"), anchor);
+  return true;
+}
+
 function replaceLikelySignatureNameText(
   scope: Element,
   nombreFirma: string,
@@ -657,10 +729,9 @@ function insertarFirmaEnBloquesTextuales(input: {
   nombresAnteriores: string[];
   nombreFirma: string;
 }): boolean {
-  const scopes = Array.from(
+  const candidateScopes = Array.from(
     input.root.querySelectorAll("p, div, td, th, li"),
   ).filter((scope) => {
-    if (scope.querySelector("img")) return false;
     if (hasAuthorizationMarker(scope.textContent)) return false;
     const text = scope.textContent || "";
     if (isLetterheadBlock(text)) return false;
@@ -675,8 +746,28 @@ function insertarFirmaEnBloquesTextuales(input: {
     );
   });
 
+  const scopes = candidateScopes.filter((scope) => !scope.querySelector("img"));
   const scope = pickSignatureInsertScope(scopes);
-  if (!scope || scope.querySelector("img")) return false;
+  if (!scope) {
+    const fallbackScope = pickSignatureInsertScope(candidateScopes);
+    if (!fallbackScope) return false;
+
+    const fallbackInserted = insertSignatureBeforeKnownNameAllowingOtherImages(
+      fallbackScope,
+      input.firmaImage,
+      input.nombresAnteriores,
+    );
+    const fallbackRenamed = replaceKnownNamesInTextNodes(
+      fallbackScope,
+      input.nombresAnteriores,
+      input.nombreFirma,
+    );
+    const fallbackRenamedByName = fallbackRenamed
+      ? false
+      : replaceLikelySignatureNameText(fallbackScope, input.nombreFirma);
+
+    return fallbackInserted || fallbackRenamed || fallbackRenamedByName;
+  }
 
   const inserted = insertSignatureBeforeKnownName(
     scope,
