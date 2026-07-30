@@ -297,6 +297,10 @@ def list_documentos_siniestro(
     activo: Optional[bool] = Query(None, description="Filtrar por estado activo"),
     area_id: Optional[UUID] = Query(None, description="Filtrar por área"),
     flujo_trabajo_id: Optional[UUID] = Query(None, description="Filtrar por flujo de trabajo"),
+    incluir_eliminados: bool = Query(
+        False,
+        description="Incluir documentos eliminados en el historial",
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
@@ -311,6 +315,7 @@ def list_documentos_siniestro(
         activo=activo,
         area_id=area_id,
         flujo_trabajo_id=flujo_trabajo_id,
+        incluir_eliminados=incluir_eliminados,
         skip=skip,
         limit=limit
     )

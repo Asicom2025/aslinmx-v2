@@ -109,10 +109,13 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
     // así que para mostrar Editar/Enviar/Ver basamos el tipo únicamente en `contenido`.
     const esInforme = !!(documento as any).contenido;
     const tieneRutaArchivo = !!rutaArchivo;
+    const eliminado = (documento as any).eliminado === true;
 
     const tieneId = !!(documento as any).id;
-    const puedeDescargarArchivo = !!onDownloadDocument && tieneId && tieneRutaArchivo;
-    const puedeDescargarInforme = !!onDownloadInforme && tieneId && !!plantillaDocId;
+    const puedeDescargarArchivo =
+      !!onDownloadDocument && tieneId && tieneRutaArchivo && !eliminado;
+    const puedeDescargarInforme =
+      !!onDownloadInforme && tieneId && !!plantillaDocId && !eliminado;
     const requiereAutorizacion = !!(documento as any).requiere_autorizacion;
     const autorizado = !!(documento as any).autorizado;
 
@@ -129,7 +132,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
       key: "ver",
       label: "Ver",
       icon: <FiEye className="w-4 h-4" />,
-      disabled: false,
+      disabled: eliminado,
       action: () => onViewDocument(documento),
     });
 
@@ -139,7 +142,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
           key: "autorizar",
           label: autorizado ? "Reaplicar autorización" : "Autorizar",
           icon: <FiCheckCircle className="w-4 h-4 text-emerald-600" />,
-          disabled: !onAuthorizeDocument,
+          disabled: !onAuthorizeDocument || eliminado,
           action: () => onAuthorizeDocument?.(documento),
         });
       }
@@ -156,14 +159,14 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
         key: "editar",
         label: "Editar",
         icon: <FiEdit3 className="w-4 h-4" />,
-        disabled: !onEditDocument,
+        disabled: !onEditDocument || eliminado,
         action: () => onEditDocument?.(documento),
       });
       items.push({
         key: "enviar",
         label: "Enviar",
         icon: <FiMail className="w-4 h-4" />,
-        disabled: !onSendByEmail,
+        disabled: !onSendByEmail || eliminado,
         action: () => onSendByEmail?.(documento),
       });
       items.push({
@@ -173,7 +176,7 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
         disabled: !puedeDescargarInforme,
         action: () => onDownloadInforme?.(documento),
       });
-      if (onDeleteDocument && tieneId) {
+      if (onDeleteDocument && tieneId && !eliminado) {
         items.push({
           key: "eliminar",
           label: "Eliminar del expediente",
@@ -193,10 +196,10 @@ export function DocumentoAcciones(props: DocumentoAccionesProps) {
         key: "enviar",
         label: "Enviar",
         icon: <FiMail className="w-4 h-4" />,
-        disabled: !onSendByEmail,
+        disabled: !onSendByEmail || eliminado,
         action: () => onSendByEmail?.(documento),
       });
-      if (onDeleteDocument && tieneId) {
+      if (onDeleteDocument && tieneId && !eliminado) {
         items.push({
           key: "eliminar",
           label: "Eliminar del expediente",
