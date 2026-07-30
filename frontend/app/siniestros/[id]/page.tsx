@@ -28,9 +28,11 @@ import {
   escapePlaceholderKeyForRegex,
 } from "@/lib/plantillaSiniestroVariables";
 import {
+  ACCION,
   canSiniestroEditarPrioridad,
   canSiniestroEditarDescripcionHechos,
   canSiniestrosVerBitacora,
+  MODULO,
 } from "@/lib/permisosConstants";
 import { getUserDisplayName } from "@/lib/userName";
 import {
@@ -160,10 +162,12 @@ interface DocumentoEtapa {
   area_id?: string;
   flujo_trabajo_id?: string;
   plantilla_documento_id?: string;
+  creado_por?: string | null;
   usuario_subio?: string | null;
   descripcion?: string | null;
   activo?: boolean;
   eliminado?: boolean;
+  eliminado_en?: string | null;
   /** Categoría (viene del requisito o de la plantilla) */
   categoria_documento_nombre?: string | null;
   version: number;
@@ -241,6 +245,14 @@ const PLACEHOLDERS_NOMBRE_FIRMA_INFORME = ["creado_por", "autor"];
 const RECOVER_VERSION_DROP_ZONE_ID = "recover-version-drop-zone";
 const SIGNATURE_TEXT_SCOPE_SELECTOR = "p, div, td, th, li";
 const MAX_SIGNATURE_CLOSING_ZONE_SCOPES = 10;
+const INFORME_SIGNATURE_ATTR = "data-aslin-signature";
+const INFORME_SIGNATURE_PART_ATTR = "data-aslin-signature-part";
+const INFORME_SIGNATURE_SOURCE_ATTR = "data-aslin-signature-source";
+const INFORME_SIGNATURE_KIND = "abogado-informe";
+const INFORME_SIGNATURE_FIRMA_PART = "firma";
+const INFORME_SIGNATURE_NOMBRE_PART = "nombre";
+const INFORME_SIGNATURE_FIRMA_SELECTOR = `img[${INFORME_SIGNATURE_ATTR}="${INFORME_SIGNATURE_KIND}"][${INFORME_SIGNATURE_PART_ATTR}="${INFORME_SIGNATURE_FIRMA_PART}"]`;
+const INFORME_SIGNATURE_NOMBRE_SELECTOR = `[${INFORME_SIGNATURE_ATTR}="${INFORME_SIGNATURE_KIND}"][${INFORME_SIGNATURE_PART_ATTR}="${INFORME_SIGNATURE_NOMBRE_PART}"]`;
 
 function normalizeSignatureText(value?: string | null): string {
   return (value || "")
@@ -268,16 +280,97 @@ function replaceInformePlaceholders(
   PLACEHOLDERS_FIRMA_INFORME.forEach((key) => {
     resultado = resultado.replace(
       new RegExp(`{{\\s*${escapePlaceholderKeyForRegex(key)}\\s*}}`, "g"),
-      firmaHtml,
+      ensureInformeSignatureHtml(firmaHtml, INFORME_SIGNATURE_FIRMA_PART, key),
     );
   });
   PLACEHOLDERS_NOMBRE_FIRMA_INFORME.forEach((key) => {
     resultado = resultado.replace(
       new RegExp(`{{\\s*${escapePlaceholderKeyForRegex(key)}\\s*}}`, "g"),
-      nombreFirma,
+      buildInformeSignatureNameHtml(nombreFirma, key),
     );
   });
   return resultado;
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtmlText(value).replace(/"/g, "&quot;");
+}
+
+function setInformeSignatureAttributes(
+  element: Element,
+  part: string,
+  source?: string,
+) {
+  element.setAttribute(INFORME_SIGNATURE_ATTR, INFORME_SIGNATURE_KIND);
+  element.setAttribute(INFORME_SIGNATURE_PART_ATTR, part);
+  if (source) {
+    element.setAttribute(INFORME_SIGNATURE_SOURCE_ATTR, source);
+  }
+}
+
+function buildInformeSignatureAttrs(part: string, source?: string): string {
+  return [
+    `${INFORME_SIGNATURE_ATTR}="${INFORME_SIGNATURE_KIND}"`,
+    `${INFORME_SIGNATURE_PART_ATTR}="${part}"`,
+    source ? `${INFORME_SIGNATURE_SOURCE_ATTR}="${escapeHtmlAttribute(source)}"` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildInformeSignatureImageHtml(
+  firmaSrc: string,
+  source = "firma_fisica",
+): string {
+  return `<img src="${escapeHtmlAttribute(firmaSrc)}" alt="Firma" class="pdf-firma" ${buildInformeSignatureAttrs(
+    INFORME_SIGNATURE_FIRMA_PART,
+    source,
+  )} style="width:60px;height:auto;"/>`;
+}
+
+function buildInformeSignatureNameHtml(
+  nombreFirma: string,
+  source = "creado_por",
+): string {
+  return `<span ${buildInformeSignatureAttrs(
+    INFORME_SIGNATURE_NOMBRE_PART,
+    source,
+  )}>${escapeHtmlText(nombreFirma)}</span>`;
+}
+
+function ensureInformeSignatureHtml(
+  html: string,
+  part: string,
+  source?: string,
+): string {
+  if (typeof document === "undefined") return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const firstElement = template.content.firstElementChild;
+  if (!firstElement) return html;
+  setInformeSignatureAttributes(firstElement, part, source);
+  return template.innerHTML;
+}
+
+function cloneInformeSignatureImage(
+  firmaImage: HTMLImageElement,
+  source = "firma_fisica",
+): HTMLImageElement {
+  const signature = firmaImage.cloneNode(true) as HTMLImageElement;
+  setInformeSignatureAttributes(
+    signature,
+    INFORME_SIGNATURE_FIRMA_PART,
+    source,
+  );
+  return signature;
+}
+
+function hasInformeSignaturePart(element: Element | null, part: string): boolean {
+  if (!element) return false;
+  return (
+    element.getAttribute(INFORME_SIGNATURE_ATTR) === INFORME_SIGNATURE_KIND &&
+    element.getAttribute(INFORME_SIGNATURE_PART_ATTR) === part
+  );
 }
 
 function escapeHtmlText(value: string): string {
@@ -409,6 +502,10 @@ function isInformeSignatureImage(
   image: HTMLImageElement,
   nombresAnteriores: string[],
 ): boolean {
+  if (hasInformeSignaturePart(image, INFORME_SIGNATURE_FIRMA_PART)) {
+    return true;
+  }
+
   const attrText = [
     image.getAttribute("alt"),
     image.getAttribute("class"),
@@ -648,6 +745,92 @@ function getSignatureInsertAnchor(textNode: Text, scope: Element): Node {
   return anchor;
 }
 
+function markInformeSignatureNameTextNode(
+  node: Text,
+  nombreFirma: string,
+  source = "creado_por",
+): boolean {
+  const nextName = nombreFirma.trim();
+  if (!nextName) return false;
+
+  const value = node.nodeValue || "";
+  const regex = buildFlexibleNameRegex(nextName);
+  const match = regex?.exec(value);
+  if (!match) return false;
+
+  const boundary = match[1] || "";
+  const matchedName = match[2] || nextName;
+  const nameStart = match.index + boundary.length;
+  const nameEnd = nameStart + matchedName.length;
+  const before = value.slice(0, nameStart);
+  const selectedName = value.slice(nameStart, nameEnd);
+  const after = value.slice(nameEnd);
+  const parent = node.parentElement;
+  const parentText = (parent?.textContent || "").replace(/\s+/g, " ").trim();
+
+  if (
+    parent &&
+    SIGNATURE_INLINE_TAGS.has(parent.tagName) &&
+    normalizeSignatureNameForCompare(parentText) ===
+      normalizeSignatureNameForCompare(nextName)
+  ) {
+    setInformeSignatureAttributes(
+      parent,
+      INFORME_SIGNATURE_NOMBRE_PART,
+      source,
+    );
+    return true;
+  }
+
+  const markedName = document.createElement("span");
+  setInformeSignatureAttributes(
+    markedName,
+    INFORME_SIGNATURE_NOMBRE_PART,
+    source,
+  );
+  markedName.textContent = selectedName || nextName;
+
+  const fragment = document.createDocumentFragment();
+  if (before) fragment.appendChild(document.createTextNode(before));
+  fragment.appendChild(markedName);
+  if (after) fragment.appendChild(document.createTextNode(after));
+  node.replaceWith(fragment);
+  return true;
+}
+
+function markInformeSignatureNameInScope(
+  scope: Element,
+  nombreFirma: string,
+  source = "creado_por",
+): boolean {
+  const nextName = nombreFirma.trim();
+  if (!nextName) return false;
+
+  const existing = scope.querySelector<HTMLElement>(
+    INFORME_SIGNATURE_NOMBRE_SELECTOR,
+  );
+  if (existing) {
+    const currentSource = existing.getAttribute(INFORME_SIGNATURE_SOURCE_ATTR);
+    const changed = existing.textContent !== nextName;
+    setInformeSignatureAttributes(
+      existing,
+      INFORME_SIGNATURE_NOMBRE_PART,
+      currentSource || source,
+    );
+    if (changed) {
+      existing.textContent = nextName;
+    }
+    return changed || !currentSource;
+  }
+
+  const nameNode =
+    findKnownNameTextNode(scope, [nextName]) ||
+    findLikelyNameBeforeLawyerLabel(scope);
+  return nameNode
+    ? markInformeSignatureNameTextNode(nameNode, nextName, source)
+    : false;
+}
+
 function insertSignatureBeforeKnownName(
   scope: Element,
   firmaImage: HTMLImageElement,
@@ -666,7 +849,7 @@ function insertSignatureBeforeKnownName(
   if (rootToClean) {
     removeInlineSignatureImages(rootToClean);
   }
-  const signature = firmaImage.cloneNode(true) as HTMLImageElement;
+  const signature = cloneInformeSignatureImage(firmaImage);
   parent.insertBefore(signature, anchor);
   parent.insertBefore(document.createElement("br"), anchor);
   return true;
@@ -674,6 +857,9 @@ function insertSignatureBeforeKnownName(
 
 function isInlineSignatureImageElement(element: Element | null): boolean {
   if (!element || element.tagName !== "IMG") return false;
+  if (hasInformeSignaturePart(element, INFORME_SIGNATURE_FIRMA_PART)) {
+    return true;
+  }
 
   const attrText = [
     element.getAttribute("alt"),
@@ -742,7 +928,7 @@ function insertSignatureBeforeKnownNameAllowingOtherImages(
   if (rootToClean) {
     removeInlineSignatureImages(rootToClean);
   }
-  const signature = firmaImage.cloneNode(true) as HTMLImageElement;
+  const signature = cloneInformeSignatureImage(firmaImage);
   parent.insertBefore(signature, anchor);
   parent.insertBefore(document.createElement("br"), anchor);
   return true;
@@ -1075,16 +1261,20 @@ function replaceSignatureNameInTarget(
   nombresAnteriores: string[],
   nombreFirma: string,
 ): void {
-  const renamed = target.relatedScopes.reduce(
-    (changed, scope) =>
+  let renamed = false;
+  target.relatedScopes.forEach((scope) => {
+    renamed =
       replaceKnownNamesInTextNodes(scope, nombresAnteriores, nombreFirma) ||
-      changed,
-    false,
-  );
+      renamed;
+  });
 
   if (!renamed && target.nameNode) {
     replaceLikelySignatureNameText(target.scope, nombreFirma);
   }
+
+  target.relatedScopes.forEach((scope) => {
+    markInformeSignatureNameInScope(scope, nombreFirma);
+  });
 }
 
 function hasFirmaImgHtml(value: string): boolean {
@@ -1121,7 +1311,7 @@ function insertFirmaBeforeLawyerNameInBlockHtml(input: {
 
   const replacement =
     `${hasFirmaBeforeName ? "" : `${input.firmaHtml}<br>`}` +
-    `${match[1]}${escapeHtmlText(nextName)}${match[4]}`;
+    `${match[1]}${buildInformeSignatureNameHtml(nextName)}${match[4]}`;
 
   return {
     html:
@@ -1190,8 +1380,17 @@ function insertarFirmaEnBloquesTextuales(input: {
     const fallbackRenamedByName = fallbackRenamed
       ? false
       : replaceLikelySignatureNameText(fallbackScope, input.nombreFirma);
+    const fallbackMarkedName = markInformeSignatureNameInScope(
+      fallbackScope,
+      input.nombreFirma,
+    );
 
-    return fallbackInserted || fallbackRenamed || fallbackRenamedByName;
+    return (
+      fallbackInserted ||
+      fallbackRenamed ||
+      fallbackRenamedByName ||
+      fallbackMarkedName
+    );
   }
 
   const inserted = insertSignatureBeforeKnownName(
@@ -1208,8 +1407,9 @@ function insertarFirmaEnBloquesTextuales(input: {
   const renamedByFallback = renamed
     ? false
     : replaceLikelySignatureNameText(scope, input.nombreFirma);
+  const markedName = markInformeSignatureNameInScope(scope, input.nombreFirma);
 
-  return inserted || renamed || renamedByFallback;
+  return inserted || renamed || renamedByFallback || markedName;
 }
 
 function normalizeInformeFirmaToClosingBlock(input: {
@@ -1230,7 +1430,7 @@ function normalizeInformeFirmaToClosingBlock(input: {
     if (!parent) return false;
 
     removeInlineSignatureImages(input.root);
-    const signature = input.firmaImage.cloneNode(true) as HTMLImageElement;
+    const signature = cloneInformeSignatureImage(input.firmaImage);
     parent.insertBefore(signature, anchor);
     parent.insertBefore(document.createElement("br"), anchor);
     replaceSignatureNameInTarget(
@@ -1242,17 +1442,73 @@ function normalizeInformeFirmaToClosingBlock(input: {
   }
 
   removeInlineSignatureImages(input.root);
-  const signature = input.firmaImage.cloneNode(true) as HTMLImageElement;
+  const signature = cloneInformeSignatureImage(input.firmaImage);
   target.scope.appendChild(document.createElement("br"));
   target.scope.appendChild(signature);
   target.scope.appendChild(document.createElement("br"));
   if (input.nombreFirma.trim()) {
     const name = document.createElement("strong");
+    setInformeSignatureAttributes(
+      name,
+      INFORME_SIGNATURE_NOMBRE_PART,
+      "creado_por",
+    );
     name.textContent = input.nombreFirma.trim();
     target.scope.appendChild(name);
   }
 
   return true;
+}
+
+function replaceStructuredInformeSignature(
+  root: ParentNode,
+  firmaImage: HTMLImageElement,
+  nombreFirma: string,
+  nombresAnteriores: string[],
+): { changed: boolean; handledSignature: boolean } {
+  let changed = false;
+  let handledSignature = false;
+  const replacementImages: HTMLImageElement[] = [];
+
+  root.querySelectorAll<HTMLImageElement>(INFORME_SIGNATURE_FIRMA_SELECTOR).forEach(
+    (image) => {
+      const source =
+        image.getAttribute(INFORME_SIGNATURE_SOURCE_ATTR) || "firma_fisica";
+      const replacement = cloneInformeSignatureImage(firmaImage, source);
+      image.replaceWith(replacement);
+      replacementImages.push(replacement);
+      changed = true;
+      handledSignature = true;
+    },
+  );
+
+  replacementImages.forEach((image) => {
+    collectNameScopesNearSignature(image).forEach((scope) => {
+      changed =
+        replaceKnownNamesInTextNodes(scope, nombresAnteriores, nombreFirma) ||
+        changed;
+      changed = markInformeSignatureNameInScope(scope, nombreFirma) || changed;
+    });
+  });
+
+  root.querySelectorAll<HTMLElement>(INFORME_SIGNATURE_NOMBRE_SELECTOR).forEach(
+    (element) => {
+      const source =
+        element.getAttribute(INFORME_SIGNATURE_SOURCE_ATTR) || "creado_por";
+      setInformeSignatureAttributes(
+        element,
+        INFORME_SIGNATURE_NOMBRE_PART,
+        source,
+      );
+      const nextName = nombreFirma.trim();
+      if (element.textContent !== nextName) {
+        element.textContent = nextName;
+        changed = true;
+      }
+    },
+  );
+
+  return { changed, handledSignature };
 }
 
 function restablecerFirmaInformeHtml(input: {
@@ -1294,6 +1550,19 @@ function restablecerFirmaInformeHtml(input: {
 
   const template = document.createElement("template");
   template.innerHTML = htmlConPlaceholders;
+  const structuredResult = replaceStructuredInformeSignature(
+    template.content,
+    firmaImage,
+    input.nombreFirma,
+    input.nombresAnteriores,
+  );
+  if (structuredResult.handledSignature) {
+    const htmlStructured = template.innerHTML;
+    return {
+      html: htmlStructured,
+      changed: htmlStructured !== input.html,
+    };
+  }
 
   const replacementImages: HTMLImageElement[] = [];
   template.content.querySelectorAll("img").forEach((image) => {
@@ -1309,7 +1578,7 @@ function restablecerFirmaInformeHtml(input: {
       return;
     }
 
-    const replacement = firmaImage.cloneNode(true) as HTMLImageElement;
+    const replacement = cloneInformeSignatureImage(firmaImage);
     image.replaceWith(replacement);
     replacementImages.push(replacement);
   });
@@ -1321,6 +1590,7 @@ function restablecerFirmaInformeHtml(input: {
         input.nombresAnteriores,
         input.nombreFirma,
       );
+      markInformeSignatureNameInScope(scope, input.nombreFirma);
     });
   });
 
@@ -1561,6 +1831,10 @@ export default function SiniestroDetailPage() {
   const canEliminarArchivos = can("siniestros", "eliminar_archivos");
   const canEliminarSiniestro = can("siniestros", "delete");
   const canVerInvolucrados = can("siniestros", "ver_involucrados");
+  const canVerAbogadosAsignadosInactivos = can(
+    MODULO.siniestros,
+    ACCION.ver_abogados_asignados_inactivos,
+  );
   const canEditarContactosProvenienteCatalogo =
     can("configuracion", "update") || can("parametros", "update");
   const canEliminarContactosProvenienteCatalogo =
@@ -1834,11 +2108,19 @@ export default function SiniestroDetailPage() {
     return "";
   };
 
-  const buildFirmaPhysicalHtml = (autorUsuario: any): string => {
+  const buildFirmaPhysicalHtml = (
+    autorUsuario: any,
+    options: { marcarFirmaInforme?: boolean; source?: string } = {},
+  ): string => {
     const firmaSrc = getFirmaPhysicalSrc(autorUsuario);
-    return firmaSrc
-      ? `<img src="${firmaSrc.replace(/"/g, "&quot;")}" alt="Firma" class="pdf-firma" style="width:60px;height:auto;"/>`
-      : "---";
+    if (!firmaSrc) return "---";
+    if (options.marcarFirmaInforme === false) {
+      return `<img src="${escapeHtmlAttribute(firmaSrc)}" alt="Firma" class="pdf-firma" style="width:60px;height:auto;"/>`;
+    }
+    return buildInformeSignatureImageHtml(
+      firmaSrc,
+      options.source || "firma_fisica",
+    );
   };
 
   /**
@@ -1968,7 +2250,12 @@ export default function SiniestroDetailPage() {
     );
     const autorNombre = getUserDisplayName(uFirmaPlantilla, "");
 
-    const firmaHtml = buildFirmaPhysicalHtml(uFirmaPlantilla);
+    const firmadoPorHtml = buildFirmaPhysicalHtml(uFirmaPlantilla, {
+      source: "firmado_por",
+    });
+    const firmaFisicaHtml = buildFirmaPhysicalHtml(uFirmaPlantilla, {
+      source: "firma_fisica",
+    });
 
     // ID legible: mismo criterio que API (id_formato; si no, anualidad columna → fechas)
     const construirIdFormato = (): string => {
@@ -2050,11 +2337,11 @@ export default function SiniestroDetailPage() {
       nombre_asegurado: nombreAsegurado,
       asegurado: nombreAsegurado,
       // ── Autor ────────────────────────────────────────────────────────────────
-      autor: autorNombre,
-      creado_por: autorNombre,
+      autor: buildInformeSignatureNameHtml(autorNombre, "autor"),
+      creado_por: buildInformeSignatureNameHtml(autorNombre, "creado_por"),
       // ── Firma física como imagen HTML (si no hay, se coloca '---') ───────────
-      firmado_por: firmaHtml,
-      firma_fisica: firmaHtml,
+      firmado_por: firmadoPorHtml,
+      firma_fisica: firmaFisicaHtml,
     };
 
     let resultado = contenido;
@@ -2152,14 +2439,22 @@ export default function SiniestroDetailPage() {
       (doc as { area_id?: string | null })?.area_id || activeAreaTab || null,
     );
     const nombreFirmaPdf = getUserDisplayName(uFirmaPdf, autorNombre);
-    const firmaImg = buildFirmaPhysicalHtml(uFirmaPdf ?? {});
+    const firmadoPorImg = buildFirmaPhysicalHtml(uFirmaPdf ?? {}, {
+      source: "firmado_por",
+    });
+    const firmaFisicaImg = buildFirmaPhysicalHtml(uFirmaPdf ?? {}, {
+      source: "firma_fisica",
+    });
     const autorizaNombre =
       (doc as any)?.autorizado && (doc as any)?.autorizado_nombre
         ? String((doc as any).autorizado_nombre)
         : "";
     const autorizaFirma =
       (doc as any)?.autorizado && (doc as any)?.autorizado_firma
-        ? buildFirmaPhysicalHtml({ firma: (doc as any).autorizado_firma })
+        ? buildFirmaPhysicalHtml(
+            { firma: (doc as any).autorizado_firma },
+            { marcarFirmaInforme: false },
+          )
         : "---";
 
     return {
@@ -2175,9 +2470,12 @@ export default function SiniestroDetailPage() {
         calificacionNombre: calificacionNombrePdf,
       }),
       creado_en: creadoEn,
-      creado_por: nombreFirmaPdf,
-      firmado_por: firmaImg,
-      firma_fisica: firmaImg,
+      creado_por: buildInformeSignatureNameHtml(
+        nombreFirmaPdf,
+        "creado_por",
+      ),
+      firmado_por: firmadoPorImg,
+      firma_fisica: firmaFisicaImg,
       autoriza_nombre: autorizaNombre,
       autorizado_por: autorizaNombre,
       autoriza_firma: autorizaFirma,
@@ -2186,7 +2484,7 @@ export default function SiniestroDetailPage() {
       area: areaNombre || "",
       fecha_registro: creadoEn,
       nombre_asegurado: nombreAsegurado,
-      autor: nombreFirmaPdf,
+      autor: buildInformeSignatureNameHtml(nombreFirmaPdf, "autor"),
       fecha_asignacion: formatoFecha(fechaAsignacionSrc),
       fecha: formatoFecha(hoy),
       fecha_siniestro: formatoFecha((siniestroData as any)?.fecha_siniestro),
@@ -2362,7 +2660,7 @@ export default function SiniestroDetailPage() {
       // Cargar configuraciones SMTP disponibles para envío de correos
       loadSmtpConfigs();
     }
-  }, [siniestro, siniestroId]);
+  }, [siniestro, siniestroId, canVerAbogadosAsignadosInactivos]);
 
   // Abogado de firma en informes: GET /users/:id (perfil con firma; el listado no trae firma)
   useEffect(() => {
@@ -2568,7 +2866,9 @@ export default function SiniestroDetailPage() {
       return;
     }
     try {
-      const documentos = await apiService.getDocumentosSiniestro(siniestroId);
+      const documentos = await apiService.getDocumentosSiniestro(siniestroId, {
+        incluir_eliminados: true,
+      });
       setDocumentosEtapas(documentos);
       setDocumentosExistentes(
         getUltimasVersionesDocumentos(
@@ -3350,7 +3650,10 @@ export default function SiniestroDetailPage() {
     if (!siniestroId) return;
     try {
       setLoadingInvolucrados(true);
-      const involucradosData = await apiService.getInvolucrados(siniestroId);
+      const involucradosData = await apiService.getInvolucrados(
+        siniestroId,
+        canVerAbogadosAsignadosInactivos ? undefined : true,
+      );
       setInvolucrados(involucradosData);
 
       // Cargar todos los usuarios disponibles si no están cargados
@@ -3538,7 +3841,7 @@ export default function SiniestroDetailPage() {
         header: "Fecha",
         cell: ({ row }) => (
           <span className="text-gray-700">
-            {new Date(row.original.creado_en).toLocaleDateString("es-MX", {
+            {new Date(row.original.creado_en).toLocaleString("es-MX", {
               year: "numeric",
               month: "short",
               day: "numeric",
@@ -5292,15 +5595,37 @@ export default function SiniestroDetailPage() {
             new Date(a.creado_en || 0).getTime(),
       )[0];
 
-    if (versionActiva?.id && String(versionActiva.id) === String(documentoVersion.id)) {
+    if (
+      versionActiva?.id &&
+      String(versionActiva.id) === String(documentoVersion.id)
+    ) {
       swalError("Esta versión ya es la última activa.");
       return;
     }
 
-    const targetDocumentoId =
-      !puedeMutarExpediente && esNivelOperativo
-        ? documentoVersion.id
-        : versionActiva?.id || documentoVersion.id;
+    const requiereDocumentoPropio = !puedeMutarExpediente && esNivelOperativo;
+    const versionesMismoInforme = documentosEtapas
+      .filter((doc: any) => isSameInformeContext(doc, documentoVersion))
+      .sort(
+        (a: any, b: any) =>
+          Number(b.version || 1) - Number(a.version || 1) ||
+          new Date(b.creado_en || 0).getTime() -
+            new Date(a.creado_en || 0).getTime(),
+      );
+    const versionBaseNoEliminada = versionesMismoInforme.find(
+      (doc: any) =>
+        doc.eliminado !== true &&
+        (!requiereDocumentoPropio ||
+          String(doc.usuario_subio || "") === String(user.id)),
+    );
+    const versionActivaPermitida =
+      versionActiva &&
+      (!requiereDocumentoPropio ||
+        String(versionActiva.usuario_subio || "") === String(user.id))
+        ? versionActiva
+        : null;
+    const documentoBaseRecuperacion =
+      versionActivaPermitida || versionBaseNoEliminada || null;
     const versionLabel = documentoVersion.version
       ? `versión ${documentoVersion.version}`
       : "esta versión";
@@ -5313,19 +5638,54 @@ export default function SiniestroDetailPage() {
     if (!confirmed) return;
 
     try {
-      await apiService.updateDocumento(targetDocumentoId, {
+      const nombreArchivo =
+        documentoVersion.nombre_archivo ||
+        documentoBaseRecuperacion?.nombre_archivo ||
+        "informe.html";
+      const descripcion =
+        documentoVersion.descripcion ||
+        documentoBaseRecuperacion?.descripcion ||
+        "Versión recuperada del informe";
+      const recoveryPayload = {
         contenido: documentoVersion.contenido || "",
-        nombre_archivo:
-          documentoVersion.nombre_archivo ||
-          versionActiva?.nombre_archivo ||
-          "informe.html",
-        descripcion:
-          documentoVersion.descripcion ||
-          versionActiva?.descripcion ||
-          "Versión recuperada del informe",
+        nombre_archivo: nombreArchivo,
+        descripcion,
         horas_trabajadas_bitacora: 0,
         comentarios_bitacora: `Recuperación de ${versionLabel}`,
-      });
+      };
+
+      if (documentoBaseRecuperacion?.id) {
+        await apiService.updateDocumento(
+          documentoBaseRecuperacion.id,
+          recoveryPayload,
+        );
+      } else {
+        const maxVersion = versionesMismoInforme.reduce(
+          (max: number, doc: any) => Math.max(max, Number(doc.version || 0)),
+          0,
+        );
+        await apiService.createDocumento({
+          siniestro_id: siniestroId,
+          tipo_documento_id: documentoVersion.tipo_documento_id || undefined,
+          etapa_flujo_id: documentoVersion.etapa_flujo_id || undefined,
+          plantilla_documento_id:
+            documentoVersion.plantilla_documento_id || undefined,
+          area_id: documentoVersion.area_id || activeAreaTab || undefined,
+          flujo_trabajo_id: documentoVersion.flujo_trabajo_id || undefined,
+          nombre_archivo: nombreArchivo,
+          ruta_archivo:
+            documentoVersion.ruta_archivo ||
+            `/documentos/${siniestroId}/${nombreArchivo}`,
+          contenido: documentoVersion.contenido || "",
+          tipo_mime: documentoVersion.tipo_mime || "text/html",
+          usuario_subio: user.id,
+          version: maxVersion + 1,
+          descripcion,
+          activo: true,
+          horas_trabajadas_bitacora: 0,
+          comentarios_bitacora: `Recuperación de ${versionLabel}`,
+        });
+      }
 
       await loadDocumentosSiniestro();
       await loadDocumentosFiltrados(
@@ -5956,6 +6316,8 @@ export default function SiniestroDetailPage() {
                                             puedeMutarDocumentosPdfExpediente
                                           }
                                           currentUserId={user?.id}
+                                          usuarioActual={user}
+                                          usuariosCatalogo={todosLosUsuarios}
                                           soloDocumentosPropios={
                                             !puedeMutarExpediente && esNivelOperativo
                                           }
@@ -6177,6 +6539,8 @@ export default function SiniestroDetailPage() {
                                           puedeMutarDocumentosPdfExpediente
                                         }
                                         currentUserId={user?.id}
+                                        usuarioActual={user}
+                                        usuariosCatalogo={todosLosUsuarios}
                                         soloDocumentosPropios={
                                           !puedeMutarExpediente && esNivelOperativo
                                         }
@@ -9095,6 +9459,8 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   canEditarDocumento = true,
   canCrearDocumento = true,
   currentUserId,
+  usuarioActual,
+  usuariosCatalogo = [],
   soloDocumentosPropios = false,
 }: {
   etapas: EtapaFlujo[];
@@ -9120,6 +9486,8 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
   canEditarDocumento?: boolean;
   canCrearDocumento?: boolean;
   currentUserId?: string;
+  usuarioActual?: any;
+  usuariosCatalogo?: any[];
   soloDocumentosPropios?: boolean;
 }) {
   const [etapaDocumentosModal, setEtapaDocumentosModal] =
@@ -9149,6 +9517,20 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
       !!currentUserId &&
       String(documento.usuario_subio || "") === String(currentUserId)
     );
+  };
+
+  const getDocumentoAutorNombre = (documento: any) => {
+    const autorId = String(
+      documento?.creado_por || documento?.usuario_subio || "",
+    );
+    if (!autorId) return null;
+    if (usuarioActual?.id && String(usuarioActual.id) === autorId) {
+      return getUserDisplayName(usuarioActual, "Usuario no disponible");
+    }
+    const usuario = usuariosCatalogo.find(
+      (item: any) => String(item.id) === autorId,
+    );
+    return getUserDisplayName(usuario, "Usuario no disponible");
   };
 
   const recoverDocumentoVersion = async (documento: any) => {
@@ -9380,7 +9762,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                               </button>
                             )}
 
-                            {countEtapa > 0 && canVerPdf && (
+                            {docMasReciente && canVerPdf && (
                               <button
                                 type="button"
                                 onClick={() => onViewDocument(etapa)}
@@ -9392,18 +9774,10 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                               </button>
                             )}
 
-                            {puedeAccion && Boolean(etapa.plantilla_documento?.plantilla_continuacion_id) && onContinuar && (
+                            {puedeAccion && docMasReciente && Boolean(etapa.plantilla_documento?.plantilla_continuacion_id) && onContinuar && (
                               <button
                                 type="button"
                                 onClick={() => {
-                                  const docMasReciente =
-                                    countEtapa > 0
-                                      ? [...docsEtapa].sort(
-                                          (a: any, b: any) =>
-                                            new Date(b.creado_en).getTime() -
-                                            new Date(a.creado_en).getTime(),
-                                        )[0]
-                                      : null;
                                   onContinuar(etapa, docMasReciente);
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
@@ -9548,6 +9922,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                           documento,
                           latestDocumentoId,
                         );
+                        const autorNombre = getDocumentoAutorNombre(documento);
 
                         return (
                           <VersionDocumentoRow
@@ -9555,6 +9930,7 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                             documento={documento}
                             empresaColors={empresaColors}
                             isLatest={isLatest}
+                            autorNombre={autorNombre}
                             canRecover={canRecover}
                             recovering={
                               recoveringVersionId === String(documento.id)
@@ -9597,15 +9973,18 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                         ? `Versión ${documento.version}`
                         : null;
                     const fecha = documento.creado_en
-                      ? new Date(documento.creado_en).toLocaleDateString(
+                      ? new Date(documento.creado_en).toLocaleString(
                           "es-MX",
                           {
                             year: "numeric",
                             month: "short",
                             day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
                           },
                         )
                       : null;
+                    const autorNombre = getDocumentoAutorNombre(documento);
 
                     return (
                       <div
@@ -9616,9 +9995,15 @@ const EtapasTimeline = React.memo(function EtapasTimeline({
                           <p className="truncate text-sm font-medium text-gray-900">
                             {documento.nombre_archivo || "Documento sin nombre"}
                           </p>
-                          {(version || fecha) && (
+                          {(version || fecha || autorNombre) && (
                             <p className="mt-0.5 text-xs text-gray-500">
-                              {[version, fecha].filter(Boolean).join(" · ")}
+                              {[
+                                version,
+                                fecha,
+                                autorNombre ? `Creado por: ${autorNombre}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
                             </p>
                           )}
                         </div>
@@ -9710,6 +10095,7 @@ function VersionDocumentoRow({
   documento,
   empresaColors,
   isLatest,
+  autorNombre,
   canRecover,
   recovering,
   onRecover,
@@ -9723,6 +10109,7 @@ function VersionDocumentoRow({
   documento: any;
   empresaColors: { primary: string; secondary: string; tertiary: string };
   isLatest: boolean;
+  autorNombre?: string | null;
   canRecover: boolean;
   recovering: boolean;
   onRecover: () => void;
@@ -9744,10 +10131,22 @@ function VersionDocumentoRow({
   };
   const version = documento.version ? `Versión ${documento.version}` : null;
   const fecha = documento.creado_en
-    ? new Date(documento.creado_en).toLocaleDateString("es-MX", {
+    ? new Date(documento.creado_en).toLocaleString("es-MX", {
         year: "numeric",
         month: "short",
         day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const eliminado = documento.eliminado === true;
+  const fechaEliminacion = documento.eliminado_en
+    ? new Date(documento.eliminado_en).toLocaleString("es-MX", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
       })
     : null;
 
@@ -9756,7 +10155,11 @@ function VersionDocumentoRow({
       ref={setNodeRef}
       style={style}
       className={`relative flex items-center justify-between gap-3 rounded-lg border bg-white px-3 py-2 ${
-        isLatest ? "border-green-200" : "border-gray-200"
+        eliminado
+          ? "border-red-200 bg-red-50"
+          : isLatest
+            ? "border-green-200"
+            : "border-gray-200"
       }`}
     >
       <button
@@ -9790,10 +10193,26 @@ function VersionDocumentoRow({
               Última
             </span>
           )}
+          {eliminado && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+              Eliminada
+            </span>
+          )}
         </div>
-        {(version || fecha) && (
+        {(version || fecha || autorNombre || eliminado) && (
           <p className="mt-0.5 text-xs text-gray-500">
-            {[version, fecha].filter(Boolean).join(" · ")}
+            {[
+              version,
+              fecha,
+              autorNombre ? `Creado por: ${autorNombre}` : null,
+              eliminado
+                ? fechaEliminacion
+                  ? `Eliminada el ${fechaEliminacion}`
+                  : "Eliminada sin fecha registrada"
+                : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         )}
       </div>
@@ -9967,7 +10386,7 @@ function DocumentosList({
         header: "Fecha de Creación",
         cell: ({ row }) => (
           <span className="text-gray-600">
-            {new Date(row.original.creado_en).toLocaleDateString("es-MX", {
+            {new Date(row.original.creado_en).toLocaleString("es-MX", {
               year: "numeric",
               month: "short",
               day: "numeric",
@@ -10380,7 +10799,7 @@ function BitacoraList({
             accessorKey: "fecha_actividad",
             cell: ({ row }: any) => (
               <span className="text-xs text-gray-700">
-                {new Date(row.original.fecha_actividad).toLocaleDateString(
+                {new Date(row.original.fecha_actividad).toLocaleString(
                   "es-MX",
                   {
                     year: "numeric",
@@ -10399,7 +10818,13 @@ function BitacoraList({
             accessorKey: "creado_en",
             cell: ({ row }: any) => (
               <span className="text-xs text-gray-500">
-                {new Date(row.original.creado_en).toLocaleDateString("es-MX")}
+                {new Date(row.original.creado_en).toLocaleString("es-MX", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </span>
             ),
           },

@@ -2302,14 +2302,14 @@ class DocumentoService:
         activo: Optional[bool] = None,
         area_id: Optional[UUID] = None,
         flujo_trabajo_id: Optional[UUID] = None,
+        incluir_eliminados: bool = False,
         skip: int = 0,
         limit: int = 100
     ) -> List[Documento]:
         """Lista documentos con filtros opcionales"""
-        q = db.query(Documento).filter(
-            Documento.siniestro_id == siniestro_id,
-            Documento.eliminado == False
-        )
+        q = db.query(Documento).filter(Documento.siniestro_id == siniestro_id)
+        if not incluir_eliminados:
+            q = q.filter(Documento.eliminado == False)
         q = q.options(joinedload(Documento.storage_object))
         
         if tipo_documento_id is not None:
@@ -2368,7 +2368,6 @@ class DocumentoService:
         """
         q = db.query(Documento).filter(
             Documento.siniestro_id == siniestro_id,
-            Documento.eliminado == False,
         )
         if etapa_flujo_id is not None:
             q = q.filter(Documento.etapa_flujo_id == etapa_flujo_id)

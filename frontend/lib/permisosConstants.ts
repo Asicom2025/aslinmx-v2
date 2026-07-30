@@ -51,6 +51,7 @@ export const ACCION = {
   subir_archivo: "subir_archivo",
   generar_pdf: "generar_pdf",
   ver_involucrados: "ver_involucrados",
+  ver_abogados_asignados_inactivos: "ver_abogados_asignados_inactivos",
   eliminar_archivos: "eliminar_archivos",
   ver_reportes_de_autoridades: "ver_reportes_de_autoridades",
   invitar: "invitar",

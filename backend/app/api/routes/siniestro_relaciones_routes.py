@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.core.permisos import require_permiso
+from app.core.permisos import require_permiso, tiene_permiso
 from app.models.user import User
 from app.schemas.legal_schema import (
     SiniestroUsuarioCreate, SiniestroUsuarioUpdate, SiniestroUsuarioResponse,
@@ -39,7 +39,14 @@ def list_involucrados(
     """Lista involucrados de un siniestro"""
     if not usuario_puede_ver_siniestro(db, current_user, current_user.empresa_id, siniestro_id):
         raise HTTPException(status_code=404, detail="Siniestro no encontrado")
-    return SiniestroUsuarioService.list(db, siniestro_id, activo)
+    puede_ver_inactivos = tiene_permiso(
+        db,
+        current_user,
+        "siniestros",
+        "ver_abogados_asignados_inactivos",
+    )
+    activo_filtro = activo if puede_ver_inactivos else True
+    return SiniestroUsuarioService.list(db, siniestro_id, activo_filtro)
 
 
 @router.post("/{siniestro_id}/involucrados", response_model=SiniestroUsuarioResponse, status_code=status.HTTP_201_CREATED)
