@@ -50,6 +50,15 @@ def _tiene_permiso(db: Session, rol_id: UUID, modulo_tecnico: str, accion_tecnic
     return existe is not None
 
 
+def tiene_permiso(db: Session, current_user: User, modulo_tecnico: str, accion_tecnico: str) -> bool:
+    """Comprueba un permiso para el usuario actual, incluyendo bypass de nivel 0."""
+    if not current_user.rol_id:
+        return False
+    if usuario_bypass_permisos(db, current_user):
+        return True
+    return _tiene_permiso(db, current_user.rol_id, modulo_tecnico, accion_tecnico)
+
+
 CAMPOS_GRANULARES_ACTUALIZACION_SINIESTRO = frozenset(
     {"estado_id", "calificacion_id", "polizas", "descripcion_hechos", "prioridad"}
 )

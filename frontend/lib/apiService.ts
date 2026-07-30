@@ -1405,6 +1405,7 @@ const documentoService = {
     activo?: boolean;
     area_id?: string;
     flujo_trabajo_id?: string;
+    incluir_eliminados?: boolean;
     skip?: number;
     limit?: number;
   }) => {
@@ -1413,6 +1414,9 @@ const documentoService = {
     if (filters?.activo !== undefined) params.append("activo", String(filters.activo));
     if (filters?.area_id) params.append("area_id", filters.area_id);
     if (filters?.flujo_trabajo_id) params.append("flujo_trabajo_id", filters.flujo_trabajo_id);
+    if (filters?.incluir_eliminados !== undefined) {
+      params.append("incluir_eliminados", String(filters.incluir_eliminados));
+    }
     if (filters?.skip !== undefined) params.append("skip", String(filters.skip));
     if (filters?.limit !== undefined) params.append("limit", String(filters.limit));
     
